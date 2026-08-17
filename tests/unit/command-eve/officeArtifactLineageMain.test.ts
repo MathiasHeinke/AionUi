@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   COMMAND_EVE_OFFICE_ORIGIN_CAPABILITY,
+  buildCommandEveOfficeOperationMarker,
   commandEveOfficeFingerprint,
   commandEveOfficeMimeType,
   extractCommandEveOfficeResultCandidates,
@@ -1252,7 +1253,7 @@ describe('Office artifact lineage Main', () => {
     expect(fixture.store().listOfficeArtifacts('seat-office', 'conv-1')).toEqual([]);
   });
 
-  it('seals an operation from a dead boot as terminally abandoned instead of leaving it pending forever', async () => {
+  it('recovers a completed result from a dead boot when the exact workspace and transcript evidence match', async () => {
     const fixture = setup('word');
     const begun = await beginCommandEveOfficeArtifactOperation(
       fixture.dataPath,
@@ -1275,12 +1276,12 @@ describe('Office artifact lineage Main', () => {
       ...fixture.runtimeDeps,
       fetchTranscript: async () => transcript(begun.marker, resultPath),
     });
-    expect(afterRestart).toMatchObject({ abandoned: 1, pendingOperations: 0, persisted: 0, refused: [] });
+    expect(afterRestart).toMatchObject({ abandoned: 0, pendingOperations: 1, persisted: 1, refused: [] });
     const sealed = fixture.store().readOfficeOperationAbandonment('seat-office', 'conv-1', operationId);
-    expect(sealed).toMatchObject({ operation_id: operationId, reason: 'process-boot-gone' });
+    expect(sealed).toBeNull();
 
-    // The fence is untouched: the sealed operation is still never authorized,
-    // and sealing is idempotent across later boots.
+    // Recovery creates the normal immutable completion receipt, which remains
+    // idempotent across later boots.
     fixture.setProcessId(3003);
     fixture.setProcessNonce('c'.repeat(64));
     const laterBoot = await reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', {
@@ -1288,10 +1289,78 @@ describe('Office artifact lineage Main', () => {
       fetchTranscript: async () => transcript(begun.marker, resultPath),
     });
     expect(laterBoot).toMatchObject({ abandoned: 0, pendingOperations: 0, persisted: 0, refused: [] });
-    expect(fixture.store().listOfficeArtifacts('seat-office', 'conv-1')).toEqual([]);
-    // The paid bytes are still on disk under their original name: sealing marks
-    // the operation terminal, it never deletes the user's file.
+    expect(fixture.store().listOfficeArtifacts('seat-office', 'conv-1')).toHaveLength(1);
     expect(fs.readFileSync(resultPath)).toEqual(WORD_PACKAGE);
+  });
+
+  it('abandons a dead boot only after a fetched transcript proves its marker was never dispatched', async () => {
+    const fixture = setup('word');
+    const begun = await beginCommandEveOfficeArtifactOperation(
+      fixture.dataPath,
+      { conversationId: 'conv-1', requestId: 'queue-dead-no-marker', action: 'create', mode: 'word' },
+      fixture.beginDeps
+    );
+    expect(begun.status).toBe('ready');
+    if (begun.status !== 'ready') return;
+    const operationId = commandEveOfficeOperationIdForRequest('queue-dead-no-marker');
+    fixture.setProcessId(2002);
+    fixture.setProcessNonce('b'.repeat(64));
+    fixture.setProcessAlive(false);
+
+    const summary = await reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', {
+      ...fixture.runtimeDeps,
+      fetchTranscript: async () => [],
+    });
+    expect(summary).toMatchObject({ abandoned: 1, pendingOperations: 0, persisted: 0, transcriptFetched: true });
+    expect(fixture.store().readOfficeOperationAbandonment('seat-office', 'conv-1', operationId)).toMatchObject({
+      reason: 'process-boot-gone',
+    });
+  });
+
+  // A record whose authorizing workspace was never proven (a pre-upgrade
+  // operation, or any writer that could not name it) must never be adopted by
+  // whichever workspace happens to be active on a later boot. `null` cannot
+  // equal a digest, so such a record stays permanently ineligible — and it is
+  // not silently sealed either, because its marker WAS dispatched.
+  it.each([
+    ['a legacy record with no proven workspace identity', null],
+    ['a record authorized by a different workspace', 'd'.repeat(64)],
+  ])('never recovers %s after a dead boot', async (_label, workspaceIdentity) => {
+    const fixture = setup('word');
+    const operationId = commandEveOfficeOperationIdForRequest('queue-foreign-workspace');
+    const resultPath = path.join(fixture.workspace, 'foreign-result.docx');
+    fs.writeFileSync(resultPath, WORD_PACKAGE);
+    fixture.store().createOfficeOperation({
+      operation_id: operationId,
+      request_id: 'queue-foreign-workspace',
+      seat_id: 'seat-office',
+      seat_context_revision: 7,
+      process_id: 1001,
+      process_nonce_sha256: 'a'.repeat(64),
+      ...(workspaceIdentity === null ? {} : { workspace_identity_sha256: workspaceIdentity }),
+      conversation_id: 'conv-1',
+      action: 'create',
+      mode: 'word',
+      parent_artifact_id: null,
+      source_sha256: null,
+      source_size: null,
+      source_fingerprint: null,
+    });
+    expect(fixture.store().readOfficeOperation('seat-office', 'conv-1', operationId)?.workspace_identity_sha256).toBe(
+      workspaceIdentity
+    );
+
+    fixture.setProcessId(2002);
+    fixture.setProcessNonce('b'.repeat(64));
+    fixture.setProcessAlive(false);
+
+    const summary = await reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', {
+      ...fixture.runtimeDeps,
+      fetchTranscript: async () => transcript(buildCommandEveOfficeOperationMarker(operationId), resultPath),
+    });
+    expect(summary).toMatchObject({ abandoned: 0, pendingOperations: 0, persisted: 0, refused: [] });
+    expect(fixture.store().listOfficeArtifacts('seat-office', 'conv-1')).toEqual([]);
+    expect(fixture.store().readOfficeOperationAbandonment('seat-office', 'conv-1', operationId)).toBeNull();
   });
 
   it('never seals an operation whose boot is still alive under a stale seat revision', async () => {
@@ -1316,6 +1385,188 @@ describe('Office artifact lineage Main', () => {
     });
     expect(stale).toMatchObject({ abandoned: 0, refused: [] });
     expect(fixture.store().readOfficeOperationAbandonment('seat-office', 'conv-1', operationId)).toBeNull();
+  });
+
+  // A window that came back FULL is indistinguishable from a truncated history.
+  // Concluding "the marker was never dispatched" from it would permanently seal
+  // an operation whose result simply scrolled out of view.
+  it('never seals a dead boot from a saturated transcript window', async () => {
+    const fixture = setup('word');
+    const begun = await beginCommandEveOfficeArtifactOperation(
+      fixture.dataPath,
+      { conversationId: 'conv-1', requestId: 'queue-truncated-window', action: 'create', mode: 'word' },
+      fixture.beginDeps
+    );
+    expect(begun.status).toBe('ready');
+    if (begun.status !== 'ready') return;
+    const operationId = commandEveOfficeOperationIdForRequest('queue-truncated-window');
+    fixture.setProcessId(2002);
+    fixture.setProcessNonce('b'.repeat(64));
+    fixture.setProcessAlive(false);
+
+    // Exactly as many items as were requested, none of them this operation's:
+    // the older marker is outside the window, not absent from history.
+    const window = 4;
+    const saturated = Array.from({ length: window }, (_item, index) => ({
+      id: 'msg-filler-' + String(index),
+      conversation_id: 'conv-1',
+      position: index % 2 === 0 ? 'right' : 'left',
+      type: 'text',
+      status: 'finish',
+      turn_id: 'turn-filler-' + String(index),
+      content: { content: 'Unrelated turn.' },
+    }));
+    const summary = await reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', {
+      ...fixture.runtimeDeps,
+      window,
+      fetchTranscript: async () => saturated,
+    });
+    expect(summary).toMatchObject({ abandoned: 0, persisted: 0, pendingOperations: 1 });
+    expect(fixture.store().readOfficeOperationAbandonment('seat-office', 'conv-1', operationId)).toBeNull();
+  });
+
+  // Two MEDIA results under one terminal turn are ambiguous about what the user
+  // actually asked for. Recovery adopts an exact result or nothing.
+  it('never recovers a dead boot whose single terminal turn carries two results', async () => {
+    const fixture = setup('word');
+    const begun = await beginCommandEveOfficeArtifactOperation(
+      fixture.dataPath,
+      { conversationId: 'conv-1', requestId: 'queue-ambiguous-results', action: 'create', mode: 'word' },
+      fixture.beginDeps
+    );
+    expect(begun.status).toBe('ready');
+    if (begun.status !== 'ready') return;
+    const operationId = commandEveOfficeOperationIdForRequest('queue-ambiguous-results');
+    const firstPath = path.join(fixture.workspace, 'ambiguous-first.docx');
+    const secondPath = path.join(fixture.workspace, 'ambiguous-second.docx');
+    fs.writeFileSync(firstPath, WORD_PACKAGE);
+    fs.writeFileSync(secondPath, WORD_PACKAGE);
+    const items = transcript(begun.marker, firstPath);
+    items[1] = { ...items[1], content: { content: 'MEDIA: ' + firstPath + '\nMEDIA: ' + secondPath } };
+
+    fixture.setProcessId(2002);
+    fixture.setProcessNonce('b'.repeat(64));
+    fixture.setProcessAlive(false);
+
+    const summary = await reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', {
+      ...fixture.runtimeDeps,
+      fetchTranscript: async () => items,
+    });
+    expect(summary).toMatchObject({ abandoned: 0, persisted: 0, pendingOperations: 1 });
+    expect(fixture.store().listOfficeArtifacts('seat-office', 'conv-1')).toEqual([]);
+    expect(fixture.store().readOfficeOperationAbandonment('seat-office', 'conv-1', operationId)).toBeNull();
+  });
+
+  // A record sealed by an earlier build carries no workspace identity, so it can
+  // never be adopted — but it must still be able to SAY that a result exists,
+  // instead of vanishing from every summary.
+  it('reports an abandonment conflict for a sealed legacy record whose result is visible', async () => {
+    const fixture = setup('word');
+    const operationId = commandEveOfficeOperationIdForRequest('queue-legacy-sealed');
+    const resultPath = path.join(fixture.workspace, 'legacy-sealed.docx');
+    fs.writeFileSync(resultPath, WORD_PACKAGE);
+    fixture.store().createOfficeOperation({
+      operation_id: operationId,
+      request_id: 'queue-legacy-sealed',
+      seat_id: 'seat-office',
+      seat_context_revision: 7,
+      process_id: 1001,
+      process_nonce_sha256: 'a'.repeat(64),
+      conversation_id: 'conv-1',
+      action: 'create',
+      mode: 'word',
+      parent_artifact_id: null,
+      source_sha256: null,
+      source_size: null,
+      source_fingerprint: null,
+    });
+    fixture.store().createOfficeOperationAbandonment({
+      seat_id: 'seat-office',
+      seat_context_revision: 7,
+      conversation_id: 'conv-1',
+      operation_id: operationId,
+      reason: 'process-boot-gone',
+    });
+    // A second, workspace-proven operation is what legitimately pulls the
+    // transcript; a sealed record alone must never force a fetch.
+    const live = await beginCommandEveOfficeArtifactOperation(
+      fixture.dataPath,
+      { conversationId: 'conv-1', requestId: 'queue-legacy-companion', action: 'create', mode: 'word' },
+      fixture.beginDeps
+    );
+    expect(live.status).toBe('ready');
+    if (live.status !== 'ready') return;
+
+    fixture.setProcessId(2002);
+    fixture.setProcessNonce('b'.repeat(64));
+    fixture.setProcessAlive(false);
+
+    const summary = await reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', {
+      ...fixture.runtimeDeps,
+      fetchTranscript: async () => transcript(buildCommandEveOfficeOperationMarker(operationId), resultPath),
+    });
+    expect(summary.refused).toContainEqual({ operationId, reason: 'abandonment-conflict' });
+    expect(fixture.store().listOfficeArtifacts('seat-office', 'conv-1')).toEqual([]);
+  });
+
+  // A conversation with no open Office work must not pay for authority
+  // resolution plus a transcript fetch on every list.
+  it('never fetches a transcript when a sealed record is the only dead operation', async () => {
+    const fixture = setup('word');
+    const begun = await beginCommandEveOfficeArtifactOperation(
+      fixture.dataPath,
+      { conversationId: 'conv-1', requestId: 'queue-sealed-only', action: 'create', mode: 'word' },
+      fixture.beginDeps
+    );
+    expect(begun.status).toBe('ready');
+    if (begun.status !== 'ready') return;
+    const operationId = commandEveOfficeOperationIdForRequest('queue-sealed-only');
+    fixture.store().createOfficeOperationAbandonment({
+      seat_id: 'seat-office',
+      seat_context_revision: 7,
+      conversation_id: 'conv-1',
+      operation_id: operationId,
+      reason: 'process-boot-gone',
+    });
+
+    fixture.setProcessId(2002);
+    fixture.setProcessNonce('b'.repeat(64));
+    fixture.setProcessAlive(false);
+
+    const fetchTranscript = vi.fn(async () => []);
+    const summary = await reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', {
+      ...fixture.runtimeDeps,
+      fetchTranscript,
+    });
+    expect(fetchTranscript).not.toHaveBeenCalled();
+    expect(summary).toMatchObject({ pendingOperations: 0, abandoned: 0, transcriptFetched: false });
+  });
+
+  // An unresolvable workspace is an ordinary state, not a crash: begin still
+  // succeeds, and the record simply forfeits cross-boot recovery.
+  it('records a null workspace identity instead of throwing when the workspace cannot be resolved', async () => {
+    const fixture = setup('word');
+    fs.rmSync(fixture.workspace, { recursive: true, force: true });
+    const begun = await beginCommandEveOfficeArtifactOperation(
+      fixture.dataPath,
+      { conversationId: 'conv-1', requestId: 'queue-missing-workspace', action: 'create', mode: 'word' },
+      fixture.beginDeps
+    );
+    expect(begun.status).toBe('ready');
+    if (begun.status !== 'ready') return;
+    const operationId = commandEveOfficeOperationIdForRequest('queue-missing-workspace');
+    expect(
+      fixture.store().readOfficeOperation('seat-office', 'conv-1', operationId)?.workspace_identity_sha256
+    ).toBeNull();
+
+    fixture.setProcessId(2002);
+    fixture.setProcessNonce('b'.repeat(64));
+    fixture.setProcessAlive(false);
+    const fetchTranscript = vi.fn(async () => []);
+    await expect(
+      reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', { ...fixture.runtimeDeps, fetchTranscript })
+    ).resolves.toMatchObject({ pendingOperations: 0, abandoned: 0 });
+    expect(fetchTranscript).not.toHaveBeenCalled();
   });
 
   it('never seals a completed operation, so a delivered artifact keeps its completion receipt', async () => {

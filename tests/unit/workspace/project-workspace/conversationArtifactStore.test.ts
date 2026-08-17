@@ -92,6 +92,7 @@ function officeOperationInput() {
     seat_context_revision: 7,
     process_id: 1001,
     process_nonce_sha256: '3'.repeat(64),
+    workspace_identity_sha256: '4'.repeat(64),
     conversation_id: 'conversation-alpha',
     action: 'create' as const,
     mode: 'word' as const,

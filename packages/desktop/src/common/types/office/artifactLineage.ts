@@ -71,6 +71,8 @@ export type CommandEveOfficeOperationRecord = {
   seat_context_revision: number;
   process_id: number;
   process_nonce_sha256: string;
+  /** A path-free fingerprint of the authority-resolved workspace. */
+  workspace_identity_sha256: string | null;
   conversation_id: string;
   action: CommandEveOfficeArtifactAction;
   mode: CommandEveOfficeArtifactMode;
@@ -101,6 +103,10 @@ export type CommandEveOfficeOperationCompletionRecord = {
  * again. Naming the reason keeps "abandoned" from becoming a silent catch-all.
  */
 export const COMMAND_EVE_OFFICE_ABANDONMENT_REASON = 'process-boot-gone' as const;
+export const COMMAND_EVE_OFFICE_SEAT_CHANGE_ABANDONMENT_REASON = 'seat-changed-before-marker-release' as const;
+export type CommandEveOfficeOperationAbandonmentReason =
+  | typeof COMMAND_EVE_OFFICE_ABANDONMENT_REASON
+  | typeof COMMAND_EVE_OFFICE_SEAT_CHANGE_ABANDONMENT_REASON;
 
 export type CommandEveOfficeOperationAbandonmentRecord = {
   version: typeof COMMAND_EVE_OFFICE_LINEAGE_VERSION;
@@ -108,7 +114,7 @@ export type CommandEveOfficeOperationAbandonmentRecord = {
   seat_id: string;
   seat_context_revision: number;
   conversation_id: string;
-  reason: typeof COMMAND_EVE_OFFICE_ABANDONMENT_REASON;
+  reason: CommandEveOfficeOperationAbandonmentReason;
   abandoned_at: number;
 };
 
@@ -119,6 +125,13 @@ export type CommandEveOfficeResultCandidate = {
   directiveIndex: number;
   source: string;
   title: string;
+};
+
+export type CommandEveOfficeOperationTranscriptEvidence = {
+  markerTurnIds: string[];
+  terminalResultTurnIds: string[];
+  markerEvents: number;
+  terminalResultEvents: number;
 };
 
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -160,6 +173,7 @@ const OPERATION_KEYS = [
   'seat_context_revision',
   'process_id',
   'process_nonce_sha256',
+  'workspace_identity_sha256',
   'conversation_id',
   'action',
   'mode',
@@ -170,6 +184,7 @@ const OPERATION_KEYS = [
   'source_fingerprint',
   'created_at',
 ] as const;
+const LEGACY_OPERATION_KEYS = OPERATION_KEYS.filter((key) => key !== 'workspace_identity_sha256');
 const OPERATION_COMPLETION_KEYS = [
   'version',
   'operation_id',
@@ -276,6 +291,18 @@ function transcriptItems(value: unknown): unknown[] {
   return isRecord(value.data) && Array.isArray(value.data.items) ? value.data.items : [];
 }
 
+/**
+ * How many items the transcript fetch actually returned.
+ *
+ * A saturated window is indistinguishable from a truncated history, so the
+ * absence of a marker inside it proves nothing. Callers that want to draw a
+ * negative conclusion ("this operation was never dispatched") must compare this
+ * against the window they asked for.
+ */
+export function commandEveOfficeTranscriptItemCount(transcript: unknown): number {
+  return transcriptItems(transcript).length;
+}
+
 function completedMessage(message: Record<string, unknown>): boolean {
   return typeof message.status === 'string' && FINISHED_MESSAGE_STATUSES.has(message.status.trim().toLowerCase());
 }
@@ -334,6 +361,56 @@ export function extractCommandEveOfficeResultCandidates(
     });
   }
   return [...candidates.values()];
+}
+
+/**
+ * Counts persisted marker turns and completed assistant terminal turns for one
+ * operation without accepting file names or free text as a result claim.
+ */
+export function commandEveOfficeOperationTranscriptEvidence(
+  transcript: unknown,
+  conversationId: string,
+  operationId: string
+): CommandEveOfficeOperationTranscriptEvidence {
+  const markerTurnIds = new Set<string>();
+  const terminalResultTurnIds = new Set<string>();
+  let markerEvents = 0;
+  let terminalResultEvents = 0;
+  let activeTurnId: string | null = null;
+  for (const item of transcriptItems(transcript)) {
+    if (!isRecord(item) || item.hidden === true || item.type !== 'text' || item.conversation_id !== conversationId) {
+      continue;
+    }
+    const text = messageText(item);
+    if (item.position === 'right') {
+      activeTurnId = null;
+      if (!text) continue;
+      const operationIds = operationIdsFromPreparedContext(text);
+      const turnId = typeof item.turn_id === 'string' && isSafeOpaqueRecordId(item.turn_id) ? item.turn_id : null;
+      if (operationIds.length === 1 && operationIds[0] === operationId && turnId) {
+        markerEvents += 1;
+        markerTurnIds.add(turnId);
+        activeTurnId = turnId;
+      }
+      continue;
+    }
+    if (
+      item.position === 'left' &&
+      activeTurnId &&
+      completedMessage(item) &&
+      typeof item.turn_id === 'string' &&
+      item.turn_id === activeTurnId
+    ) {
+      terminalResultEvents += 1;
+      terminalResultTurnIds.add(activeTurnId);
+    }
+  }
+  return {
+    markerTurnIds: [...markerTurnIds],
+    terminalResultTurnIds: [...terminalResultTurnIds],
+    markerEvents,
+    terminalResultEvents,
+  };
 }
 
 function isSafeRelativeArtifactPath(value: unknown, mode: CommandEveOfficeArtifactMode): value is string {
@@ -450,7 +527,9 @@ export function parseCommandEveOfficeConversationArtifact(value: unknown): Comma
 }
 
 export function parseCommandEveOfficeOperationRecord(value: unknown): CommandEveOfficeOperationRecord {
-  if (!isRecord(value) || !hasExactKeys(value, OPERATION_KEYS)) throw new Error('invalid Office operation');
+  if (!isRecord(value) || (!hasExactKeys(value, OPERATION_KEYS) && !hasExactKeys(value, LEGACY_OPERATION_KEYS))) {
+    throw new Error('invalid Office operation');
+  }
   const action = value.action;
   if (
     value.version !== COMMAND_EVE_OFFICE_LINEAGE_VERSION ||
@@ -465,6 +544,9 @@ export function parseCommandEveOfficeOperationRecord(value: unknown): CommandEve
     Number(value.process_id) <= 0 ||
     typeof value.process_nonce_sha256 !== 'string' ||
     !SHA256.test(value.process_nonce_sha256) ||
+    (Object.hasOwn(value, 'workspace_identity_sha256') &&
+      value.workspace_identity_sha256 !== null &&
+      (typeof value.workspace_identity_sha256 !== 'string' || !SHA256.test(value.workspace_identity_sha256))) ||
     typeof value.conversation_id !== 'string' ||
     !isSafeOpaqueRecordId(value.conversation_id) ||
     !['create', 'edit'].includes(String(action)) ||
@@ -494,7 +576,11 @@ export function parseCommandEveOfficeOperationRecord(value: unknown): CommandEve
   } else if (parent !== null || sha !== null || size !== null || fingerprint !== null) {
     throw new Error('invalid Office create operation source');
   }
-  return value as CommandEveOfficeOperationRecord;
+  return {
+    ...value,
+    workspace_identity_sha256:
+      typeof value.workspace_identity_sha256 === 'string' ? value.workspace_identity_sha256 : null,
+  } as CommandEveOfficeOperationRecord;
 }
 
 export function parseCommandEveOfficeOperationCompletionRecord(
@@ -557,7 +643,8 @@ export function parseCommandEveOfficeOperationAbandonmentRecord(
     Number(value.seat_context_revision) < 0 ||
     typeof value.conversation_id !== 'string' ||
     !isSafeOpaqueRecordId(value.conversation_id) ||
-    value.reason !== COMMAND_EVE_OFFICE_ABANDONMENT_REASON ||
+    (value.reason !== COMMAND_EVE_OFFICE_ABANDONMENT_REASON &&
+      value.reason !== COMMAND_EVE_OFFICE_SEAT_CHANGE_ABANDONMENT_REASON) ||
     !Number.isSafeInteger(value.abandoned_at) ||
     Number(value.abandoned_at) < 0
   ) {

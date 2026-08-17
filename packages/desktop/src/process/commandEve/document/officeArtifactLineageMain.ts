@@ -5,13 +5,18 @@
  */
 
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import {
+  COMMAND_EVE_OFFICE_ABANDONMENT_REASON,
   COMMAND_EVE_OFFICE_ORIGIN_CAPABILITY,
+  COMMAND_EVE_OFFICE_SEAT_CHANGE_ABANDONMENT_REASON,
   buildCommandEveOfficeOperationMarker,
+  commandEveOfficeOperationTranscriptEvidence,
   commandEveOfficeExtension,
   commandEveOfficeFingerprint,
   commandEveOfficeMimeType,
+  commandEveOfficeTranscriptItemCount,
   extractCommandEveOfficeResultCandidates,
   isCommandEveOfficeArtifactMode,
   type CommandEveOfficeArtifactAction,
@@ -77,6 +82,26 @@ export function commandEveOfficeOperationIdForRequest(requestId: string): string
   return 'officeop_' + crypto.createHash('sha256').update(requestId).digest('hex');
 }
 
+function workspaceIdentitySha256(workspace: string): string {
+  return crypto.createHash('sha256').update(fs.realpathSync.native(workspace)).digest('hex');
+}
+
+/**
+ * The workspace digest, or `null` when the path cannot be resolved right now.
+ *
+ * A deleted workspace or a broken symlink is an ordinary, recoverable state —
+ * never an unhandled rejection escaping into a caller that expects a structured
+ * refusal. `null` compares equal to nothing, so an unresolvable workspace can
+ * only ever refuse, never adopt.
+ */
+function workspaceIdentityOrNull(workspace: string): string | null {
+  try {
+    return workspaceIdentitySha256(workspace);
+  } catch {
+    return null;
+  }
+}
+
 function artifactStore(dataPath: string): ProjectWorkspaceConversationArtifactStore {
   return new ProjectWorkspaceConversationArtifactStore({
     state_root: path.join(dataPath, 'project-workspace'),
@@ -103,6 +128,10 @@ export async function beginCommandEveOfficeArtifactOperation(
   if (authority.status !== 'ready') return authority;
   const capturedSeatId = authority.seatId;
   const capturedSeatRevision = authority.seatContextRevision;
+  // An unresolvable workspace is stored as `null`, which can never match a
+  // digest later. The operation still runs; it simply forfeits cross-boot
+  // recovery instead of failing the user's request outright.
+  const workspaceIdentity = workspaceIdentityOrNull(authority.workspace);
   const seatStillMatches = () =>
     deps.getActiveSeatId() === capturedSeatId && deps.getActiveSeatContextRevision() === capturedSeatRevision;
   if (!seatStillMatches()) return { status: 'refused', reasonCode: 'seat-changed' };
@@ -152,6 +181,7 @@ export async function beginCommandEveOfficeArtifactOperation(
       seat_context_revision: capturedSeatRevision,
       process_id: (deps.getProcessId ?? (() => process.pid))(),
       process_nonce_sha256: (deps.getProcessNonceSha256 ?? currentProcessNonceSha256)(),
+      workspace_identity_sha256: workspaceIdentity,
       conversation_id: request.conversationId,
       action: request.action,
       mode: request.mode,
@@ -160,7 +190,21 @@ export async function beginCommandEveOfficeArtifactOperation(
       source_size: sourceSize,
       source_fingerprint: sourceFingerprint,
     });
-    if (!seatStillMatches()) return { status: 'refused', reasonCode: 'seat-changed' };
+    if (!seatStillMatches()) {
+      try {
+        store.createOfficeOperationAbandonment({
+          seat_id: capturedSeatId,
+          seat_context_revision: capturedSeatRevision,
+          conversation_id: request.conversationId,
+          operation_id: operationId,
+          reason: COMMAND_EVE_OFFICE_SEAT_CHANGE_ABANDONMENT_REASON,
+        });
+      } catch {
+        // Keep the operation recoverable when the terminal receipt cannot be
+        // persisted; never pretend a cancellation was recorded.
+      }
+      return { status: 'refused', reasonCode: 'seat-changed' };
+    }
     return { status: 'ready', marker: buildCommandEveOfficeOperationMarker(operationId) };
   } catch {
     return { status: 'refused', reasonCode: 'operation-conflict' };
@@ -199,6 +243,7 @@ export type CommandEveOfficeArtifactReconcileRefusalReason =
   | 'persist-failed'
   | 'completion-membership-mismatch'
   | 'completion-failed'
+  | 'abandonment-conflict'
   | 'abandonment-failed';
 
 export interface CommandEveOfficeArtifactRuntimeDeps {
@@ -292,49 +337,22 @@ function operationBootIsGone(
   return processWitnessMatches(witnessDirectory, operation.process_id, operation.process_nonce_sha256) === false;
 }
 
-/**
- * Give every operation from a dead boot a terminal receipt, and answer how many
- * were sealed in this pass.
- *
- * Without this the fence is correct but unbounded: the operation stays pending
- * forever, its document never becomes an artifact, and the marker accumulates
- * for the life of the profile. Sealing changes no authority — a sealed
- * operation is still refused by the same fence; it simply stops being counted
- * as open work.
- */
-function sealOperationsFromGoneBoots(input: {
-  conversationId: string;
-  isProcessAlive: typeof processPidIsAlive;
-  operations: readonly CommandEveOfficeOperationRecord[];
+function deadOperationCanRecoverHere(input: {
+  operation: CommandEveOfficeOperationRecord;
   seatId: string;
-  store: ProjectWorkspaceConversationArtifactStore;
-  summary: CommandEveOfficeArtifactReconcileSummary;
-}): number {
-  const witnessDirectory = input.store.officeOperationBootWitnessDirectory(input.seatId, input.conversationId);
-  let sealed = 0;
-  for (const operation of input.operations) {
-    try {
-      if (
-        input.store.readOfficeOperationAbandonment(input.seatId, input.conversationId, operation.operation_id) ||
-        input.store.readOfficeOperationCompletion(input.seatId, input.conversationId, operation.operation_id) ||
-        !operationBootIsGone(operation, witnessDirectory, input.isProcessAlive)
-      ) {
-        continue;
-      }
-      input.store.createOfficeOperationAbandonment({
-        seat_id: input.seatId,
-        seat_context_revision: operation.seat_context_revision,
-        conversation_id: input.conversationId,
-        operation_id: operation.operation_id,
-      });
-      sealed += 1;
-    } catch {
-      // A seal that cannot be written leaves the operation pending, which is the
-      // pre-existing state — never a reason to abort the reconcile that follows.
-      input.summary.refused.push({ operationId: operation.operation_id, reason: 'abandonment-failed' });
-    }
-  }
-  return sealed;
+  conversationId: string;
+  workspace: string;
+  witnessDirectory: string;
+  isProcessAlive: typeof processPidIsAlive;
+}): boolean {
+  const workspaceIdentity = workspaceIdentityOrNull(input.workspace);
+  return (
+    workspaceIdentity !== null &&
+    input.operation.workspace_identity_sha256 === workspaceIdentity &&
+    input.operation.seat_id === input.seatId &&
+    input.operation.conversation_id === input.conversationId &&
+    operationBootIsGone(input.operation, input.witnessDirectory, input.isProcessAlive)
+  );
 }
 
 async function editParentMatchesOperation(
@@ -643,43 +661,14 @@ export async function reconcileConversationOfficeArtifacts(
   const store = artifactStore(dataPath);
 
   let allOperations: CommandEveOfficeOperationRecord[];
-  let operations: CommandEveOfficeOperationRecord[];
   let existingArtifacts: CommandEveOfficeConversationArtifact[];
   try {
     allOperations = store.listOfficeOperations(seatId, conversationId);
-    operations = allOperations.filter((operation) =>
-      operationBelongsToActiveGeneration(operation, { seatId, seatRevision, processId, processNonce, conversationId })
-    );
     existingArtifacts = store.listOfficeArtifacts(seatId, conversationId);
   } catch {
     summary.refused.push({ operationId: 'office-store', reason: 'store-corrupt' });
     return summary;
   }
-  summary.abandoned = sealOperationsFromGoneBoots({
-    conversationId,
-    isProcessAlive: runtime.isProcessAlive,
-    operations: allOperations,
-    seatId,
-    store,
-    summary,
-  });
-  const existingById = new Map(existingArtifacts.map((artifact) => [artifact.id, artifact]));
-  let completedOperationIds: Set<string>;
-  try {
-    completedOperationIds = store.completedOfficeOperationIdsWithExactReceipts(
-      seatId,
-      conversationId,
-      operations,
-      existingArtifacts
-    );
-  } catch {
-    summary.refused.push({ operationId: 'office-store', reason: 'store-corrupt' });
-    return summary;
-  }
-  const pending = operations.filter((operation) => !completedOperationIds.has(operation.operation_id));
-  summary.pendingOperations = pending.length;
-  summary.alreadyPersisted = operations.length - pending.length;
-  if (pending.length === 0) return summary;
 
   const authority = await runtime.resolveAuthority(conversationId);
   if (authority.status !== 'ready' || authority.seatId !== seatId || authority.seatContextRevision !== seatRevision) {
@@ -689,6 +678,77 @@ export async function reconcileConversationOfficeArtifacts(
     });
     return summary;
   }
+  const activeOperations = allOperations.filter((operation) =>
+    operationBelongsToActiveGeneration(operation, { seatId, seatRevision, processId, processNonce, conversationId })
+  );
+  const witnessDirectory = store.officeOperationBootWitnessDirectory(seatId, conversationId);
+  // Every operation this seat owns whose authoring boot is provably gone. The
+  // workspace-matched subset is the only one eligible for adoption, but the
+  // wider set still has to be observable: a record sealed by an earlier build
+  // (before workspace identity existed) must be able to REPORT that a result
+  // exists after all, instead of disappearing from every summary.
+  const deadOperations = allOperations.filter(
+    (operation) =>
+      !operationBelongsToActiveGeneration(operation, {
+        seatId,
+        seatRevision,
+        processId,
+        processNonce,
+        conversationId,
+      }) &&
+      operation.seat_id === seatId &&
+      operation.conversation_id === conversationId &&
+      operationBootIsGone(operation, witnessDirectory, runtime.isProcessAlive)
+  );
+  const deadWorkspaceMatchedOperations = deadOperations.filter((operation) =>
+    deadOperationCanRecoverHere({
+      operation,
+      seatId,
+      conversationId,
+      workspace: authority.workspace,
+      witnessDirectory,
+      isProcessAlive: runtime.isProcessAlive,
+    })
+  );
+  const candidateOperations = [...activeOperations, ...deadWorkspaceMatchedOperations];
+  const existingById = new Map(existingArtifacts.map((artifact) => [artifact.id, artifact]));
+  let completedOperationIds: Set<string>;
+  try {
+    completedOperationIds = store.completedOfficeOperationIdsWithExactReceipts(
+      seatId,
+      conversationId,
+      candidateOperations,
+      existingArtifacts
+    );
+  } catch {
+    summary.refused.push({ operationId: 'office-store', reason: 'store-corrupt' });
+    return summary;
+  }
+  const abandonmentByOperation = new Map<string, boolean>();
+  try {
+    for (const operation of deadOperations) {
+      abandonmentByOperation.set(
+        operation.operation_id,
+        Boolean(store.readOfficeOperationAbandonment(seatId, conversationId, operation.operation_id))
+      );
+    }
+  } catch {
+    summary.refused.push({ operationId: 'office-store', reason: 'store-corrupt' });
+    return summary;
+  }
+  const activePending = activeOperations.filter((operation) => !completedOperationIds.has(operation.operation_id));
+  const deadPending = deadWorkspaceMatchedOperations.filter(
+    (operation) =>
+      !completedOperationIds.has(operation.operation_id) && !abandonmentByOperation.get(operation.operation_id)
+  );
+  summary.alreadyPersisted = completedOperationIds.size;
+  // Open work is what this pass is answering for, so it is reported BEFORE the
+  // transcript can fail. A transcript error must read as "still open", never as
+  // "nothing was pending".
+  summary.pendingOperations = activePending.length + deadPending.length;
+  // A sealed record alone never justifies a fetch: conflict reporting rides
+  // along on a transcript some real pending work already required.
+  if (summary.pendingOperations === 0) return summary;
   let transcript: unknown;
   try {
     transcript = await deps.fetchTranscript(conversationId, deps.window ?? DEFAULT_WINDOW);
@@ -704,6 +764,60 @@ export async function reconcileConversationOfficeArtifacts(
 
   const candidates = extractCommandEveOfficeResultCandidates(transcript, conversationId);
   summary.candidates = candidates.length;
+  // A saturated window is indistinguishable from a truncated history, so a
+  // missing marker inside it proves nothing. Only a demonstrably COMPLETE
+  // history may support the negative conclusion "this was never dispatched".
+  const requestedWindow = deps.window ?? DEFAULT_WINDOW;
+  const transcriptIsComplete = commandEveOfficeTranscriptItemCount(transcript) < requestedWindow;
+  const workspaceMatchedIds = new Set(deadWorkspaceMatchedOperations.map((operation) => operation.operation_id));
+  const recoveryPending: CommandEveOfficeOperationRecord[] = [];
+  for (const operation of deadOperations) {
+    const evidence = commandEveOfficeOperationTranscriptEvidence(transcript, conversationId, operation.operation_id);
+    const exactTurn = evidence.markerEvents === 1 && evidence.terminalResultEvents === 1;
+    // EXACTLY one result, not "at least one": a single terminal turn carrying
+    // two MEDIA lines is ambiguous about what the user actually paid for, and
+    // adopting both would publish an unreviewed second artifact.
+    const exactCandidate =
+      candidates.filter((candidate) => candidate.operationId === operation.operation_id).length === 1;
+    const recoverable = exactTurn && exactCandidate;
+    // Reported for EVERY dead operation of this seat, including one sealed by
+    // an earlier build that never recorded a workspace identity. A conflict is
+    // an observation, not an adoption, so it needs no workspace proof — and
+    // staying silent is what made this class invisible before.
+    if (abandonmentByOperation.get(operation.operation_id)) {
+      if (recoverable) {
+        summary.refused.push({ operationId: operation.operation_id, reason: 'abandonment-conflict' });
+      }
+      continue;
+    }
+    // Everything below either seals or adopts, and both require the exact
+    // workspace that authorized this operation.
+    if (!workspaceMatchedIds.has(operation.operation_id)) continue;
+    if (completedOperationIds.has(operation.operation_id)) continue;
+    if (transcriptIsComplete && evidence.markerTurnIds.length === 0 && evidence.terminalResultTurnIds.length === 0) {
+      try {
+        store.createOfficeOperationAbandonment({
+          seat_id: seatId,
+          seat_context_revision: operation.seat_context_revision,
+          conversation_id: conversationId,
+          operation_id: operation.operation_id,
+          reason: COMMAND_EVE_OFFICE_ABANDONMENT_REASON,
+        });
+        summary.abandoned += 1;
+      } catch {
+        summary.refused.push({ operationId: operation.operation_id, reason: 'abandonment-failed' });
+      }
+      continue;
+    }
+    if (recoverable) recoveryPending.push(operation);
+  }
+  const pending = [...activePending, ...recoveryPending];
+  // Open work minus whatever this pass sealed. `pending` is only the subset
+  // this pass can ACT on; an ambiguous or out-of-window dead operation stays
+  // open and must keep saying so, or a caller reads "0 pending" as "nothing
+  // left to recover".
+  summary.pendingOperations = activePending.length + deadPending.length - summary.abandoned;
+  if (pending.length === 0) return summary;
   const pendingById = new Map(pending.map((operation) => [operation.operation_id, operation]));
   const expectedArtifactIdsByOperation = new Map<string, string[]>();
   const satisfiedArtifactsByOperation = new Map<string, Map<string, CommandEveOfficeConversationArtifact>>();

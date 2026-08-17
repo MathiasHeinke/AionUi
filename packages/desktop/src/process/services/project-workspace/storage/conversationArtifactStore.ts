@@ -10,7 +10,6 @@ import type {
 import {
   COMMAND_EVE_OFFICE_LINEAGE_VERSION,
   COMMAND_EVE_OFFICE_ORIGIN_CAPABILITY,
-  COMMAND_EVE_OFFICE_ABANDONMENT_REASON,
   commandEveOfficeExtension,
   parseCommandEveOfficeConversationArtifact,
   parseCommandEveOfficeOperationAbandonmentRecord,
@@ -20,6 +19,7 @@ import {
   type CommandEveOfficeConversationArtifactPayload,
   type CommandEveOfficeArtifactMode,
   type CommandEveOfficeOperationAbandonmentRecord,
+  type CommandEveOfficeOperationAbandonmentReason,
   type CommandEveOfficeOperationCompletionRecord,
   type CommandEveOfficeOperationRecord,
 } from '@/common/types/office/artifactLineage';
@@ -831,7 +831,19 @@ export class ProjectWorkspaceConversationArtifactStore {
   }
 
   createOfficeOperation(
-    input: Omit<CommandEveOfficeOperationRecord, 'version' | 'origin_capability' | 'created_at'>
+    input: Omit<
+      CommandEveOfficeOperationRecord,
+      'version' | 'origin_capability' | 'created_at' | 'workspace_identity_sha256'
+    > & {
+      /**
+       * Absent when the caller cannot prove which workspace authorized this
+       * operation. It is stored as `null` rather than defaulted, because a
+       * null identity can never equal a workspace digest — such a record stays
+       * permanently ineligible for cross-boot recovery instead of matching
+       * whichever workspace happens to be active later.
+       */
+      workspace_identity_sha256?: string | null;
+    }
   ): CommandEveOfficeOperationRecord {
     const lock = this.officeOperationLock(input.seat_id, input.conversation_id, input.operation_id);
     ensureOfficeRecordChainDurable(this.options.state_root, path.dirname(lock));
@@ -845,6 +857,7 @@ export class ProjectWorkspaceConversationArtifactStore {
         seat_context_revision: input.seat_context_revision,
         process_id: input.process_id,
         process_nonce_sha256: input.process_nonce_sha256,
+        workspace_identity_sha256: input.workspace_identity_sha256 ?? null,
         conversation_id: input.conversation_id,
         action: input.action,
         mode: input.mode,
@@ -983,6 +996,7 @@ export class ProjectWorkspaceConversationArtifactStore {
     seat_context_revision: number;
     conversation_id: string;
     operation_id: string;
+    reason: CommandEveOfficeOperationAbandonmentReason;
   }): CommandEveOfficeOperationAbandonmentRecord {
     const lock = this.officeOperationAbandonmentLock(input.seat_id, input.conversation_id, input.operation_id);
     ensureOfficeRecordChainDurable(this.options.state_root, path.dirname(lock));
@@ -994,7 +1008,7 @@ export class ProjectWorkspaceConversationArtifactStore {
         seat_id: input.seat_id,
         seat_context_revision: input.seat_context_revision,
         conversation_id: input.conversation_id,
-        reason: COMMAND_EVE_OFFICE_ABANDONMENT_REASON,
+        reason: input.reason,
         abandoned_at: abandonedAt,
       });
       if (fs.existsSync(file)) {
