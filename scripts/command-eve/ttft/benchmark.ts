@@ -426,9 +426,12 @@ async function launchApp(args: Args): Promise<AppHandle> {
         }
   );
   try {
+    // Packaged Electron can collect Playwright's initial main-process evaluate
+    // promise while startup is still creating the first renderer. Attach to the
+    // loaded window first; measurement timestamps below remain unchanged.
+    const page = await resolveMainWindow(app);
     const launchedAppVersion = await app.evaluate(({ app: electronApp }) => electronApp.getVersion());
     const artifactTruth = releaseTruth(args, launchedAppVersion, manifestPath, packagedQaAttachment);
-    const page = await resolveMainWindow(app);
     const rendererUsableAt = await navigateToGuid(page);
     if (args.tts) {
       await page.evaluate(() => {
