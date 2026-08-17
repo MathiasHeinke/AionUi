@@ -183,6 +183,7 @@ async function persistCreateArtifact(
       'conversation-artifacts',
       'seat-office',
       'conv-1',
+      '.office-records',
       options.artifactId + '.json'
     ),
     store,

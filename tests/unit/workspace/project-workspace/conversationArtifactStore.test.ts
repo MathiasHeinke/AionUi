@@ -79,6 +79,7 @@ function officeArtifactFile(root: string): string {
     'conversation-artifacts',
     'seat-alpha',
     'conversation-alpha',
+    '.office-records',
     officePayload.artifact_id + '.json'
   );
 }
@@ -358,13 +359,7 @@ describe('ProjectWorkspaceConversationArtifactStore', () => {
       artifact_id: officePayload.artifact_id,
       payload: officePayload,
     });
-    const file = path.join(
-      root,
-      'conversation-artifacts',
-      'seat-alpha',
-      'conversation-alpha',
-      officePayload.artifact_id + '.json'
-    );
+    const file = officeArtifactFile(root);
     const tampered = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
     tampered.conversation_id = 'conversation-other';
     fs.writeFileSync(file, JSON.stringify(tampered));

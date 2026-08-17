@@ -527,6 +527,30 @@ export class ProjectWorkspaceConversationArtifactStore {
     return path.join(this.directory(seatId, conversationId), '.locks', `${artifactId}.lock`);
   }
 
+  /**
+   * Office records live beside the conversation artifacts, never among them.
+   *
+   * A 1.822.x client parses every `*.json` directly inside the conversation
+   * directory and rejects the whole listing — not just the offending file — when
+   * one record is not a `project_workspace` artifact. Writing Office records
+   * flat would therefore make a downgrade after a single Office file hide every
+   * artifact of that conversation. A dot-directory is invisible to that parser
+   * because it only reads regular files, which is the same reason
+   * `.office-operations` and `.locks` are already safe to add.
+   */
+  private officeArtifactDirectory(seatId: string, conversationId: string): string {
+    return path.join(this.directory(seatId, conversationId), '.office-records');
+  }
+
+  private officeArtifactFile(seatId: string, conversationId: string, artifactId: string): string {
+    if (!SAFE_ID.test(artifactId)) throw new ProjectWorkspaceError('identity.invalid');
+    return path.join(this.officeArtifactDirectory(seatId, conversationId), `${artifactId}.json`);
+  }
+
+  private officeArtifactLock(seatId: string, conversationId: string, artifactId: string): string {
+    return path.join(this.officeArtifactDirectory(seatId, conversationId), '.locks', `${artifactId}.lock`);
+  }
+
   private officeOperationDirectory(seatId: string, conversationId: string): string {
     return path.join(this.directory(seatId, conversationId), '.office-operations');
   }
@@ -587,7 +611,7 @@ export class ProjectWorkspaceConversationArtifactStore {
   }
 
   listOfficeArtifacts(seatId: string, conversationId: string): CommandEveOfficeConversationArtifact[] {
-    const directory = this.directory(seatId, conversationId);
+    const directory = this.officeArtifactDirectory(seatId, conversationId);
     if (!fs.existsSync(directory)) return [];
     assertOfficeRecordChainDurable(this.options.state_root, directory);
     return fs
@@ -612,7 +636,7 @@ export class ProjectWorkspaceConversationArtifactStore {
     conversationId: string,
     artifactId: string
   ): CommandEveOfficeConversationArtifact | null {
-    const file = this.file(seatId, conversationId, artifactId);
+    const file = this.officeArtifactFile(seatId, conversationId, artifactId);
     if (!fs.existsSync(file)) return null;
     assertOfficeRecordChainDurable(this.options.state_root, path.dirname(file));
     const artifact = parseStoredArtifact(readImmutableOfficeRecord(file));
@@ -711,10 +735,10 @@ export class ProjectWorkspaceConversationArtifactStore {
     if (input.payload.artifact_id !== input.artifact_id || input.payload.seat_id !== input.seat_id) {
       throw new ProjectWorkspaceError('semantic.bundle-mismatch');
     }
-    const lock = this.lock(input.seat_id, input.conversation_id, input.artifact_id);
+    const lock = this.officeArtifactLock(input.seat_id, input.conversation_id, input.artifact_id);
     ensureOfficeRecordChainDurable(this.options.state_root, path.dirname(lock));
     return withExclusiveFileLock(lock, () => {
-      const file = this.file(input.seat_id, input.conversation_id, input.artifact_id);
+      const file = this.officeArtifactFile(input.seat_id, input.conversation_id, input.artifact_id);
       if (fs.existsSync(file)) {
         const existing = this.readOfficeArtifact(input.seat_id, input.conversation_id, input.artifact_id);
         if (!existing || !isDeepStrictEqual(existing.payload, input.payload)) {

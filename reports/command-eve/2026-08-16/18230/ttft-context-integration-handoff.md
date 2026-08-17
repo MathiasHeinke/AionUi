@@ -141,29 +141,26 @@ Repo-wide formatting remains blocked by two pre-existing formatter deltas
 outside the parity hunks in `context_breakdown.py:1111,1139` and
 `test_context_breakdown.py:833,843`.
 
-Identity grammar parity is exact and test-pinned: both Aion and Hermes accept
-only 1–256 printable non-space ASCII characters (`0x21` through `0x7E`) for
-turn and request identities. Space, Unicode, DEL, tab, empty, and 257-character
-values are rejected before Hermes adds correlation headers and by Aion Main's
-consumer/formal validator.
-
-Inside AionUI that grammar now has exactly one definition,
+Inside AionUI the identity grammar now has exactly one definition,
 `commandEveProviderCallIdentity.ts`, consumed by both the Main shim header gate
 and the TTFT formal validator; the two previously identical regex literals are
-gone. Across the repository boundary the grammars cannot share a module, so
-parity is proven by execution rather than by restating the character set:
+gone. It admits 1–256 printable non-space ASCII characters (`0x21` through
+`0x7E`), so space, Unicode, DEL, tab, empty and 257-character values are
+rejected.
 
-```text
-COMMAND_EVE_HERMES_SOURCE=<hermes-worktree> ./node_modules/.bin/vitest run \
-  tests/integration/command-eve-provider-call-identity-parity.real.test.ts
-```
-
-The test sweeps all 128 single-byte ASCII code points plus the length and
-non-ASCII boundaries through both shipping validators and compares verdicts.
-Negative control: reverting Hermes `_valid_identity_text` to its former
-`ord(character) < 0x20` form turned both assertions red (`2 failed`), and
-restoring it returned them to green. Without `COMMAND_EVE_HERMES_SOURCE` the
-file skips, exactly like the other `*.real.test.ts` cross-repository gates.
+**Correction (1.823.0 candidate).** This section previously claimed
+cross-repository parity proven by execution, citing
+`tests/integration/command-eve-provider-call-identity-parity.real.test.ts`
+against Hermes `agent.context_breakdown._valid_identity_text`. That claim did
+not hold for the shipped artifact: no member of
+`resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl` defines that
+function, so the test could only ever describe a different Hermes tree, and
+without `COMMAND_EVE_HERMES_SOURCE` it skipped silently. The wheel carries the
+minter (`agent/conversation_loop.py`) and no validator, so there is no second
+verdict to compare against. The test has been replaced by
+`tests/unit/command-eve/commandEveProviderCallIdentity.test.ts`, which always
+runs, asserts that what the wheel mints is accepted here, and fails the day a
+Hermes-side validator appears — at which point the real parity test is owed.
 
 Hermes prompt-preservation receipt:
 
