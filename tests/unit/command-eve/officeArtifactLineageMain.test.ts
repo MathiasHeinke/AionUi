@@ -296,6 +296,7 @@ async function persistCompletedCreateArtifact(fixture: ReturnType<typeof setup>,
       'conversation-artifacts',
       'seat-office',
       'conv-1',
+      '.office-records',
       artifact.id + '.json'
     ),
   };
@@ -1395,6 +1396,7 @@ describe('Office artifact lineage Main', () => {
       'conversation-artifacts',
       'seat-office',
       'conv-1',
+      '.office-records',
       parent.artifact.id + '.json'
     );
     const rewritten = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
@@ -1433,6 +1435,7 @@ describe('Office artifact lineage Main', () => {
       'conversation-artifacts',
       'seat-office',
       'conv-1',
+      '.office-records',
       child.id + '.json'
     );
     const manifestBytes = fs.readFileSync(manifestPath);
@@ -1506,7 +1509,8 @@ describe('Office artifact lineage Main', () => {
       'project-workspace',
       'conversation-artifacts',
       'seat-office',
-      'conv-1'
+      'conv-1',
+      '.office-records'
     );
     fs.copyFileSync(path.join(directory, child.id + '.json'), path.join(directory, 'copied-child.json'));
     const fetchTranscript = vi.fn(async () => transcript(begun.marker, resultPath));
