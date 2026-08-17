@@ -43,7 +43,7 @@ import type { TFunction } from 'i18next';
  */
 
 import { constantTimeAsciiEquals, isOpaqueToken, isSha256Hex, toLowerHex } from './eveOpaqueTokenCore';
-import { sanitizeSeatId } from './seatConfigKeyCore';
+import { LEGACY_SEAT_ID, sanitizeSeatId } from './seatConfigKeyCore';
 import type { CommandEveVideoConversationArtifact } from './videoGenerationRequestCore';
 import { hydrateVideoArtifactPayload, isVideoArtifactEditable } from './videoGenerationRequestCore';
 
@@ -82,9 +82,9 @@ type ArtifactCapabilityGrantBase = {
   issued_at_ms: number;
 };
 
-/** Video grants remain byte-compatible; only image_edit authority is Seat-owned. */
+/** Every edit grant belongs to exactly one Seat. */
 export type ArtifactCapabilityGrant =
-  | (ArtifactCapabilityGrantBase & { operation: 'video_edit'; seat_id?: never })
+  | (ArtifactCapabilityGrantBase & { operation: 'video_edit'; seat_id: string })
   | (ArtifactCapabilityGrantBase & { operation: 'image_edit'; seat_id: string });
 
 export type ArtifactCapabilityRefusal =
@@ -134,7 +134,7 @@ export function mintArtifactCapabilityGrant(input: {
   artifactId: string;
   artifactSha256: string;
   operation: ArtifactCapabilityOperation;
-  /** Required and canonical only for image_edit; forbidden from renderer/provider ownership. */
+  /** Required and canonical for every edit authority; never renderer/provider ownership. */
   seatId?: string;
   nowMs: number;
   randomBytes: (size: number) => Uint8Array;
@@ -143,10 +143,7 @@ export function mintArtifactCapabilityGrant(input: {
   if (typeof input.artifactId !== 'string' || input.artifactId.length === 0) return undefined;
   if (!isSha256Hex(input.artifactSha256)) return undefined;
   if (input.operation !== 'video_edit' && input.operation !== 'image_edit') return undefined;
-  if (
-    input.operation === 'image_edit' &&
-    (typeof input.seatId !== 'string' || sanitizeSeatId(input.seatId) !== input.seatId)
-  ) {
+  if (typeof input.seatId !== 'string' || sanitizeSeatId(input.seatId) !== input.seatId) {
     return undefined;
   }
 
@@ -168,10 +165,7 @@ export function mintArtifactCapabilityGrant(input: {
     operation: input.operation,
     issued_at_ms: input.nowMs,
   };
-  if (input.operation === 'image_edit') {
-    return { ...grant, operation: 'image_edit', seat_id: input.seatId as string };
-  }
-  return { ...grant, operation: 'video_edit' };
+  return { ...grant, seat_id: input.seatId as string } as ArtifactCapabilityGrant;
 }
 
 /**
@@ -196,6 +190,7 @@ export function mintVideoEditCapabilityGrant(input: {
     artifactId: input.artifact.id,
     artifactSha256: payload.hash,
     operation: 'video_edit',
+    seatId: input.artifact.seat_id ?? LEGACY_SEAT_ID,
     nowMs: input.nowMs,
     randomBytes: input.randomBytes,
   });

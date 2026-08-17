@@ -93,13 +93,9 @@ function parseGrant(value: unknown): ArtifactCapabilityGrant | undefined {
   ) {
     return undefined;
   }
-  if (record.operation === 'image_edit') {
-    const seatId = Object.prototype.hasOwnProperty.call(record, 'seat_id') ? record.seat_id : LEGACY_SEAT_ID;
-    if (typeof seatId !== 'string' || sanitizeSeatId(seatId) !== seatId) return undefined;
-    return { ...record, operation: 'image_edit', seat_id: seatId } as unknown as ArtifactCapabilityGrant;
-  }
-  if (Object.prototype.hasOwnProperty.call(record, 'seat_id')) return undefined;
-  return record as unknown as ArtifactCapabilityGrant;
+  const seatId = Object.prototype.hasOwnProperty.call(record, 'seat_id') ? record.seat_id : LEGACY_SEAT_ID;
+  if (typeof seatId !== 'string' || sanitizeSeatId(seatId) !== seatId) return undefined;
+  return { ...record, seat_id: seatId } as ArtifactCapabilityGrant;
 }
 
 function readGrantFile(file: string): ArtifactCapabilityGrant | undefined {
@@ -186,13 +182,22 @@ export function mintVideoEditCapabilityHandle(
 
 const CAPABILITY_INDEX_DIR = 'by-artifact';
 
-function indexFile(dataPath: string, conversationId: string, artifactId: string): string {
+function legacyIndexFile(dataPath: string, conversationId: string, artifactId: string): string {
   const key = crypto.createHash('sha256').update(`${conversationId}|${artifactId}`).digest('hex');
   return path.join(capabilityDirectory(dataPath), CAPABILITY_INDEX_DIR, `${key}.json`);
 }
 
-function imageIndexFile(dataPath: string, seatId: string, conversationId: string, artifactId: string): string {
-  const key = crypto.createHash('sha256').update(`image_edit|${seatId}|${conversationId}|${artifactId}`).digest('hex');
+function indexFile(
+  dataPath: string,
+  operation: 'video_edit' | 'image_edit',
+  seatId: string,
+  conversationId: string,
+  artifactId: string
+): string {
+  const key = crypto
+    .createHash('sha256')
+    .update(`${operation}|${seatId}|${conversationId}|${artifactId}`)
+    .digest('hex');
   return path.join(capabilityDirectory(dataPath), CAPABILITY_INDEX_DIR, `${key}.json`);
 }
 
@@ -216,28 +221,35 @@ export function ensureVideoEditCapabilityHandle(
   options: { nowMs?: number; randomBytes?: (size: number) => Uint8Array } = {}
 ): string | undefined {
   const nowMs = options.nowMs ?? Date.now();
-  const file = indexFile(dataPath, artifact.conversation_id, artifact.id);
-  try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
-    const existing = readArtifactCapabilityGrant(dataPath, raw.handle, nowMs);
-    if (
-      existing &&
-      existing.conversation_id === artifact.conversation_id &&
-      existing.artifact_id === artifact.id &&
-      existing.artifact_sha256 === artifact.payload.hash &&
-      existing.operation === 'video_edit'
-    ) {
-      return existing.handle;
+  const seatId = artifact.seat_id ?? LEGACY_SEAT_ID;
+  if (sanitizeSeatId(seatId) !== seatId) return undefined;
+  const file = indexFile(dataPath, 'video_edit', seatId, artifact.conversation_id, artifact.id);
+  const candidateIndexes = [file];
+  if (seatId === LEGACY_SEAT_ID)
+    candidateIndexes.push(legacyIndexFile(dataPath, artifact.conversation_id, artifact.id));
+  for (const candidate of candidateIndexes) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(candidate, 'utf8')) as Record<string, unknown>;
+      const existing = readArtifactCapabilityGrant(dataPath, raw.handle, nowMs, seatId);
+      if (
+        existing &&
+        existing.conversation_id === artifact.conversation_id &&
+        existing.artifact_id === artifact.id &&
+        existing.artifact_sha256 === artifact.payload.hash &&
+        existing.operation === 'video_edit'
+      ) {
+        return existing.handle;
+      }
+    } catch {
+      /* no usable index entry — fall through and mint */
     }
-  } catch {
-    /* no usable index entry — fall through and mint */
   }
 
   const handle = mintVideoEditCapabilityHandle(dataPath, artifact, { nowMs, ...options });
   if (!handle) return undefined;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(file, `${JSON.stringify({ handle }, null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(file, `${JSON.stringify({ handle, seat_id: seatId }, null, 2)}\n`, { mode: 0o600 });
     fs.chmodSync(file, 0o600);
   } catch {
     // The index is a cache. Losing it costs a re-mint next turn; it never costs
@@ -251,18 +263,19 @@ export function readArtifactCapabilityGrant(
   dataPath: string,
   handle: unknown,
   nowMs: number = Date.now(),
-  expectedSeatId?: string
+  // REQUIRED. A default here would let any caller that forgets the seat read
+  // grants as the legacy seat — the exact silent widening this fence exists to
+  // prevent. Callers holding pre-seat records pass LEGACY_SEAT_ID explicitly.
+  expectedSeatId: string
 ): ArtifactCapabilityGrant | undefined {
   if (!isWellFormedArtifactCapabilityHandle(handle)) return undefined;
-  if (expectedSeatId !== undefined && sanitizeSeatId(expectedSeatId) !== expectedSeatId) return undefined;
+  if (sanitizeSeatId(expectedSeatId) !== expectedSeatId) return undefined;
   try {
     const file = path.join(capabilityDirectory(dataPath), grantFileName(handle));
     const grant = readGrantFile(file);
     if (!grant) return undefined;
     if (nowMs - grant.issued_at_ms > ARTIFACT_CAPABILITY_TTL_MS) return undefined;
-    if (grant.operation === 'image_edit' && expectedSeatId !== undefined && grant.seat_id !== expectedSeatId) {
-      return undefined;
-    }
+    if (grant.seat_id !== expectedSeatId) return undefined;
     return grant;
   } catch {
     return undefined;
@@ -272,8 +285,8 @@ export function readArtifactCapabilityGrant(
 /**
  * The `image_edit` half of `ensureVideoEditCapabilityHandle` (1.820.3).
  *
- * Same grant store, but a seat-specific IMAGE-ONLY index and one handle per
- * (seat, conversation, artifact, bytes). The video index remains byte-compatible.
+ * Same grant store and a seat-specific index for each edit medium. Legacy video
+ * indexes are read only for the legacy Seat, never rewritten or shared.
  * The managed image record carries no hydration debt, so the existing grant is
  * re-validated against the CURRENT hash, seat and `image_edit` operation before
  * reuse: a grant minted for a different authority gets replaced, not reused.
@@ -285,10 +298,10 @@ export function ensureImageEditCapabilityHandle(
 ): string | undefined {
   if (sanitizeSeatId(artifact.seat_id) !== artifact.seat_id) return undefined;
   const nowMs = options.nowMs ?? Date.now();
-  const file = imageIndexFile(dataPath, artifact.seat_id, artifact.conversation_id, artifact.artifact_id);
+  const file = indexFile(dataPath, 'image_edit', artifact.seat_id, artifact.conversation_id, artifact.artifact_id);
   const candidateIndexes = [file];
   if (artifact.seat_id === LEGACY_SEAT_ID) {
-    candidateIndexes.push(indexFile(dataPath, artifact.conversation_id, artifact.artifact_id));
+    candidateIndexes.push(legacyIndexFile(dataPath, artifact.conversation_id, artifact.artifact_id));
   }
   for (const candidate of candidateIndexes) {
     try {
@@ -426,11 +439,17 @@ const productionResolveDeps: VideoEditCapabilityResolveDeps = {
  */
 export function resolveVideoEditCapability(
   dataPath: string,
-  input: { handle: unknown; observedArtifactSha256: string; expectedConversationId?: string },
+  input: {
+    handle: unknown;
+    observedArtifactSha256: string;
+    expectedSeatId?: string;
+    expectedConversationId?: string;
+  },
   deps: VideoEditCapabilityResolveDeps = productionResolveDeps
 ): VideoEditCapabilityResolution {
   const nowMs = deps.nowMs();
-  const grant = deps.readGrant(dataPath, input.handle, nowMs);
+  const expectedSeatId = input.expectedSeatId ?? LEGACY_SEAT_ID;
+  const grant = deps.readGrant(dataPath, input.handle, nowMs, expectedSeatId);
   if (!grant) {
     return {
       ok: false,
@@ -441,7 +460,7 @@ export function resolveVideoEditCapability(
     return { ok: false, reason: 'conversation-mismatch' };
   }
 
-  const records = deps.listArtifactRecords(dataPath, grant.conversation_id);
+  const records = deps.listArtifactRecords(dataPath, grant.conversation_id, expectedSeatId);
   const artifact = records.find((record) => record.id === grant.artifact_id);
   if (!artifact) return { ok: false, reason: 'artifact-missing' };
 
@@ -477,7 +496,12 @@ export function resolveVideoEditCapability(
 export function buildConversationArtifactEnvelopeEntries(
   dataPath: string,
   conversationId: string,
-  options: { nowMs?: number; selectedArtifactIds?: readonly string[]; maxEntries?: number } = {},
+  options: {
+    nowMs?: number;
+    selectedArtifactIds?: readonly string[];
+    maxEntries?: number;
+    expectedSeatId?: string;
+  } = {},
   deps: {
     listArtifactRecords: typeof listVideoArtifactRecords;
     ensureHandle: typeof ensureVideoEditCapabilityHandle;
@@ -490,7 +514,7 @@ export function buildConversationArtifactEnvelopeEntries(
   const selected = new Set(options.selectedArtifactIds ?? []);
   const limit = options.maxEntries ?? ARTIFACT_ENVELOPE_MAX_ARTIFACTS;
   const orderedRecords = deps
-    .listArtifactRecords(dataPath, conversationId)
+    .listArtifactRecords(dataPath, conversationId, options.expectedSeatId ?? LEGACY_SEAT_ID)
     .toSorted((a, b) => b.created_at - a.created_at);
   // An explicit UI selection outranks recency. The old slice-before-selection
   // order could silently drop an older clip the user had clicked, then mark a

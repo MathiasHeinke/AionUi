@@ -153,6 +153,17 @@ describe('saveVideoArtifactRecord + listVideoArtifactRecords — survives a relo
     expect(listVideoArtifactRecords(tmpRoot, 'conv-2').map((a) => a.id)).toEqual(['b']);
   });
 
+  it('shows an owned record only to its Seat, while legacy records remain legacy-only', () => {
+    const seatA = 'a2000000-0000-4000-8000-000000000001';
+    const seatB = 'b2000000-0000-4000-8000-000000000001';
+    saveVideoArtifactRecord(tmpRoot, makeArtifact({ id: 'seat-a', seat_id: seatA }));
+    saveVideoArtifactRecord(tmpRoot, makeArtifact({ id: 'legacy' }));
+
+    expect(listVideoArtifactRecords(tmpRoot, 'conv-1', seatA).map((artifact) => artifact.id)).toEqual(['seat-a']);
+    expect(listVideoArtifactRecords(tmpRoot, 'conv-1', seatB)).toEqual([]);
+    expect(listVideoArtifactRecords(tmpRoot, 'conv-1', 'seat-1').map((artifact) => artifact.id)).toEqual(['legacy']);
+  });
+
   it('returns an empty list for a conversation with nothing saved', () => {
     expect(listVideoArtifactRecords(tmpRoot, 'never-had-a-video')).toEqual([]);
   });

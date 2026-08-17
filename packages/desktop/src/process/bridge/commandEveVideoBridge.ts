@@ -581,6 +581,7 @@ export async function handleCommandEveVideoGenerate(
         path,
         id: artifactId,
         conversationId: request.conversationId,
+        seatId: capturedSeatId,
         createdAtMs: Date.now(),
         ...(parentArtifactId === undefined ? {} : { parentArtifactId }),
       });
@@ -646,6 +647,7 @@ export async function handleCommandEveVideoGenerateBridge(
 
 export interface CommandEveVideoArtifactsListDeps {
   getDataPath: typeof getDataPath;
+  getActiveSeatId?: typeof getActiveSeatId;
   listArtifactRecords: typeof listVideoArtifactRecords;
   /** Reuse the native list channel so Office does not create a second artifact provider. */
   listOfficeArtifactRecords?: typeof listCommandEveOfficeArtifactRecords;
@@ -661,6 +663,7 @@ export interface CommandEveVideoArtifactsListDeps {
 
 const productionListDeps: CommandEveVideoArtifactsListDeps = {
   getDataPath,
+  getActiveSeatId,
   listArtifactRecords: listVideoArtifactRecords,
   listOfficeArtifactRecords: listCommandEveOfficeArtifactRecords,
   log: (line) => console.warn(line),
@@ -671,13 +674,21 @@ const productionListDeps: CommandEveVideoArtifactsListDeps = {
  * the counterpart AionCore's own `listArtifacts` cannot provide, since AionCore
  * never learns about a video generated through this direct Main -> gateway
  * call. The renderer merges this list with AionCore's on load, so a video
- * survives switching away from the conversation and back.
+ * survives switching away from the conversation and back. Video records are
+ * read through the active Seat fence; legacy records belong only to the legacy
+ * Seat.
  */
 export async function handleCommandEveVideoArtifactsList(
   request?: { conversationId?: string },
   deps: CommandEveVideoArtifactsListDeps = productionListDeps
 ): Promise<IConversationArtifact[]> {
   if (!request || typeof request.conversationId !== 'string' || request.conversationId.length === 0) return [];
+  let expectedSeatId: string;
+  try {
+    expectedSeatId = (deps.getActiveSeatId ?? getActiveSeatId)();
+  } catch {
+    return [];
+  }
   if (deps.hydrateBeforeList) {
     try {
       await deps.hydrateBeforeList(request.conversationId);
@@ -689,7 +700,7 @@ export async function handleCommandEveVideoArtifactsList(
     }
   }
   const dataPath = deps.getDataPath();
-  const videos = deps.listArtifactRecords(dataPath, request.conversationId);
+  const videos = deps.listArtifactRecords(dataPath, request.conversationId, expectedSeatId);
   let office: IConversationArtifact[] = [];
   try {
     office = await (deps.listOfficeArtifactRecords ?? listCommandEveOfficeArtifactRecords)(
@@ -767,7 +778,8 @@ export interface CommandEveArtifactContextEnvelopeDeps {
    * 1.820.3 — the MANAGED GENERATED image store: active records ride the
    * envelope as EDITABLE kind=image entries with an `evecap_` handle, minted
    * through the image-only one-handle-per-(seat, conversation, artifact, bytes)
-   * rule. The video lane's seatless index remains unchanged.
+   * rule. Video uses the same Seat-keyed artifact index, with legacy lookup
+   * retained only for legacy-Seat records and grants.
    */
   listManagedImageRecords?: typeof listActiveImageArtifacts;
   ensureImageEditHandle?: typeof ensureImageEditCapabilityHandle;
@@ -1030,7 +1042,7 @@ export async function handleCommandEveArtifactContextEnvelope(
     const storedEntries = deps.buildEntries(
       dataPath,
       conversationId,
-      selectedArtifactIds.length === 0 ? {} : { selectedArtifactIds }
+      selectedArtifactIds.length === 0 ? { expectedSeatId } : { selectedArtifactIds, expectedSeatId }
     );
     // MAT-1753 item C. The reference images pending on the draft ride the SAME
     // envelope, ahead of the stored clips, because they are what the user is
@@ -1680,7 +1692,7 @@ export async function handleCommandEveVideoEdit(
   // The grant is read FIRST so the source path comes from OUR record, never from
   // anything the caller supplied. A path that arrived with the request would be
   // an arbitrary-file-read dressed as an edit.
-  const grant = readGrant(dataPath, request.handle);
+  const grant = readGrant(dataPath, request.handle, Date.now(), capturedSeatId);
   if (!grant) {
     return refuseEdit(
       'video-edit-handle-unknown',
@@ -1722,7 +1734,9 @@ export async function handleCommandEveVideoEdit(
     return refuseEdit('video-edit-conversation-retired', describeSpendPermitRefusal('conversation-retired'));
   }
 
-  const source = listRecords(dataPath, grant.conversation_id).find((record) => record.id === grant.artifact_id);
+  const source = listRecords(dataPath, grant.conversation_id, capturedSeatId).find(
+    (record) => record.id === grant.artifact_id
+  );
   if (!source) {
     return refuseEdit('video-edit-source-missing', 'Das Ausgangsvideo ist nicht mehr vorhanden.');
   }
@@ -1747,6 +1761,7 @@ export async function handleCommandEveVideoEdit(
   const capability = resolveCapability(dataPath, {
     handle: request.handle,
     observedArtifactSha256,
+    expectedSeatId: capturedSeatId,
     expectedConversationId: grant.conversation_id,
   });
   if (capability.ok === false) {
@@ -1798,7 +1813,9 @@ export async function handleCommandEveVideoEdit(
     artifactSha256: observedArtifactSha256,
   });
   if (completion) {
-    const prior = listRecords(dataPath, grant.conversation_id).find((record) => record.id === completion.artifact_id);
+    const prior = listRecords(dataPath, grant.conversation_id, capturedSeatId).find(
+      (record) => record.id === completion.artifact_id
+    );
     if (prior) return recoveredEditResult(prior, completion.source_artifact_id);
     return refuseEdit(
       'video-edit-result-unavailable',
@@ -1982,6 +1999,7 @@ export async function handleCommandEveVideoEdit(
         path: savedPath,
         id: artifactId,
         conversationId: grant.conversation_id,
+        seatId: capturedSeatId,
         createdAtMs: Date.now(),
         // BESIDE the source, never over it.
         originCapability: 'video_edit',

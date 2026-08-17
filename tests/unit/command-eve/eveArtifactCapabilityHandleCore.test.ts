@@ -58,6 +58,7 @@ function mint(overrides: Partial<Parameters<typeof mintArtifactCapabilityGrant>[
     artifactId: 'video-1',
     artifactSha256: SHA_A,
     operation: 'video_edit',
+    seatId: 'seat-a',
     nowMs: 1_754_000_000_000,
     randomBytes: fixedRandomBytes(0x11),
     ...overrides,
@@ -147,6 +148,12 @@ describe('the handle itself', () => {
     expect(mint({ artifactId: '' })).toBeUndefined();
     expect(mint({ artifactSha256: 'too-short' })).toBeUndefined();
     expect(mint({ operation: 'artifact_read' as never })).toBeUndefined();
+    expect(mint({ seatId: undefined })).toBeUndefined();
+  });
+
+  it('binds video-edit authority to its canonical Seat', () => {
+    expect(mint()).toMatchObject({ operation: 'video_edit', seat_id: 'seat-a' });
+    expect(mint({ seatId: 'seat-b' })).toMatchObject({ operation: 'video_edit', seat_id: 'seat-b' });
   });
 });
 

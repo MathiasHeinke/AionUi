@@ -91,6 +91,7 @@ function seedSource(overrides: { id?: string; durationSeconds?: number; resoluti
   const artifact = buildVideoConversationArtifact({
     id,
     conversationId: 'conv-1',
+    seatId: ACTIVE_SEED_ID,
     createdAtMs: 1_754_000_000_000,
     path: sourcePath,
     artifact: {
@@ -130,7 +131,7 @@ function deps(fetchImpl: typeof fetch, overrides: Partial<CommandEveVideoBridgeD
     fetch: fetchImpl,
     newRequestId: () => 'req-fixed',
     newArtifactId: () => 'video-edited',
-    getActiveSeatId: () => 'seat-1',
+    getActiveSeatId: () => ACTIVE_SEED_ID,
     areFileSelectionPathsGranted: () => true,
     readImageSource: () => ({ bytes: new Uint8Array([1, 2, 3, 4]) }),
     saveVideoFile: (input) => {
@@ -191,7 +192,7 @@ describe('an edit reaches the gateway from a handle AND a live permit', () => {
     // THE POSITIVE CONTROL for every "no fetch" assertion below.
     const source = seedSource();
     const sourceManifestBefore = structuredClone(
-      listVideoArtifactRecords(dataRoot, 'conv-1').find((record) => record.id === source.id)
+      listVideoArtifactRecords(dataRoot, 'conv-1', ACTIVE_SEED_ID).find((record) => record.id === source.id)
     );
     const handle = ensureVideoEditCapabilityHandle(dataRoot, source)!;
     const permit = permitForTurn('gib der Aubergine ein Gesicht');
@@ -232,7 +233,7 @@ describe('an edit reaches the gateway from a handle AND a live permit', () => {
     expect(result.conversationArtifact.conversation_id).toBe(source.conversation_id);
     expect(result.conversationArtifact.id).not.toBe(source.id);
     expect(result.sourceArtifactId).toBe('video-aubergine');
-    const recordsAfter = listVideoArtifactRecords(dataRoot, 'conv-1');
+    const recordsAfter = listVideoArtifactRecords(dataRoot, 'conv-1', ACTIVE_SEED_ID);
     expect(recordsAfter.find((record) => record.id === source.id)).toEqual(sourceManifestBefore);
     expect(recordsAfter.find((record) => record.id === result.conversationArtifact.id)).toEqual(
       result.conversationArtifact
@@ -296,6 +297,7 @@ describe('an edit reaches the gateway from a handle AND a live permit', () => {
     const handle = ensureVideoEditCapabilityHandle(dataRoot, source)!;
     const envelopeDeps = {
       getDataPath: () => dataRoot,
+      getActiveSeatId: () => ACTIVE_SEED_ID,
       buildEntries: (await import('@/process/commandEve/artifactCapabilityHandleStore'))
         .buildConversationArtifactEnvelopeEntries,
       isVideoEditEnabled: () => true,
@@ -353,7 +355,7 @@ describe('one user turn buys exactly one paid edit', () => {
     // THE assertion that matters: no second provider call, so no second charge.
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(
-      listVideoArtifactRecords(dataRoot, 'conv-1')
+      listVideoArtifactRecords(dataRoot, 'conv-1', ACTIVE_SEED_ID)
         .map((r) => r.id)
         .toSorted()
     ).toEqual(['edit-1', 'video-aubergine']);
@@ -383,7 +385,7 @@ describe('one user turn buys exactly one paid edit', () => {
     expect(retry.ok === true && retry.conversationArtifact.id).toBe('edit-1');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     // Exactly one new artifact exists, not two.
-    expect(listVideoArtifactRecords(dataRoot, 'conv-1')).toHaveLength(2);
+    expect(listVideoArtifactRecords(dataRoot, 'conv-1', ACTIVE_SEED_ID)).toHaveLength(2);
   });
 
   it('refuses a permit minted for a previous turn once a new turn mints its own', async () => {
@@ -475,6 +477,32 @@ describe('every refusal happens before the network', () => {
 
     expect(result.ok === false && result.reasonCode).toBe('video-edit-handle-unknown');
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('refuses another Seat’s grant as unknown without consuming its permit', async () => {
+    const source = seedSource();
+    const handle = ensureVideoEditCapabilityHandle(dataRoot, source)!;
+    const permit = permitForTurn('mach es bunt');
+    const foreignFetch = vi.fn(async () => jsonResponse(200, editedBody)) as unknown as typeof fetch;
+    const foreignSeat = await handleCommandEveVideoEdit(
+      { handle, permit, instruction: 'mach es bunt' },
+      deps(foreignFetch, { getActiveSeatId: () => 'b2000000-0000-4000-8000-000000000001' })
+    );
+
+    expect(foreignSeat).toMatchObject({
+      ok: false,
+      reasonCode: 'video-edit-handle-unknown',
+      message: 'Dieser Videobezug ist unbekannt — es wurde nichts bearbeitet.',
+    });
+    expect(foreignFetch).not.toHaveBeenCalled();
+
+    const ownerFetch = vi.fn(async () => jsonResponse(200, editedBody)) as unknown as typeof fetch;
+    const ownerSeat = await handleCommandEveVideoEdit(
+      { handle, permit, instruction: 'mach es bunt' },
+      deps(ownerFetch, { getActiveSeatId: () => ACTIVE_SEED_ID })
+    );
+    expect(ownerSeat.ok).toBe(true);
+    expect(ownerFetch).toHaveBeenCalledOnce();
   });
 
   it('refuses a bare artifact id used as if it were authority', async () => {
@@ -689,7 +717,7 @@ describe('a gateway refusal is reported honestly', () => {
     expect(result.ok === false && result.reasonCode).toBe('insufficient_credits');
     expect(result.ok === false && result.message).toContain('Credits');
     // Nothing was persisted for a refusal.
-    expect(listVideoArtifactRecords(dataRoot, 'conv-1').map((r) => r.id)).toEqual(['video-aubergine']);
+    expect(listVideoArtifactRecords(dataRoot, 'conv-1', ACTIVE_SEED_ID).map((r) => r.id)).toEqual(['video-aubergine']);
   });
 
   it('does not claim success for a 200 with no playable clip', async () => {

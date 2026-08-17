@@ -405,6 +405,11 @@ export interface CommandEveVideoConversationArtifactPayload {
 export interface CommandEveVideoConversationArtifact {
   id: string;
   conversation_id: string;
+  /**
+   * The Seat that owns this local artifact. Records written before seat
+   * isolation intentionally omit it and belong to the canonical legacy Seat.
+   */
+  seat_id?: string;
   kind: 'video';
   status: 'active';
   payload: CommandEveVideoConversationArtifactPayload;
@@ -562,6 +567,7 @@ export function buildVideoConversationArtifact(input: {
   path: string;
   id: string;
   conversationId: string;
+  seatId?: string;
   createdAtMs: number;
   originCapability?: 'video_generation' | 'video_edit';
   /**
@@ -574,6 +580,7 @@ export function buildVideoConversationArtifact(input: {
   return {
     id: input.id,
     conversation_id: input.conversationId,
+    ...(input.seatId === undefined ? {} : { seat_id: input.seatId }),
     kind: 'video',
     status: 'active',
     payload: buildVideoConversationArtifactPayload(input.artifact, input.path, {

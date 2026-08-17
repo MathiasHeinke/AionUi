@@ -81,7 +81,7 @@ describe('the grant file', () => {
     const artifact = makeArtifact();
     const handle = mintVideoEditCapabilityHandle(tmpRoot, artifact);
     expect(handle).toBeDefined();
-    expect(readArtifactCapabilityGrant(tmpRoot, handle)).not.toHaveProperty('seat_id');
+    expect(readArtifactCapabilityGrant(tmpRoot, handle, Date.now(), 'seat-1')).toMatchObject({ seat_id: 'seat-1' });
 
     const directory = path.join(tmpRoot, 'command-eve-artifact-capabilities');
     const files = fs.readdirSync(directory).filter((name) => name.endsWith('.json'));
@@ -125,21 +125,16 @@ describe('reuse and expiry', () => {
     expect(second).not.toBe(first);
   });
 
-  it('keeps the shared video index unchanged when an image has the same conversation and artifact ids', () => {
+  it('keeps Seat-keyed video and image indexes separate when they share conversation and artifact ids', () => {
     const artifact = makeArtifact({ id: 'shared-artifact', conversationId: 'conv-shared' });
     saveVideoArtifactRecord(tmpRoot, artifact);
     const videoHandle = ensureVideoEditCapabilityHandle(tmpRoot, artifact)!;
-    const sharedIndexKey = crypto
+    const videoIndexKey = crypto
       .createHash('sha256')
-      .update(`${artifact.conversation_id}|${artifact.id}`)
+      .update(`video_edit|seat-1|${artifact.conversation_id}|${artifact.id}`)
       .digest('hex');
-    const sharedIndex = path.join(
-      tmpRoot,
-      'command-eve-artifact-capabilities',
-      'by-artifact',
-      `${sharedIndexKey}.json`
-    );
-    const sharedIndexBeforeImage = fs.readFileSync(sharedIndex, 'utf8');
+    const videoIndex = path.join(tmpRoot, 'command-eve-artifact-capabilities', 'by-artifact', `${videoIndexKey}.json`);
+    const videoIndexBeforeImage = fs.readFileSync(videoIndex, 'utf8');
 
     const imageHandle = ensureImageEditCapabilityHandle(tmpRoot, {
       conversation_id: artifact.conversation_id,
@@ -149,9 +144,12 @@ describe('reuse and expiry', () => {
     })!;
 
     expect(imageHandle).not.toBe(videoHandle);
-    expect(fs.readFileSync(sharedIndex, 'utf8')).toBe(sharedIndexBeforeImage);
+    expect(fs.readFileSync(videoIndex, 'utf8')).toBe(videoIndexBeforeImage);
     expect(ensureVideoEditCapabilityHandle(tmpRoot, artifact)).toBe(videoHandle);
-    expect(readArtifactCapabilityGrant(tmpRoot, videoHandle)).not.toHaveProperty('seat_id');
+    expect(readArtifactCapabilityGrant(tmpRoot, videoHandle, Date.now(), 'seat-1')).toMatchObject({
+      operation: 'video_edit',
+      seat_id: 'seat-1',
+    });
     expect(readArtifactCapabilityGrant(tmpRoot, imageHandle, Date.now(), 'seat-a')).toMatchObject({
       operation: 'image_edit',
       seat_id: 'seat-a',
@@ -168,15 +166,33 @@ describe('reuse and expiry', () => {
     ).toMatchObject({ ok: true });
   });
 
+  it('maps a legacy seatless grant to the legacy Seat without rewriting it, and refuses a UUID Seat', () => {
+    const artifact = makeArtifact();
+    const handle = ensureVideoEditCapabilityHandle(tmpRoot, artifact)!;
+    const grantDirectory = path.join(tmpRoot, 'command-eve-artifact-capabilities');
+    const grantFile = path.join(grantDirectory, `${crypto.createHash('sha256').update(handle).digest('hex')}.json`);
+    const persisted = JSON.parse(fs.readFileSync(grantFile, 'utf8')) as Record<string, unknown>;
+    delete persisted.seat_id;
+    fs.writeFileSync(grantFile, `${JSON.stringify(persisted, null, 2)}\n`);
+
+    expect(readArtifactCapabilityGrant(tmpRoot, handle, Date.now(), 'seat-1')).toMatchObject({ seat_id: 'seat-1' });
+    expect(
+      readArtifactCapabilityGrant(tmpRoot, handle, Date.now(), 'a2000000-0000-4000-8000-000000000001')
+    ).toBeUndefined();
+    expect(JSON.parse(fs.readFileSync(grantFile, 'utf8'))).not.toHaveProperty('seat_id');
+  });
+
   it('stops resolving a grant past its TTL, and sweeps it', () => {
     const artifact = makeArtifact();
     const nowMs = 1_754_000_000_000;
     const handle = mintVideoEditCapabilityHandle(tmpRoot, artifact, { nowMs })!;
     // Still valid one millisecond before the TTL...
-    expect(readArtifactCapabilityGrant(tmpRoot, handle, nowMs + ARTIFACT_CAPABILITY_TTL_MS)).toBeDefined();
+    expect(readArtifactCapabilityGrant(tmpRoot, handle, nowMs + ARTIFACT_CAPABILITY_TTL_MS, 'seat-1')).toBeDefined();
     // ...and gone one millisecond after. A key to a paid action that never
     // expires outlives every later decision about the conversation.
-    expect(readArtifactCapabilityGrant(tmpRoot, handle, nowMs + ARTIFACT_CAPABILITY_TTL_MS + 1)).toBeUndefined();
+    expect(
+      readArtifactCapabilityGrant(tmpRoot, handle, nowMs + ARTIFACT_CAPABILITY_TTL_MS + 1, 'seat-1')
+    ).toBeUndefined();
     expect(pruneArtifactCapabilityGrants(tmpRoot, nowMs + ARTIFACT_CAPABILITY_TTL_MS + 1)).toBe(1);
   });
 });

@@ -111,7 +111,7 @@ describe('image_edit capability grants', () => {
       { conversation_id: 'conv-1', artifact_id: 'img_1', artifact_sha256: SHA, seat_id: SEAT_A },
       { nowMs: Date.now() }
     )!;
-    const grant = readArtifactCapabilityGrant(dataRoot, imageHandle);
+    const grant = readArtifactCapabilityGrant(dataRoot, imageHandle, Date.now(), SEAT_A);
     expect(grant?.operation).toBe('image_edit');
 
     const videoGrant = {
@@ -121,6 +121,8 @@ describe('image_edit capability grants', () => {
       artifact_sha256: SHA,
       operation: 'video_edit' as const,
       issued_at_ms: Date.now(),
+      // Same seat, so the OPERATION is the only thing that can disqualify it.
+      seat_id: SEAT_A,
     };
     fs.mkdirSync(path.join(dataRoot, 'command-eve-artifact-capabilities'), { recursive: true });
     const key = crypto.createHash('sha256').update(videoGrant.handle).digest('hex');
@@ -138,6 +140,26 @@ describe('image_edit capability grants', () => {
       ok: false,
       reason: 'operation-mismatch',
     });
+
+    // A video grant belonging to ANOTHER seat must not even reveal that it
+    // exists: the wrong-seat answer is indistinguishable from an unknown handle,
+    // so a foreign seat cannot probe for the artifacts of its neighbour.
+    const foreignGrant = { ...videoGrant, handle: `evecap_${'8'.repeat(64)}`, seat_id: SEAT_B };
+    fs.writeFileSync(
+      path.join(
+        dataRoot,
+        'command-eve-artifact-capabilities',
+        `${crypto.createHash('sha256').update(foreignGrant.handle).digest('hex')}.json`
+      ),
+      JSON.stringify(foreignGrant)
+    );
+    expect(
+      resolveImageEditCapability(dataRoot, {
+        handle: foreignGrant.handle,
+        observedArtifactSha256: SHA,
+        expectedSeatId: SEAT_A,
+      })
+    ).toEqual({ ok: false, reason: 'handle-unknown' });
   });
 
   it('uses independent image-only indexes for identical conversation and artifact ids across seats', () => {

@@ -810,10 +810,61 @@ describe('handleCommandEveVideoArtifactsList', () => {
       }
     );
 
-    expect(listArtifactRecordsMock).toHaveBeenCalledWith('/tmp/eve-data', 'conv-1');
+    expect(listArtifactRecordsMock).toHaveBeenCalledWith('/tmp/eve-data', 'conv-1', 'seat-1');
     expect(result).toHaveLength(2);
     expect(result[0].conversation_id).toBe('conv-1');
     expect(result[1]).toMatchObject({ id: 'office-a', conversation_id: 'conv-1', kind: 'file' });
+  });
+
+  it('returns an empty video list to a foreign Seat and never exposes the local path', async () => {
+    const seatA = 'a2000000-0000-4000-8000-000000000001';
+    const seatB = 'b2000000-0000-4000-8000-000000000001';
+    const records = [
+      {
+        id: 'video-a',
+        conversation_id: 'conv-1',
+        seat_id: seatA,
+        kind: 'video' as const,
+        status: 'active' as const,
+        payload: {
+          artifact_type: 'video' as const,
+          title: 'Video 720p',
+          description: '',
+          path: '/private/seat-a.mp4',
+          mime_type: 'video/mp4',
+          hash: 'x'.repeat(64),
+          size: 3,
+        },
+        created_at: 1,
+        updated_at: 1,
+      },
+    ];
+    const listArtifactRecords = vi.fn((_dataPath: string, _conversationId: string, expectedSeatId: string) =>
+      expectedSeatId === seatA ? records : []
+    );
+
+    const forSeatB = await handleCommandEveVideoArtifactsList(
+      { conversationId: 'conv-1' },
+      {
+        getDataPath: () => '/tmp/eve-data',
+        getActiveSeatId: () => seatB,
+        listArtifactRecords,
+        listOfficeArtifactRecords: async () => [],
+      }
+    );
+    const forSeatA = await handleCommandEveVideoArtifactsList(
+      { conversationId: 'conv-1' },
+      {
+        getDataPath: () => '/tmp/eve-data',
+        getActiveSeatId: () => seatA,
+        listArtifactRecords,
+        listOfficeArtifactRecords: async () => [],
+      }
+    );
+
+    expect(forSeatB).toEqual([]);
+    expect(JSON.stringify(forSeatB)).not.toContain('/private/seat-a.mp4');
+    expect(forSeatA).toEqual(records);
   });
 
   it('reports native reconcile and Office list failures without hiding local videos', async () => {

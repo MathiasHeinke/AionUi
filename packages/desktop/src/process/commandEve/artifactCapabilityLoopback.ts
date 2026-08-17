@@ -58,6 +58,7 @@ import { isAgentImageEditAdvertisingEnabled } from './agentImageEditFlag';
 import { AGENT_VIDEO_GENERATE_DURATION_SECONDS, AGENT_VIDEO_GENERATE_TIER_ID } from './agentVideoGenerateFlag';
 import { productionAgentVideoGenerateGate } from './agentVideoGenerateGateMain';
 import { readArtifactCapabilityGrant } from './artifactCapabilityHandleStore';
+import { getActiveSeatId } from './seatContextCore';
 import { listVideoArtifactRecords } from './videoArtifactStore';
 
 export {
@@ -107,6 +108,13 @@ export interface ArtifactCapabilityLoopbackDeps {
   getDataPath: typeof getDataPath;
   listArtifactRecords: typeof listVideoArtifactRecords;
   readGrant: typeof readArtifactCapabilityGrant;
+  /**
+   * The seat a capability call is answered as. The loopback route is reached by
+   * the agent, which never names a seat, so the ACTIVE seat is the only honest
+   * authority — and it must be passed explicitly rather than defaulted, or a
+   * forgotten argument would silently read every grant as the legacy seat.
+   */
+  getActiveSeatId?: typeof getActiveSeatId;
   videoEdit: typeof handleCommandEveVideoEdit;
   isVideoEditEnabled: () => boolean;
   /**
@@ -135,6 +143,7 @@ const productionDeps: ArtifactCapabilityLoopbackDeps = {
   getDataPath,
   listArtifactRecords: listVideoArtifactRecords,
   readGrant: readArtifactCapabilityGrant,
+  getActiveSeatId,
   videoEdit: handleCommandEveVideoEdit,
   isVideoEditEnabled: () => isAgentVideoEditAdvertisingEnabled(getDataPath()),
   imageEdit: handleCommandEveImageEdit,
@@ -184,7 +193,7 @@ export async function artifactCapabilityCallHandler(
 
   if (operation === 'artifact_get') {
     const dataPath = deps.getDataPath();
-    const grant = deps.readGrant(dataPath, handle);
+    const grant = deps.readGrant(dataPath, handle, Date.now(), (deps.getActiveSeatId ?? getActiveSeatId)());
     if (!grant) return { status: 404, payload: { ok: false, reason: 'handle-unknown' } };
     const artifact = deps
       .listArtifactRecords(dataPath, grant.conversation_id)
@@ -337,7 +346,7 @@ export async function artifactCapabilityCallHandler(
     // limitation of this slice, not a solved problem — closing it needs the
     // envelope to mint a conversation-scoped generate grant, which is the same
     // change that would give this lane its missing spend permit.
-    const grant = deps.readGrant(deps.getDataPath(), handle);
+    const grant = deps.readGrant(deps.getDataPath(), handle, Date.now(), (deps.getActiveSeatId ?? getActiveSeatId)());
     if (!grant) return { status: 404, payload: { ok: false, reason: 'handle-unknown' } };
 
     // The expensive axes are PINNED (see `agentVideoGenerateFlag.ts`): the model

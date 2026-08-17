@@ -34,6 +34,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { CommandEveVideoConversationArtifact } from '@/common/config/videoGenerationRequestCore';
 import { hydrateVideoArtifactPayload } from '@/common/config/videoGenerationRequestCore';
+import { LEGACY_SEAT_ID, sanitizeSeatId } from '@/common/config/seatConfigKeyCore';
 import { ensurePrivateDirectory, writeJsonAtomic } from '@process/services/project-workspace/storage/atomicJson';
 import { writePrivateDocumentImmutable } from './document/privateDocumentCache';
 
@@ -78,6 +79,7 @@ export function saveGeneratedVideoFile(input: {
 /** Persist the artifact record so it survives a reload of this conversation. */
 export function saveVideoArtifactRecord(dataPath: string, artifact: CommandEveVideoConversationArtifact): void {
   if (!SAFE_ID.test(artifact.id) || !SAFE_ID.test(artifact.conversation_id)) return;
+  if (artifact.seat_id !== undefined && sanitizeSeatId(artifact.seat_id) !== artifact.seat_id) return;
   writeJsonAtomic(path.join(manifestDirectory(dataPath, artifact.conversation_id), `${artifact.id}.json`), artifact);
 }
 
@@ -109,12 +111,13 @@ function parseArtifactRecord(value: unknown): CommandEveVideoConversationArtifac
   return { ...artifact, payload: hydrateVideoArtifactPayload(artifact.payload) };
 }
 
-/** List every locally-durable video artifact for this conversation, oldest first. */
+/** List only this Seat's locally-durable video artifacts for a conversation, oldest first. */
 export function listVideoArtifactRecords(
   dataPath: string,
-  conversationId: string
+  conversationId: string,
+  expectedSeatId: string = LEGACY_SEAT_ID
 ): CommandEveVideoConversationArtifact[] {
-  if (!SAFE_ID.test(conversationId)) return [];
+  if (!SAFE_ID.test(conversationId) || sanitizeSeatId(expectedSeatId) !== expectedSeatId) return [];
   const directory = manifestDirectory(dataPath, conversationId);
   if (!fs.existsSync(directory)) return [];
   return fs
@@ -128,5 +131,6 @@ export function listVideoArtifactRecords(
       }
     })
     .filter((record): record is CommandEveVideoConversationArtifact => Boolean(record))
+    .filter((record) => (record.seat_id ?? LEGACY_SEAT_ID) === expectedSeatId)
     .toSorted((a, b) => a.created_at - b.created_at);
 }
