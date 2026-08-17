@@ -15,6 +15,7 @@ import {
   normalizeCommandEveLocalModelTierId,
 } from '@/common/config/commandEveShell';
 import { configService } from '@/common/config/configService';
+import { commandEveWarmupPermitsLocalSend } from '@/common/config/eveModelWarmupCore';
 import {
   isConnectedSelection,
   isEveInferenceSelection,
@@ -316,13 +317,15 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         // when the exact normalized model is already loaded.
         const ensureResult = await ipcBridge.commandEve.warmLocalModel.invoke({ tierId });
         const warmedStatus = ensureResult.data;
-        const warmupExplicitlySkipped =
-          warmedStatus?.model_warmup?.status === 'skipped' && warmedStatus.model_warmup.model === expectedRuntimeModel;
         const warmedReady =
           ensureResult.success &&
           warmedStatus?.status === 'ready' &&
           warmedStatus.default_model === expectedRuntimeModel &&
-          (commandEveWarmupReadyForModel(warmedStatus.model_warmup, expectedRuntimeModel) || warmupExplicitlySkipped);
+          warmedStatus.model_warmup?.model === expectedRuntimeModel &&
+          // One owner for the skip rule (eveModelWarmupCore): the renderer must
+          // not re-decide what a `skipped` warm-up means. It only adds the
+          // this-model check the main process cannot make on its behalf.
+          commandEveWarmupPermitsLocalSend(warmedStatus.model_warmup);
         if (!warmedReady) {
           Message.error(
             t('conversation.commandEveRuntimeNotReady', {

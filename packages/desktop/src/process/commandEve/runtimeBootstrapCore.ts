@@ -918,6 +918,30 @@ export function runtimeReceiptAllowsLocalModelRequest(
   );
 }
 
+/**
+ * The persisted receipt a warm-up may reuse instead of re-running the full
+ * bootstrap chain, or `undefined` when the full chain is required.
+ *
+ * Freshness is proven from fields the receipt already carries — `app_release`
+ * pins this exact release, `status`/`stages` pin a completed runtime and model
+ * provisioning, `default_model` pins the requested tier. No wall-clock
+ * threshold is used: a timestamp would only say when the receipt was written,
+ * not that it still describes this release, tier and provisioning state.
+ *
+ * This is deliberately NOT the whole gate. The bootstrap also re-establishes
+ * integrity promises that a receipt cannot vouch for on its own (managed-runtime
+ * ancestry, Python ABI provenance, signed packaged artifact site), so the caller
+ * must additionally hold a passing backend admission before reusing the result.
+ */
+export function commandEveWarmupFastPathReceipt(
+  receipt: RuntimeBootstrapReceipt | undefined,
+  appRelease: string,
+  requestedModel: string
+): RuntimeBootstrapReceipt | undefined {
+  if (!receipt) return undefined;
+  return runtimeReceiptAllowsLocalModelRequest(receipt, appRelease, requestedModel) ? receipt : undefined;
+}
+
 export type RuntimeBootstrapRunner = (
   command: string,
   args: string[],
@@ -13237,6 +13261,33 @@ export async function ensureCommandEveRuntimeBootstrap(
       throw error;
     }
   });
+}
+
+/**
+ * Run a bounded runtime mutation on the SAME per-runtime queue the bootstrap
+ * uses, without running a bootstrap.
+ *
+ * The local-model warm-up only ever observed a terminal receipt because it ran
+ * inside `afterBootstrapExclusive`, i.e. while the lease was held. A caller that
+ * skips the bootstrap must therefore take the lease itself, or a concurrent
+ * bootstrap could rewrite the receipt underneath it and the warm-up would
+ * attest to a runtime state that no longer exists.
+ *
+ * The callback MUST NOT call `ensureCommandEveRuntimeBootstrap`: the queue is
+ * not reentrant and would wait on the lease this call already holds.
+ */
+export function withCommandEveRuntimeExclusive<T>(
+  options: { userDataPath: string; canonicalUserDataPath?: string; platform?: NodeJS.Platform },
+  mutation: () => Promise<T> | T
+): Promise<T> {
+  const platform = options.platform ?? process.platform;
+  const runtimeRoot = resolveCommandEveRuntimeBootstrapPaths(
+    options.userDataPath,
+    getActiveSeatId(),
+    platform,
+    options.canonicalUserDataPath ?? options.userDataPath
+  ).runtimeRoot;
+  return withRuntimeBootstrapExclusive(platform, runtimeRoot, mutation);
 }
 
 export type CommandEveRegistrationIdentitySyncResult = {

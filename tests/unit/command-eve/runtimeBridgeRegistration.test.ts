@@ -934,4 +934,31 @@ describe('Command EVE runtime bridge registration', () => {
     expect(warmupSource).toContain('if (backendStartupFailed) return;');
     expect(backendFailureSource).toContain('runDeferredCommandEveRuntimeBootstrap = undefined;');
   });
+
+  it('keeps the warm-up fast path behind admission and the runtime lease', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
+    const resolverStart = source.indexOf('function resolveCommandEveWarmupFastPathReceipt(');
+    const resolverEnd = source.indexOf('async function waitForCommandEveBackendPort(', resolverStart);
+    const resolverSource = source.slice(resolverStart, resolverEnd);
+
+    // The receipt proves release/tier/provisioning; it cannot prove the managed
+    // runtime on disk is still the one it describes. Admission must gate reuse.
+    expect(resolverStart).toBeGreaterThan(-1);
+    expect(resolverSource).toContain('commandEveWarmupFastPathReceipt(');
+    expect(resolverSource).toContain('inspectCommandEveRuntimeBackendAdmission({');
+    expect(resolverSource).toContain('return admission.ok ? receipt : undefined;');
+
+    const handlerStart = source.indexOf('ipcBridge.commandEve.warmLocalModel.provider(');
+    const handlerEnd = source.indexOf('ipcBridge.commandEve.evaluateGateDecision.provider(', handlerStart);
+    const handlerSource = source.slice(handlerStart, handlerEnd);
+    const fastPathGate = handlerSource.indexOf('if (fastPathReceipt) {');
+    const fullBootstrap = handlerSource.indexOf('await ensureCommandEveRuntimeBootstrap({', fastPathGate);
+
+    expect(fastPathGate).toBeGreaterThan(-1);
+    expect(fullBootstrap).toBeGreaterThan(fastPathGate);
+    // Skipping the bootstrap must not also skip the per-runtime lease the
+    // warm-up has always run under (afterBootstrapExclusive).
+    expect(handlerSource.slice(fastPathGate, fullBootstrap)).toContain('withCommandEveRuntimeExclusive({');
+    expect(handlerSource.slice(fastPathGate, fullBootstrap)).toContain('ensureCommandEveLocalModelWarmup(');
+  });
 });

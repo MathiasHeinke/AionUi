@@ -47,6 +47,11 @@ import {
   normalizeCommandEveLocalModelTierId,
 } from './common/config/commandEveShell';
 import { readLicenseWire } from './common/config/licenseWireAtRest';
+import {
+  commandEveWarmupPermitsLocalSend,
+  describeCommandEveWarmupBlocker,
+  type CommandEveModelWarmupSkipReason,
+} from './common/config/eveModelWarmupCore';
 import type { EveTeamWorkerStatusMap } from './common/config/eveTeamControlsCore';
 import {
   buildTeamDirectiveRoles,
@@ -81,8 +86,11 @@ import { resolveHonchoHomeForSeat } from './process/commandEve/honchoRuntimeConf
 import { resolveHonchoRenderForSeat, type HonchoRenderInput } from './process/commandEve/honchoRuntimeRenderCore';
 import {
   resolveCommandEveRuntimeBootstrapPaths,
+  inspectCommandEveRuntimeBackendAdmission,
+  commandEveWarmupFastPathReceipt,
   runtimeReceiptAllowsLocalModelRequest,
   runtimeReceiptAllowsLocalModelWarmup,
+  withCommandEveRuntimeExclusive,
   type RuntimeBootstrapReceipt,
 } from './process/commandEve/runtimeBootstrapCore';
 import { shouldRestartWindowsBackendAfterRuntimeBootstrap } from './process/commandEve/windows/runtimeActivationCore';
@@ -483,6 +491,12 @@ type CommandEveModelWarmupReceipt = {
   completed_at?: string;
   elapsed_ms: number;
   error?: string;
+  /**
+   * Why a `skipped` warm-up was skipped. Absent on receipts written before
+   * 1.823 — the classifier reads that absence fail-closed, so an old receipt
+   * can no longer pass an unready runtime off as readiness.
+   */
+  skip_reason?: CommandEveModelWarmupSkipReason;
 };
 
 type CommandEveGateAction =
@@ -1114,6 +1128,31 @@ function writeCommandEveModelWarmupReceipt(runtimeRoot: string, receipt: Command
   }
 }
 
+/**
+ * Build the terminal receipt for a warm-up that never ran. The typed
+ * `skip_reason` is what lets every reader tell a deliberate opt-out apart from
+ * an unusable local runtime; the free-text `error` stays the human sentence.
+ */
+function buildCommandEveModelWarmupSkip(input: {
+  model: string;
+  shimUrl: string;
+  at: string;
+  skipReason: CommandEveModelWarmupSkipReason;
+  error: string;
+}): CommandEveModelWarmupReceipt {
+  return {
+    version: 'command-eve-model-warmup/v0',
+    status: 'skipped',
+    model: input.model,
+    base_url: input.shimUrl,
+    started_at: input.at,
+    completed_at: input.at,
+    elapsed_ms: 0,
+    error: input.error,
+    skip_reason: input.skipReason,
+  };
+}
+
 async function runCommandEveLocalModelWarmup(
   receipt: CommandEveWarmupReceipt,
   shimUrl: string,
@@ -1125,31 +1164,29 @@ async function runCommandEveLocalModelWarmup(
   const disabledNow = new Date().toISOString();
 
   if (!runtimeReceiptAllowsLocalModelWarmup(receipt)) {
-    const skipped: CommandEveModelWarmupReceipt = {
-      version: 'command-eve-model-warmup/v0',
-      status: 'skipped',
+    // Carry the bootstrap's OWN reason code (BLOCKED_RAM, BLOCKED_DISK,
+    // OLLAMA_MISSING, MODEL_NOT_FETCHED). The generic sentence used to be the
+    // only thing that survived, so the actionable cause died here and the user
+    // met an unexplained failure at send time instead.
+    const skipped = buildCommandEveModelWarmupSkip({
       model,
-      base_url: shimUrl,
-      started_at: disabledNow,
-      completed_at: disabledNow,
-      elapsed_ms: 0,
-      error: 'local model runtime not ready',
-    };
+      shimUrl,
+      at: disabledNow,
+      skipReason: 'runtime_not_ready',
+      error: describeCommandEveWarmupBlocker(receipt.stages) || 'local model runtime not ready',
+    });
     writeCommandEveModelWarmupReceipt(runtimeRoot, skipped);
     return skipped;
   }
 
   if (process.env.COMMAND_EVE_DISABLE_MODEL_WARMUP === '1') {
-    const skipped: CommandEveModelWarmupReceipt = {
-      version: 'command-eve-model-warmup/v0',
-      status: 'skipped',
+    const skipped = buildCommandEveModelWarmupSkip({
       model,
-      base_url: shimUrl,
-      started_at: disabledNow,
-      completed_at: disabledNow,
-      elapsed_ms: 0,
+      shimUrl,
+      at: disabledNow,
+      skipReason: 'disabled_by_env',
       error: 'disabled by COMMAND_EVE_DISABLE_MODEL_WARMUP',
-    };
+    });
     writeCommandEveModelWarmupReceipt(runtimeRoot, skipped);
     return skipped;
   }
@@ -1166,16 +1203,13 @@ async function runCommandEveLocalModelWarmup(
   const enabled = (warmupBag['commandEve.modelWarmupEnabled'] as boolean | undefined) ?? true;
   if (!enabled) {
     console.info('[Command EVE] Local model warm-up skipped by user preference.');
-    const skipped: CommandEveModelWarmupReceipt = {
-      version: 'command-eve-model-warmup/v0',
-      status: 'skipped',
+    const skipped = buildCommandEveModelWarmupSkip({
       model,
-      base_url: shimUrl,
-      started_at: disabledNow,
-      completed_at: disabledNow,
-      elapsed_ms: 0,
+      shimUrl,
+      at: disabledNow,
+      skipReason: 'disabled_by_user',
       error: 'disabled by user preference',
-    };
+    });
     writeCommandEveModelWarmupReceipt(runtimeRoot, skipped);
     return skipped;
   }
@@ -1228,6 +1262,66 @@ function ensureCommandEveLocalModelWarmup(
     commandEveWarmupInFlight = undefined;
   });
   return commandEveWarmupInFlight;
+}
+
+/**
+ * Single owner of the warm-up bridge answer, shared by the tier-install lane and
+ * the per-conversation lane so "did this runtime become usable" cannot drift
+ * apart between them.
+ */
+async function buildCommandEveWarmupResponse(input: {
+  runtimeStatus: string;
+  runtimeNextAction?: string;
+  warmupReceipt?: CommandEveModelWarmupReceipt;
+  status?: CommandEveRuntimeStatusPayload;
+}): Promise<{ success: boolean; data: CommandEveRuntimeStatusPayload; msg?: string }> {
+  const warmupOk = commandEveWarmupPermitsLocalSend(input.warmupReceipt);
+  return {
+    success: input.runtimeStatus === 'ready' && warmupOk,
+    data: input.status ?? (await getCommandEveRuntimeStatusPayload()),
+    msg:
+      input.runtimeStatus !== 'ready'
+        ? input.runtimeNextAction
+        : warmupOk
+          ? undefined
+          : input.warmupReceipt?.error || 'local model warm-up failed',
+  };
+}
+
+/**
+ * The persisted receipt this warm-up may reuse instead of re-running the whole
+ * bootstrap chain, or `undefined` when the full chain must run.
+ *
+ * Every new local conversation used to pay for the complete chain — Python
+ * probes and repeated receipt writes — in front of the short residency check,
+ * on exactly the path where time-to-first-token is measured.
+ *
+ * The receipt alone is not enough: it proves release, tier and provisioning,
+ * but it cannot vouch that the managed runtime on disk is still the one it
+ * describes. Backend admission re-establishes precisely those promises
+ * (managed-runtime ancestry, Python ABI provenance, signed packaged artifact
+ * site), so the fast path keeps them instead of trading them for latency.
+ */
+function resolveCommandEveWarmupFastPathReceipt(input: {
+  receiptPath: string;
+  requestedModel: string;
+  userDataPath: string;
+  canonicalUserDataPath: string;
+  requireBundledPython: boolean;
+}): RuntimeBootstrapReceipt | undefined {
+  const receipt = commandEveWarmupFastPathReceipt(
+    readJsonFile<RuntimeBootstrapReceipt>(input.receiptPath),
+    app.getVersion(),
+    input.requestedModel
+  );
+  if (!receipt) return undefined;
+  const admission = inspectCommandEveRuntimeBackendAdmission({
+    userDataPath: input.userDataPath,
+    canonicalUserDataPath: input.canonicalUserDataPath,
+    resourcesPath: process.resourcesPath,
+    requireBundledPython: input.requireBundledPython,
+  });
+  return admission.ok ? receipt : undefined;
 }
 
 async function waitForCommandEveBackendPort(timeoutMs = 90_000): Promise<number> {
@@ -1438,7 +1532,9 @@ function registerCommandEveRuntimeBridge(): void {
           status = await getCommandEveRuntimeStatusPayload();
         },
       });
-      const warmupOk = ['ready', 'skipped'].includes(warmupReceipt?.status || '');
+      // Only a DELIBERATE skip counts as success. An unready local runtime used
+      // to pass here, so main reported success while the model was unusable.
+      const warmupOk = commandEveWarmupPermitsLocalSend(warmupReceipt);
       return {
         success: receipt.status === 'ready' && warmupOk,
         data: status ?? (await getCommandEveRuntimeStatusPayload()),
@@ -1507,6 +1603,34 @@ function registerCommandEveRuntimeBridge(): void {
       );
       let warmupReceipt: CommandEveModelWarmupReceipt | undefined;
       let status: CommandEveRuntimeStatusPayload | undefined;
+      // TTFT: every new local conversation lands here. When the persisted
+      // receipt already proves this release, tier and provisioning AND backend
+      // admission still holds, the bounded residency check is the only work
+      // left — the full chain would re-probe Python and rewrite the receipt in
+      // front of it. A stale, foreign or inadmissible runtime falls through to
+      // the full chain below.
+      const fastPathReceipt = resolveCommandEveWarmupFastPathReceipt({
+        receiptPath: paths.receiptPath,
+        requestedModel: getCommandEveLocalModelTier(tierId).modelId,
+        userDataPath,
+        canonicalUserDataPath,
+        requireBundledPython,
+      });
+      if (fastPathReceipt) {
+        // The warm-up only ever observed a terminal receipt because it ran while
+        // the bootstrap held the per-runtime lease. Skipping the bootstrap must
+        // not also skip the lease, or a concurrent bootstrap could rewrite the
+        // receipt underneath this warm-up.
+        return withCommandEveRuntimeExclusive({ userDataPath, canonicalUserDataPath }, async () => {
+          warmupReceipt = await ensureCommandEveLocalModelWarmup(fastPathReceipt, shimUrl, warmCommandEveLocalModel);
+          return buildCommandEveWarmupResponse({
+            runtimeStatus: fastPathReceipt.status,
+            runtimeNextAction: fastPathReceipt.next_action,
+            warmupReceipt,
+            status: await getCommandEveRuntimeStatusPayload(),
+          });
+        });
+      }
       const receipt = await ensureCommandEveRuntimeBootstrap({
         userDataPath,
         canonicalUserDataPath,
@@ -1528,17 +1652,12 @@ function registerCommandEveRuntimeBridge(): void {
           status = await getCommandEveRuntimeStatusPayload();
         },
       });
-      const warmupOk = ['ready', 'skipped'].includes(warmupReceipt?.status || '');
-      return {
-        success: receipt.status === 'ready' && warmupOk,
-        data: status ?? (await getCommandEveRuntimeStatusPayload()),
-        msg:
-          receipt.status !== 'ready'
-            ? receipt.next_action
-            : warmupOk
-              ? undefined
-              : warmupReceipt?.error || 'local model warm-up failed',
-      };
+      return buildCommandEveWarmupResponse({
+        runtimeStatus: receipt.status,
+        runtimeNextAction: receipt.next_action,
+        warmupReceipt,
+        status,
+      });
     } catch (error) {
       return { success: false, msg: error instanceof Error ? error.message : String(error) };
     }

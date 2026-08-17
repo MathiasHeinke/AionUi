@@ -292,6 +292,7 @@ describe('useGuidSend blocked cloud lane', () => {
           status: 'skipped',
           model: 'command-eve-gemma4-e4b-64k:latest',
           error: 'disabled by user preference',
+          skip_reason: 'disabled_by_user',
         },
       },
     });
@@ -306,6 +307,116 @@ describe('useGuidSend blocked cloud lane', () => {
 
     expect(bridgeMocks.warmLocalModel).toHaveBeenCalledTimes(1);
     expect(bridgeMocks.conversationCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks the local send when the runtime was skipped because it is not ready', async () => {
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
+    );
+    bridgeMocks.ensureAssistant.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        agent_id: 'hermes-runtime',
+        agent_name: 'EVE',
+        cli_path: '/runtime/hermes',
+        enabled_skills: [],
+      },
+    });
+    bridgeMocks.runtimeStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: { status: 'ready', model: 'command-eve-gemma4-e4b-64k:latest' },
+      },
+    });
+    // The cloud lane is genuinely provisioned, so the runtime receipt reads
+    // 'ready' — only the LOCAL model was skipped. Before the skip was
+    // classified, this exact shape reported success and the missing model was
+    // discovered by the send itself, without the BLOCKED_RAM cause.
+    bridgeMocks.warmLocalModel.mockResolvedValue({
+      success: false,
+      msg: 'BLOCKED_RAM: Local model needs 16GB unified memory; found 8GB',
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: {
+          status: 'skipped',
+          model: 'command-eve-gemma4-e4b-64k:latest',
+          error: 'BLOCKED_RAM: Local model needs 16GB unified memory; found 8GB',
+          skip_reason: 'runtime_not_ready',
+        },
+      },
+    });
+    bridgeMocks.conversationCreate.mockResolvedValue({ id: 'conversation-should-not-exist' });
+
+    const deps = createDeps();
+    const translate = vi.fn(deps.t) as unknown as GuidSendDeps['t'];
+    deps.t = translate;
+    const { result } = renderHook(() => useGuidSend(deps));
+
+    await act(async () => {
+      await result.current.handleSend();
+    });
+
+    expect(bridgeMocks.conversationCreate).not.toHaveBeenCalled();
+    // The actionable cause must survive all the way into the user-facing toast.
+    expect(translate).toHaveBeenCalledWith(
+      'conversation.commandEveRuntimeNotReady',
+      expect.objectContaining({ reason: expect.stringContaining('BLOCKED_RAM') })
+    );
+    expect(messageErrorMock).toHaveBeenCalled();
+  });
+
+  it('blocks the local send for a legacy skipped receipt that carries no skip reason', async () => {
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
+    );
+    bridgeMocks.ensureAssistant.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        agent_id: 'hermes-runtime',
+        agent_name: 'EVE',
+        cli_path: '/runtime/hermes',
+        enabled_skills: [],
+      },
+    });
+    bridgeMocks.runtimeStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: { status: 'ready', model: 'command-eve-gemma4-e4b-64k:latest' },
+      },
+    });
+    // A receipt written before 1.823 cannot say WHY it was skipped. Deliberately
+    // fail-closed: an unlabeled skip may be an unready runtime, and reading it
+    // as readiness is exactly the fail-open this classification removes. The
+    // next warm-up rewrites the receipt with a reason.
+    bridgeMocks.warmLocalModel.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: {
+          status: 'skipped',
+          model: 'command-eve-gemma4-e4b-64k:latest',
+          error: 'disabled by user preference',
+        },
+      },
+    });
+    bridgeMocks.conversationCreate.mockResolvedValue({ id: 'conversation-should-not-exist' });
+
+    const deps = createDeps();
+    const { result } = renderHook(() => useGuidSend(deps));
+
+    await act(async () => {
+      await result.current.handleSend();
+    });
+
+    expect(bridgeMocks.conversationCreate).not.toHaveBeenCalled();
   });
 
   it('shows a neutral error and preserves the draft when the EVE ACP conversation cannot be created', async () => {
