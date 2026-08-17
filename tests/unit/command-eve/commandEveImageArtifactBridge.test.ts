@@ -30,6 +30,10 @@ import {
   recordActiveUserTurn,
   reinitializeVideoEditSpendStore,
 } from '@/process/commandEve/videoEditSpendPermitStore';
+import {
+  clearCommandEveFileSelectionGrantsForTests,
+  registerCommandEveFileSelectionGrant,
+} from '@/process/commandEve/fileSelectionGrantCore';
 import type { CommandEveActiveImageArtifact } from '@/common/config/managedImageArtifactCore';
 import type { CommandEveImageGenerateRequest } from '@/common/config/eveManagedImageGenerationCore';
 
@@ -133,6 +137,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  clearCommandEveFileSelectionGrantsForTests();
   fs.rmSync(dataRoot, { recursive: true, force: true });
 });
 
@@ -794,6 +799,13 @@ describe('bind / list / preview / import handlers', () => {
         getActiveSeatId: () => SEAT_ID,
         workspaceRootForLegacyId: () => workspaceRoot,
       };
+      expect(
+        registerCommandEveFileSelectionGrant({
+          filePath: path.join(workspaceRoot, 'img-1785796180699.png'),
+          seatId: SEAT_ID,
+          purpose: 'read',
+        })
+      ).toBe(true);
       const accepted = await handleCommandEveImageArtifactImportLegacy(
         {
           conversationId: '3be29bae',

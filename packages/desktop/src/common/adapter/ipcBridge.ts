@@ -130,7 +130,8 @@ export type ICommandEveImageArtifactImportResult =
         | 'path-outside-workspace'
         | 'file-missing'
         | 'file-unreadable'
-        | 'unsupported-file';
+        | 'unsupported-file'
+        | 'file-selection-required';
     };
 import type {
   CommandEveManagedVisualTurnAuthorizationRequest,

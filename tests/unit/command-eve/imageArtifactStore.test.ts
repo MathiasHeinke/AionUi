@@ -15,6 +15,11 @@ import {
   stageGeneratedImageArtifact,
 } from '@/process/commandEve/imageArtifactStore';
 import { IMAGE_STAGED_HANDLE_TTL_MS } from '@/common/config/managedImageArtifactCore';
+import {
+  areCommandEveFileSelectionPathsGranted,
+  clearCommandEveFileSelectionGrantsForTests,
+  registerCommandEveFileSelectionGrant,
+} from '@/process/commandEve/fileSelectionGrantCore';
 
 const BYTES = Buffer.from('png-bytes-here');
 const PROMPT_SHA = crypto.createHash('sha256').update('a prompt').digest('hex');
@@ -51,6 +56,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  clearCommandEveFileSelectionGrantsForTests();
   fs.rmSync(dataRoot, { recursive: true, force: true });
 });
 
@@ -399,14 +405,129 @@ describe('LEGACY IMPORT', () => {
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
-  it('adopts the exact expected workspace file only for seat-1 and remains idempotent', () => {
-    const result = importLegacyImageArtifact(dataRoot, {
+  function grantLegacyFileRead(seatId = LEGACY_SEAT, root = workspaceRoot, fileName = FILE_NAME): void {
+    expect(
+      registerCommandEveFileSelectionGrant({
+        filePath: path.join(root, fileName),
+        seatId,
+        purpose: 'read',
+      })
+    ).toBe(true);
+  }
+
+  function importExactLegacyFile(capturedSeatId = LEGACY_SEAT) {
+    return importLegacyImageArtifact(dataRoot, {
       conversationId: CANONICAL,
       legacyWorkspaceId: LEGACY_ID,
       expectedFileName: FILE_NAME,
       workspaceRoot,
-      capturedSeatId: LEGACY_SEAT,
+      capturedSeatId,
     });
+  }
+
+  it('refuses ownerless legacy bytes without a Main-issued file-selection grant', () => {
+    const ensureEditHandle = vi.fn();
+    const result = importLegacyImageArtifact(
+      dataRoot,
+      {
+        conversationId: CANONICAL,
+        legacyWorkspaceId: LEGACY_ID,
+        expectedFileName: FILE_NAME,
+        workspaceRoot,
+        capturedSeatId: LEGACY_SEAT,
+      },
+      { ensureEditHandle }
+    );
+
+    // Mutation control: removing the store-bound consume check makes this
+    // import succeed and creates a durable record.
+    expect(result).toEqual({ ok: false, reason: 'file-selection-required' });
+    expect(ensureEditHandle).not.toHaveBeenCalled();
+    expect(listActiveImageArtifacts(dataRoot, CANONICAL, LEGACY_SEAT)).toEqual([]);
+  });
+
+  it('refuses a live grant bound to another seat without consuming it', () => {
+    grantLegacyFileRead(SEAT_B);
+
+    expect(importExactLegacyFile()).toEqual({ ok: false, reason: 'file-selection-required' });
+    expect(
+      areCommandEveFileSelectionPathsGranted({
+        filePaths: [path.join(workspaceRoot, FILE_NAME)],
+        seatId: SEAT_B,
+        purpose: 'read',
+      })
+    ).toBe(true);
+  });
+
+  it('keeps a grant unusable but unconsumed when the candidate is unsupported', () => {
+    const unsupportedFile = 'notes.txt';
+    fs.writeFileSync(path.join(workspaceRoot, unsupportedFile), 'not an image');
+    grantLegacyFileRead(LEGACY_SEAT, workspaceRoot, unsupportedFile);
+
+    expect(
+      importLegacyImageArtifact(dataRoot, {
+        conversationId: CANONICAL,
+        legacyWorkspaceId: LEGACY_ID,
+        expectedFileName: unsupportedFile,
+        workspaceRoot,
+        capturedSeatId: LEGACY_SEAT,
+      })
+    ).toEqual({ ok: false, reason: 'unsupported-file' });
+    expect(
+      areCommandEveFileSelectionPathsGranted({
+        filePaths: [path.join(workspaceRoot, unsupportedFile)],
+        seatId: LEGACY_SEAT,
+        purpose: 'read',
+      })
+    ).toBe(true);
+  });
+
+  it('keeps a grant unusable but unconsumed when the candidate is a symlink', () => {
+    const symlinkFile = 'img-link.png';
+    fs.symlinkSync(path.join(workspaceRoot, FILE_NAME), path.join(workspaceRoot, symlinkFile));
+    grantLegacyFileRead(LEGACY_SEAT, workspaceRoot, symlinkFile);
+
+    expect(
+      importLegacyImageArtifact(dataRoot, {
+        conversationId: CANONICAL,
+        legacyWorkspaceId: LEGACY_ID,
+        expectedFileName: symlinkFile,
+        workspaceRoot,
+        capturedSeatId: LEGACY_SEAT,
+      })
+    ).toEqual({ ok: false, reason: 'file-unreadable' });
+    expect(
+      areCommandEveFileSelectionPathsGranted({
+        filePaths: [path.join(workspaceRoot, symlinkFile)],
+        seatId: LEGACY_SEAT,
+        purpose: 'read',
+      })
+    ).toBe(true);
+  });
+
+  it('consumes the exact grant before a read failure so it cannot be replayed', () => {
+    const candidate = path.join(workspaceRoot, FILE_NAME);
+    grantLegacyFileRead();
+    const realReadFile = fs.readFileSync;
+    vi.spyOn(fs, 'readFileSync').mockImplementation(((file: fs.PathOrFileDescriptor, ...rest: unknown[]) => {
+      if (file === candidate) throw Object.assign(new Error('EIO'), { code: 'EIO' });
+      return (realReadFile as (...args: unknown[]) => Buffer)(file, ...rest);
+    }) as typeof fs.readFileSync);
+
+    expect(importExactLegacyFile()).toEqual({ ok: false, reason: 'file-unreadable' });
+    expect(
+      areCommandEveFileSelectionPathsGranted({
+        filePaths: [candidate],
+        seatId: LEGACY_SEAT,
+        purpose: 'read',
+      })
+    ).toBe(false);
+    expect(listActiveImageArtifacts(dataRoot, CANONICAL, LEGACY_SEAT)).toEqual([]);
+  });
+
+  it('adopts the exact granted workspace file for seat-1, consumes the grant once, and retries durably', () => {
+    grantLegacyFileRead();
+    const result = importExactLegacyFile();
     expect(result).toMatchObject({ ok: true, alreadyImported: false });
     if (result.ok === false) return;
     expect(result.record.status).toBe('active');
@@ -419,13 +540,15 @@ describe('LEGACY IMPORT', () => {
     expect(listActiveImageArtifacts(dataRoot, CANONICAL, LEGACY_SEAT).length).toBe(1);
     expect(listActiveImageArtifacts(dataRoot, LEGACY_ID, LEGACY_SEAT)).toEqual([]);
 
-    const again = importLegacyImageArtifact(dataRoot, {
-      conversationId: CANONICAL,
-      legacyWorkspaceId: LEGACY_ID,
-      expectedFileName: FILE_NAME,
-      workspaceRoot,
-      capturedSeatId: LEGACY_SEAT,
-    });
+    expect(
+      areCommandEveFileSelectionPathsGranted({
+        filePaths: [path.join(workspaceRoot, FILE_NAME)],
+        seatId: LEGACY_SEAT,
+        purpose: 'read',
+      })
+    ).toBe(false);
+
+    const again = importExactLegacyFile();
     expect(again).toMatchObject({ ok: true, alreadyImported: true });
     if (again.ok) expect(again.record.id).toBe(result.record.id);
     expect(listActiveImageArtifacts(dataRoot, CANONICAL, LEGACY_SEAT).length).toBe(1);
@@ -460,6 +583,7 @@ describe('LEGACY IMPORT', () => {
         capturedSeatId: LEGACY_SEAT,
       });
     // Positive control first: the exact shape IS accepted.
+    grantLegacyFileRead();
     expect(attempt(LEGACY_ID).ok).toBe(true);
     // A different conversation's folder, an arbitrary id, the canonical id
     // itself, and near-miss spellings are all refused — no mapping table, no
@@ -502,6 +626,7 @@ describe('LEGACY IMPORT', () => {
       fs.symlinkSync(outside, linkRoot);
       // The expected name under a root whose REALPATH is a different directory
       // still resolves exactly — that case is legitimately confined…
+      grantLegacyFileRead(LEGACY_SEAT, linkRoot);
       const viaLink = importLegacyImageArtifact(dataRoot, {
         conversationId: CANONICAL,
         legacyWorkspaceId: LEGACY_ID,

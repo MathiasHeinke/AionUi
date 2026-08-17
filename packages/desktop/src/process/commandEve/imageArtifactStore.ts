@@ -51,6 +51,7 @@ import {
   type CommandEveManagedImageArtifact,
 } from '@/common/config/managedImageArtifactCore';
 import { ensureImageEditCapabilityHandle } from './artifactCapabilityHandleStore';
+import { consumeCommandEveFileSelectionPathGrant } from './fileSelectionGrantCore';
 import { ensurePrivateDirectory, writeJsonAtomic } from '@process/services/project-workspace/storage/atomicJson';
 import { writePrivateDocumentImmutable } from './document/privateDocumentCache';
 
@@ -77,6 +78,8 @@ const EXTENSION_TO_MIME: Record<string, string> = {
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
 };
+
+const LEGACY_IMPORT_DESCRIPTION = 'Aus der bestehenden Arbeitsdatei importiert';
 
 function storeRoot(dataPath: string): string {
   return path.join(path.resolve(dataPath), MANAGED_IMAGE_ARTIFACT_DIR);
@@ -532,7 +535,8 @@ export type ImageArtifactImportResult =
         | 'path-outside-workspace'
         | 'file-missing'
         | 'file-unreadable'
-        | 'unsupported-file';
+        | 'unsupported-file'
+        | 'file-selection-required';
     };
 
 /**
@@ -624,6 +628,35 @@ export function importLegacyImageArtifact(
     return { ok: false, reason: 'file-missing' };
   }
 
+  // A completed legacy import is durable and safe to re-deliver without
+  // another selection grant. Keep that retry narrow: only the exact
+  // conversation's Main-written legacy record, identified by this fenced
+  // workspace filename, qualifies. The path and realpath fences above still
+  // run before this shortcut.
+  const existing = listActiveImageArtifacts(dataPath, conversationId, input.capturedSeatId).find(
+    (record) =>
+      record.payload.managed_image === true &&
+      record.payload.title === expectedFileName &&
+      record.payload.description === LEGACY_IMPORT_DESCRIPTION &&
+      record.payload.tier === 'legacy' &&
+      record.payload.model === 'legacy'
+  );
+  if (existing) return { ok: true, record: existing, alreadyImported: true };
+
+  // The workspace name merely confines the renderer-supplied filename; it
+  // cannot confer authority to read it. Only Main's live, seat-bound grant for
+  // this exact resolved candidate may adopt ownerless pre-seat bytes. Consume
+  // it at this boundary so nothing downstream can accidentally reuse it.
+  if (
+    !consumeCommandEveFileSelectionPathGrant({
+      filePath: candidate,
+      seatId: input.capturedSeatId,
+      purpose: 'read',
+    })
+  ) {
+    return { ok: false, reason: 'file-selection-required' };
+  }
+
   let bytes: Buffer;
   try {
     bytes = fs.readFileSync(candidate);
@@ -632,13 +665,6 @@ export function importLegacyImageArtifact(
   }
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
   const nowMs = input.nowMs ?? Date.now();
-
-  // Idempotent: the same file imported twice (a retried migration) yields the
-  // existing record, not a second artifact.
-  const existing = listActiveImageArtifacts(dataPath, conversationId, input.capturedSeatId).find(
-    (record) => record.payload.sha256 === sha256
-  );
-  if (existing) return { ok: true, record: existing, alreadyImported: true };
 
   try {
     const artifactId = `img_${crypto.randomUUID().replace(/-/g, '')}`;
@@ -651,7 +677,7 @@ export function importLegacyImageArtifact(
       payload: {
         artifact_type: 'image',
         title: expectedFileName,
-        description: 'Aus der bestehenden Arbeitsdatei importiert',
+        description: LEGACY_IMPORT_DESCRIPTION,
         managed_image: true,
         mime_type: mimeType,
         sha256,
