@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-23T12:00:00.000Z",
+  "updatedAt": "2026-08-17T00:00:00.000Z",
   "policy": {
     "command": "bun run security:audit:production",
     "scope": "bun audit --json (complete lockfile; production reachability reviewed per exception)",
@@ -88,48 +88,6 @@
         "https://github.com/advisories/GHSA-p2f4-r6v6-j797",
         "bun.lock",
         "out/mac-arm64/Command EVE.app/Contents/Resources/app.asar"
-      ]
-    },
-    {
-      "advisoryId": 1124006,
-      "package": "@hono/node-server",
-      "severity": "moderate",
-      "url": "https://github.com/advisories/GHSA-frvp-7c67-39w9",
-      "vulnerableVersions": "<2.0.5",
-      "installedVersions": ["1.19.14"],
-      "owner": "Command EVE Security / CTO",
-      "reachability": {
-        "classification": "not-reachable",
-        "rationale": "The package is transitive through @modelcontextprotocol/sdk 1.29.0, but Command EVE does not import @hono/node-server or its vulnerable serve-static subpath. Product-owned MCP servers use stdio, and the connector catalog blocks HTTP, SSE and streamable-HTTP transports by default.",
-        "evidence": [
-          "packages/desktop/src/process/resources/builtinMcp/imageGenServer.ts",
-          "packages/desktop/src/process/commandEve/connectorCatalogCore.ts",
-          "bun pm why @hono/node-server --all"
-        ],
-        "requiredAbsentRuntimeImports": ["@hono/node-server"]
-      },
-      "mitigation": {
-        "controls": [
-          "The vulnerable serve-static entrypoint is not loaded by Command EVE runtime code.",
-          "External HTTP, SSE and streamable-HTTP MCP transports remain blocked by the connector catalog.",
-          "The production audit gate re-runs a first-party substring tripwire over packages/** source and fails if a literal '@hono/node-server' specifier appears in product source. This is a tripwire, not a module-graph reachability proof; it intentionally excludes node_modules/resources and cannot see computed specifiers."
-        ],
-        "verification": [
-          "bun run security:audit:production",
-          "bunx vitest run tests/unit/scripts/productionAuditCore.test.ts",
-          "rg -n '@hono/node-server' packages"
-        ]
-      },
-      "remediation": {
-        "target": "A production-supported @modelcontextprotocol/sdk line that resolves @hono/node-server >=2.0.5, or a separately proven v2 adapter upgrade.",
-        "trigger": "Remove this exception as soon as the MCP SDK publishes a compatible production dependency range; do not force the current v1 SDK across the @hono/node-server major boundary without its integration suite."
-      },
-      "reviewedAt": "2026-07-23T00:00:00.000Z",
-      "expiresAt": "2026-08-22T00:00:00.000Z",
-      "evidence": [
-        "https://github.com/advisories/GHSA-frvp-7c67-39w9",
-        "https://registry.npmjs.org/@modelcontextprotocol/sdk/1.29.0",
-        "https://registry.npmjs.org/@hono%2fnode-server/2.0.11"
       ]
     }
   ]
