@@ -1914,6 +1914,100 @@ describe('Command EVE runtime bootstrap core', () => {
     });
   }, 180_000);
 
+  it('keeps a running bootstrap receipt out of the local-model authority path until every stage finishes', async () => {
+    const harness = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+    let observedRunningReceipt = false;
+    const runner: RuntimeBootstrapRunner = async (command, args, options) => {
+      if (command === '/opt/homebrew/bin/ollama' && args[0] === 'list' && !observedRunningReceipt) {
+        observedRunningReceipt = true;
+        expect(fs.existsSync(paths.receiptPath)).toBe(false);
+
+        const progress = JSON.parse(fs.readFileSync(paths.receiptProgressPath, 'utf8'));
+        expect(progress.status).toBe('ready');
+        expect(progress.stages).toContainEqual(expect.objectContaining({ id: 'ollama', status: 'pass' }));
+        expect(progress.stages).not.toContainEqual(expect.objectContaining({ id: 'model' }));
+        expect(
+          runtimeReceiptAllowsLocalModelRequest(progress, COMMAND_EVE_VERSION, DEFAULT_GEMMA_RUNTIME_MODEL_REF)
+        ).toBe(false);
+      }
+      return harness.runner(command, args, options);
+    };
+
+    await withOllamaServer(async (baseUrl) => {
+      const receipt = await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harness.root,
+        manifestPath: writeManifest(harness.root, baseUrl),
+        runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+        ollamaBinaryCandidates: [],
+      });
+
+      expect(observedRunningReceipt).toBe(true);
+      expect(receipt.status).toBe('ready');
+      expect(receipt.stages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'manifest', status: 'pass' }),
+          expect.objectContaining({ id: 'directories', status: 'pass' }),
+          expect.objectContaining({ id: 'python', status: 'pass' }),
+          expect.objectContaining({ id: 'hermes', status: 'pass' }),
+          expect.objectContaining({ id: 'presentation-python', status: 'pass' }),
+          expect.objectContaining({ id: 'memory-seed', status: 'pass' }),
+          expect.objectContaining({ id: 'ollama', status: 'pass' }),
+          expect.objectContaining({ id: 'model', status: 'pass' }),
+        ])
+      );
+      expect(JSON.parse(fs.readFileSync(paths.receiptPath, 'utf8'))).toEqual(receipt);
+      expect(fs.existsSync(paths.receiptProgressPath)).toBe(false);
+    });
+  });
+
+  it('keeps the prior terminal receipt unchanged while a warm runtime bootstraps again', async () => {
+    const harness = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+
+    await withOllamaServer(async (baseUrl) => {
+      const manifestPath = writeManifest(harness.root, baseUrl);
+      const firstReceipt = await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harness.root,
+        manifestPath,
+        runner: harness.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+        ollamaBinaryCandidates: [],
+      });
+      const priorReceiptBytes = fs.readFileSync(paths.receiptPath, 'utf8');
+      let observedRerun = false;
+      const runner: RuntimeBootstrapRunner = async (command, args, options) => {
+        if (command === '/usr/bin/python3.13' && args[0] === '--version' && !observedRerun) {
+          observedRerun = true;
+          expect(fs.readFileSync(paths.receiptPath, 'utf8')).toBe(priorReceiptBytes);
+          expect(fs.existsSync(paths.receiptProgressPath)).toBe(true);
+        }
+        return harness.runner(command, args, options);
+      };
+
+      const secondReceipt = await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harness.root,
+        manifestPath,
+        runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+        ollamaBinaryCandidates: [],
+      });
+
+      expect(firstReceipt.status).toBe('ready');
+      expect(observedRerun).toBe(true);
+      expect(secondReceipt.status).toBe('ready');
+      expect(JSON.parse(fs.readFileSync(paths.receiptPath, 'utf8'))).toEqual(secondReceipt);
+      expect(fs.existsSync(paths.receiptProgressPath)).toBe(false);
+    });
+  });
+
   it('uses the selected local model tier when Command EVE requests 12B planning', async () => {
     const harness = makeHarness({ ollamaInitiallyInstalled: true });
     await withOllamaServer(async (baseUrl) => {
