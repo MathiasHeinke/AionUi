@@ -784,6 +784,7 @@ export type RuntimeBootstrapPaths = {
   canonicalUserDataPath: string;
   runtimeRoot: string;
   receiptPath: string;
+  receiptProgressPath: string;
   modelWarmupReceiptPath: string;
   modelPullProgressPath: string;
   capabilitiesRoot: string;
@@ -2927,6 +2928,16 @@ export function resolveCommandEveRuntimeBootstrapPaths(
     canonicalUserDataPath: canonicalRoot,
     runtimeRoot,
     receiptPath: path.join(runtimeRoot, 'runtime-bootstrap-receipt.json'),
+    // Stage-by-stage progress of a RUNNING bootstrap. Deliberately a side file
+    // OUTSIDE the receipt canon: `runtime-bootstrap-receipt.json` must only
+    // ever describe a COMPLETED run, because live callers (the chat routing
+    // resolver, the warm-up fast path, the startup wait) read it as proof that
+    // the local model may be used. Writing partial stages into it made a
+    // re-running bootstrap publish a receipt that already said `status: ready`
+    // while `ollama`/`model` — the two stages that actually authorize a local
+    // model request — were still missing, so a send in that window failed with
+    // "still being verified" on a fully installed runtime.
+    receiptProgressPath: path.join(runtimeRoot, 'runtime-bootstrap-progress.json'),
     modelWarmupReceiptPath: path.join(runtimeRoot, 'model-warmup-receipt.json'),
     // v1.6.x — live model-pull progress, a side file OUTSIDE the receipt canon
     // (the receipt is only written per completed stage, so a live first pull
@@ -11744,12 +11755,28 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   const pushStage = (stage: RuntimeBootstrapStage): void => {
     stages.push(stage);
     const receipt = finishReceipt();
+    // Progress only. The authoritative receipt is replaced once, atomically,
+    // when the run reaches its terminal state (see `commitReceipt`), so a
+    // concurrent reader can never observe a half-finished run that already
+    // claims `status: ready`.
+    writeJsonAtomic(paths.receiptProgressPath, receipt);
+  };
+  // Publish the terminal receipt and drop the progress file. Every exit of this
+  // function returns through here, so "the receipt on disk" and "this run
+  // finished" are the same fact.
+  const commitReceipt = (receipt: RuntimeBootstrapReceipt = finishReceipt()): RuntimeBootstrapReceipt => {
     writeJsonAtomic(paths.receiptPath, receipt);
+    try {
+      fs.rmSync(paths.receiptProgressPath, { force: true });
+    } catch {
+      // A stale progress file is inert: nothing reads it as authority.
+    }
+    return receipt;
   };
 
   if (mode === 'off') {
     pushStage(makeStage('manifest', 'skip', { detail: 'COMMAND_EVE_RUNTIME_BOOTSTRAP=off' }));
-    return finishReceipt();
+    return commitReceipt();
   }
 
   if (manifestLoadFailure) {
@@ -11759,7 +11786,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         detail: `Runtime bootstrap manifest could not be parsed: ${scrubOutput(manifestLoadFailure)}`,
       })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
 
   const manifestFailures = validateRuntimeBootstrapManifest(manifest, tier);
@@ -11772,7 +11799,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       : makeStage('manifest', 'pass', { detail: manifestPath ? `Loaded ${manifestPath}` : 'Using embedded defaults' })
   );
   if (manifestFailures.length) {
-    return finishReceipt();
+    return commitReceipt();
   }
 
   ensureDir(paths.hermesRoot);
@@ -11787,7 +11814,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         detail: `Command EVE capability pack could not be parsed: ${scrubOutput(capabilityPackLoadFailure)}`,
       })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
 
   const capabilityFailures = validateCommandEveCapabilityPack(capabilityPack);
@@ -11798,7 +11825,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         detail: `Command EVE capability pack failed validation: ${capabilityFailures.join(', ')}`,
       })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
 
   writeCommandEveCapabilityPack(paths, capabilityPack);
@@ -11897,7 +11924,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         detail: python.foundUnsupported || `No Python found. ${PYTHON_INSTALL_GUIDANCE}`,
       })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
   const pythonUsesBundledCandidate =
     bundledPython.length > 0 && path.resolve(python.path) === path.resolve(bundledPython);
@@ -11938,7 +11965,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         detail: `The packaged Hermes dependency closure is missing or invalid (${artifactSiteReason}); the managed runtime was left unchanged.`,
       })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
 
   let venvReplacement: RuntimeVenvReplacement | undefined;
@@ -11992,7 +12019,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         detail: `Could not inspect an interrupted Hermes Python environment replacement: ${error instanceof Error ? error.message : String(error)}`,
       })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
   if (mode === 'check' && interruptedVenvReplacement) {
     pushStage(
@@ -12001,7 +12028,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         detail: 'A previous Hermes Python environment replacement was interrupted; automatic recovery is required.',
       })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
   if (mode !== 'check') {
     try {
@@ -12013,7 +12040,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           detail: `Could not restore an interrupted Hermes Python environment replacement: ${error instanceof Error ? error.message : String(error)}`,
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
   }
 
@@ -12035,7 +12062,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           : `${python.path} (${python.version || 'version checked'})`,
       })
     );
-    if (existingVenvNeedsReplacement) return finishReceipt();
+    if (existingVenvNeedsReplacement) return commitReceipt();
   } else if (existingVenvNeedsReplacement) {
     try {
       assertManagedHermesRoot(paths);
@@ -12046,7 +12073,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           detail: `Could not replace the incompatible Hermes Python environment: ${error instanceof Error ? error.message : String(error)}`,
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
     if (requireBundledPython) {
       const priorHermes = await readPriorHermesVersion(paths, runner, env);
@@ -12070,7 +12097,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
             detail: `The installed Hermes reports ${detectedHermesVersion}, but its wheel receipt reports ${existingWheelReceipt.package_version}; refusing an ambiguous ABI replacement.`,
           })
         );
-        return finishReceipt();
+        return commitReceipt();
       }
       preRebuildHermesVersion = existingWheelReceipt?.package_version || detectedHermesVersion || 'unknown';
       preRebuildWheelReceipt = existingWheelReceipt;
@@ -12090,7 +12117,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
             detail: `Could not preserve ${failedBackups.length} Hermes state database backup(s); the existing runtime was left unchanged.`,
           })
         );
-        return finishReceipt();
+        return commitReceipt();
       }
     }
     venvReplacementPythonStageIndex = stages.length;
@@ -12114,8 +12141,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           detail: `Could not begin the incompatible Hermes Python environment replacement: ${error instanceof Error ? error.message : String(error)}`,
         })
       );
-      writeJsonAtomic(paths.receiptPath, finishReceipt());
-      return finishReceipt();
+      return commitReceipt();
     }
     const started = Date.now();
     const venv = await runner(python.path, ['-m', 'venv', paths.hermesVenv], {
@@ -12132,8 +12158,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           duration_ms: Date.now() - started,
         })
       );
-      writeJsonAtomic(paths.receiptPath, finishReceipt());
-      return finishReceipt();
+      return commitReceipt();
     }
     setVenvReplacementPythonStage(
       makeStage('python', 'blocked', {
@@ -12158,7 +12183,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       })
     );
     if (!venv.ok) {
-      return finishReceipt();
+      return commitReceipt();
     }
   } else {
     pushStage(makeStage('python', 'pass', { detail: 'Hermes Python venv already exists.' }));
@@ -12196,13 +12221,13 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       'The exact bundled Hermes wheel is missing; package-index fallback is prohibited.'
     );
     pushStage(makeStage('hermes', 'failed', { code: 'HERMES_BUNDLED_WHEEL_MISSING', detail }));
-    return finishReceipt();
+    return commitReceipt();
   }
   const hermesSpec = buildHermesPackageSpec(manifest, bundledHermesWheel);
   if (!hermesWheelSha256Verified) {
     const detail = rollbackVenvReplacement('Bundled Hermes wheel bytes do not match the committed SHA-256 pin.');
     pushStage(makeStage('hermes', 'failed', { code: 'HERMES_WHEEL_HASH_MISMATCH', detail }));
-    return finishReceipt();
+    return commitReceipt();
   }
 
   // Snapshot and protect the pre-binding Hermes version while the mutable
@@ -12235,7 +12260,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
             detail: `The installed Hermes reports ${priorDetectedVersion}, but its wheel receipt reports ${priorWheelReceipt.package_version}; refusing an ambiguous signed-site replacement.`,
           })
         );
-        return finishReceipt();
+        return commitReceipt();
       }
       priorVersion = priorWheelReceipt?.package_version || priorDetectedVersion;
     }
@@ -12247,7 +12272,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
             'The existing Hermes version could not be proven before signed-site binding; the runtime was left unchanged.',
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
     if (priorVersion !== manifest.hermes.version) {
       preRebuildStateDbBackups = backupHermesStateDbsBeforeUpgrade({
@@ -12263,7 +12288,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
             detail: `Could not preserve ${failedBackups.length} Hermes state database backup(s); the existing runtime was left unchanged.`,
           })
         );
-        return finishReceipt();
+        return commitReceipt();
       }
     }
   }
@@ -12294,7 +12319,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           command: `${pythonBinary(paths)} -B -I -P -S -c <packaged-hermes-origin-probe>`,
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
   }
   if (packagedHermesSiteRequired && artifactSite.ok && mode !== 'check') {
@@ -12316,7 +12341,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           detail,
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
     if (packagedHermesSiteRequired) {
       try {
@@ -12327,7 +12352,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           `The packaged Hermes launchers could not be prepared: ${error instanceof Error ? error.message : String(error)}`
         );
         pushStage(makeStage('hermes', 'failed', { code: 'HERMES_PACKAGED_LAUNCHER_FAILED', detail }));
-        return finishReceipt();
+        return commitReceipt();
       }
     }
   }
@@ -12413,7 +12438,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       })
     );
     if (!hermesRuntimeMatches) {
-      return finishReceipt();
+      return commitReceipt();
     }
   } else if (!hermesRuntimeMatches) {
     const started = Date.now();
@@ -12452,7 +12477,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
             detail: `Could not preserve ${failedBackups.length} Hermes state database backup(s); the existing runtime was left unchanged.`,
           })
         );
-        return finishReceipt();
+        return commitReceipt();
       }
     }
     let installArgs: string[];
@@ -12513,7 +12538,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       })
     );
     if (!hermesReady) {
-      return finishReceipt();
+      return commitReceipt();
     }
     if (runtimeProvenance.hermes && hermesWheelSha256) {
       runtimeProvenance.hermes.installed_wheel_sha256 = hermesWheelSha256;
@@ -12572,7 +12597,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         detail,
       })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
   if (artifactSite.ok && mode !== 'check' && !pathBinding) {
     pathBinding = await bindCommandEveArtifactPythonSite({
@@ -12592,7 +12617,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           detail,
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
   }
 
@@ -12618,7 +12643,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           : 'The managed document runtime is missing, unbound, or version-mismatched.',
       })
     );
-    if (!ready) return finishReceipt();
+    if (!ready) return commitReceipt();
   } else if (!presentationPythonProbe.ok) {
     const started = Date.now();
     if (artifactSite.ok) {
@@ -12632,7 +12657,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           duration_ms: Date.now() - started,
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
     const bundleDir = resolveCommandEvePresentationPythonBundleDir(env, options.resourcesPath);
     const bundle = bundleDir
@@ -12650,7 +12675,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           duration_ms: Date.now() - started,
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
 
     const installArgs = commandEvePresentationPythonInstallArgs(bundle.directory);
@@ -12682,7 +12707,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         duration_ms: Date.now() - started,
       })
     );
-    if (!ready) return finishReceipt();
+    if (!ready) return commitReceipt();
   } else {
     pushStage(
       makeStage('presentation-python', 'pass', {
@@ -12725,7 +12750,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           detail,
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
 
     let completion: { cleanupPending: boolean };
@@ -12744,8 +12769,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           detail,
         })
       );
-      writeJsonAtomic(paths.receiptPath, finishReceipt());
-      return finishReceipt();
+      return commitReceipt();
     }
     venvReplacement = undefined;
     setVenvReplacementPythonStage(
@@ -12761,7 +12785,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       runtimeProvenance.hermes.installed_wheel_sha256 = hermesWheelSha256;
       runtimeProvenance.hermes.installed_wheel_verified = true;
     }
-    writeJsonAtomic(paths.receiptPath, finishReceipt());
+    writeJsonAtomic(paths.receiptProgressPath, finishReceipt());
   }
 
   if (options.stopAfterHermesRuntimeReady) {
@@ -12783,7 +12807,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     pushStage(
       makeStage('model', 'skip', { code: 'RUNTIME_BOOTSTRAP_DEFERRED_AFTER_ABI_REPAIR', detail: deferredDetail })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
 
   const packageSnapshot =
@@ -13016,7 +13040,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   if (localModelSkip) {
     pushStage(makeStage('ollama', 'skip', localModelSkip));
     pushStage(makeStage('model', 'skip', localModelSkip));
-    return finishReceipt();
+    return commitReceipt();
   }
 
   if (tier.runtime === 'bonsai-prism') {
@@ -13049,7 +13073,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           })
         );
       }
-      return finishReceipt();
+      return commitReceipt();
     }
     pushStage(
       makeStage('model', install.installed ? 'pass' : 'blocked', {
@@ -13059,7 +13083,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           : 'Bonsai 27B is not installed yet. Choose Download in the local model settings.',
       })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
 
   if (tier.runtime === 'colibri') {
@@ -13101,7 +13125,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           })
         );
       }
-      return finishReceipt();
+      return commitReceipt();
     }
     pushStage(
       makeStage('model', install.installed ? 'pass' : 'blocked', {
@@ -13111,7 +13135,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           : 'Colibrì is not installed yet. It needs about 400 GB free disk and is recommended on a 128 GB Apple Silicon Mac.',
       })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
 
   let ollama = await resolveOllamaCommand(runner, env, options.ollamaBinaryCandidates, platform);
@@ -13131,7 +13155,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         })
       );
       if (!install.ok) {
-        return finishReceipt();
+        return commitReceipt();
       }
       ollama = await resolveOllamaCommand(runner, env, options.ollamaBinaryCandidates, platform);
     }
@@ -13144,7 +13168,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         detail: 'Install Ollama or Homebrew, then restart Command EVE. No curl-pipe installer was executed.',
       })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
 
   if (!(await pingOllama(manifest.local_runtime.base_url)) && mode === 'auto') {
@@ -13187,7 +13211,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     );
   }
   if (!ollamaReady) {
-    return finishReceipt();
+    return commitReceipt();
   }
 
   const listBefore = await runner(ollama.path, ['list'], { env, timeoutMs: DEFAULT_STAGE_TIMEOUT_MS });
@@ -13256,7 +13280,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           duration_ms: Date.now() - started,
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
     writeProgress({ status: 'done', percent: 100 });
     const listAfter = await runner(ollama.path, ['list'], { env, timeoutMs: DEFAULT_STAGE_TIMEOUT_MS });
@@ -13270,7 +13294,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         detail: `${tier.model_ref} is not available locally; restart with network access or choose another local tier.`,
       })
     );
-    return finishReceipt();
+    return commitReceipt();
   }
 
   const expectedArtifactSha256 = expectedOllamaArtifactSha256(tier);
@@ -13296,7 +13320,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           duration_ms: Date.now() - started,
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
   }
 
@@ -13327,7 +13351,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           duration_ms: Date.now() - started,
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
     const listAfterAlias = await runner(ollama.path, ['list'], { env, timeoutMs: DEFAULT_STAGE_TIMEOUT_MS });
     hasRuntimeModel = listAfterAlias.ok && parseOllamaListHasModel(listAfterAlias.stdout || '', runtimeModelRef);
@@ -13355,7 +13379,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           duration_ms: Date.now() - started,
         })
       );
-      return finishReceipt();
+      return commitReceipt();
     }
   }
 
@@ -13368,10 +13392,10 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     })
   );
   if (!hasRuntimeModel) {
-    return finishReceipt();
+    return commitReceipt();
   }
 
-  return finishReceipt();
+  return commitReceipt();
 }
 
 /**
