@@ -65,6 +65,8 @@ const GUID_INPUT = '.guid-input-card-shell textarea';
 const EXISTING_INPUT = '.acp-send-box textarea';
 const LOCAL_SELECTION_KEY = 'commandEve.inferenceSelection';
 const RESPONSE_TIMEOUT_MS = 180_000;
+const PAGE_EVALUATE_NAME_HELPER =
+  "globalThis.__name ??= (target, value) => Object.defineProperty(target, 'name', { value, configurable: true });";
 type Args = {
   cohort: CommandEveTtftCohort;
   sessions: number;
@@ -375,6 +377,13 @@ async function resolveMainWindow(app: ElectronApplication): Promise<Page> {
   return window;
 }
 
+async function installPageEvaluateNameHelper(page: Page): Promise<void> {
+  // tsx preserves nested function names with a module-scoped __name helper.
+  // Playwright serializes evaluate bodies without that module scope.
+  await page.addInitScript({ content: PAGE_EVALUATE_NAME_HELPER });
+  await page.evaluate(PAGE_EVALUATE_NAME_HELPER);
+}
+
 async function navigateToGuid(page: Page): Promise<number> {
   if (!page.url().includes('#/guid')) {
     await page.evaluate(() => window.location.assign('#/guid'));
@@ -430,6 +439,7 @@ async function launchApp(args: Args): Promise<AppHandle> {
     // promise while startup is still creating the first renderer. Attach to the
     // loaded window first; measurement timestamps below remain unchanged.
     const page = await resolveMainWindow(app);
+    await installPageEvaluateNameHelper(page);
     const launchedAppVersion = await app.evaluate(({ app: electronApp }) => electronApp.getVersion());
     const artifactTruth = releaseTruth(args, launchedAppVersion, manifestPath, packagedQaAttachment);
     const rendererUsableAt = await navigateToGuid(page);
