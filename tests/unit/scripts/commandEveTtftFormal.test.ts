@@ -3,6 +3,7 @@ import {
   buildCommandEveTtftFormalReceipt,
   isCommandEveTtftVisibleElement,
   selectCommandEveTtftAttemptBinding,
+  selectCommandEveTtftProviderTurnBinding,
   selectCommandEveTtftUpstreamEvidence,
   validateCommandEveProviderCallReceipt,
   type CommandEveProviderCallReceipt,
@@ -53,7 +54,11 @@ const usage = (overrides: Partial<CommandEveProviderCallResponseUsage> = {}): Co
   ...overrides,
 });
 
-const providerReceipt = (turnId = 'turn-b', callIndex = 1, responseUsage = usage()): CommandEveProviderCallReceipt => ({
+const providerReceipt = (
+  turnId = 'session:task:8hex',
+  callIndex = 1,
+  responseUsage = usage()
+): CommandEveProviderCallReceipt => ({
   attempt_count: 1,
   call_index: callIndex,
   content_included: false,
@@ -87,6 +92,21 @@ const providerHistoryLine = (receipt: CommandEveProviderCallReceipt): string =>
     response_started: true,
   });
 
+const providerBindingHistoryLine = (overrides: Record<string, unknown> = {}): string =>
+  JSON.stringify({
+    version: 'command-eve-provider-turn-binding/v1',
+    boundary: 'desktop_acp_session_info',
+    contentIncluded: false,
+    conversationId: 'conv-b',
+    sessionId: 'acp-session-b',
+    aionCoreTurnId: 'turn-b',
+    hermesTurnId: 'session:task:8hex',
+    requestId: 'session:task:8hex:api:1',
+    callIndex: 1,
+    observedAt: new Date(1_305).toISOString(),
+    ...overrides,
+  });
+
 const exactEvidence = {
   notBeforeEpochMs: 1_000,
   attemptBinding: {
@@ -103,10 +123,19 @@ const exactEvidence = {
     taskReadyAtEpochMs: 1_210,
     hermesSessionReadyAtEpochMs: 1_220,
   },
-  upstream: {
-    turnId: 'turn-b',
+  providerTurnBinding: {
+    conversationId: 'conv-b',
+    sessionId: 'acp-session-b',
+    aionCoreTurnId: 'turn-b',
+    hermesTurnId: 'session:task:8hex',
+    requestId: 'session:task:8hex:api:1',
     callIndex: 1,
-    requestId: 'turn-b:api:1',
+    observedAtEpochMs: 1_305,
+  },
+  upstream: {
+    turnId: 'session:task:8hex',
+    callIndex: 1,
+    requestId: 'session:task:8hex:api:1',
     finalRequestFingerprintSha256: 'a'.repeat(64),
     responseUsageFingerprintSha256: 'b'.repeat(64),
     attemptCount: 1,
@@ -224,16 +253,82 @@ describe('Command EVE TTFT formal correlation', () => {
     expect(selection.binding).toMatchObject({ conversationId: 'conv-b', attemptId: 7, turnId: 'turn-b' });
   });
 
+  it('selects exactly one provider binding for the admitted outer turn', () => {
+    const selection = selectCommandEveTtftProviderTurnBinding({
+      lines: [providerBindingHistoryLine()],
+      expectedConversationId: 'conv-b',
+      expectedAionCoreTurnId: 'turn-b',
+      notBeforeEpochMs: 1_000,
+      notAfterEpochMs: 1_900,
+    });
+
+    expect(selection.violations).toEqual([]);
+    expect(selection.evidence).toEqual(exactEvidence.providerTurnBinding);
+  });
+
+  it('rejects a foreign or duplicated provider binding', () => {
+    const foreign = selectCommandEveTtftProviderTurnBinding({
+      lines: [providerBindingHistoryLine({ aionCoreTurnId: 'turn-a' })],
+      expectedConversationId: 'conv-b',
+      expectedAionCoreTurnId: 'turn-b',
+      notBeforeEpochMs: 1_000,
+      notAfterEpochMs: 1_900,
+    });
+    const duplicated = selectCommandEveTtftProviderTurnBinding({
+      lines: [providerBindingHistoryLine(), providerBindingHistoryLine()],
+      expectedConversationId: 'conv-b',
+      expectedAionCoreTurnId: 'turn-b',
+      notBeforeEpochMs: 1_000,
+      notAfterEpochMs: 1_900,
+    });
+
+    expect(foreign.evidence).toBeNull();
+    expect(foreign.violations).toContain(
+      'expected exactly one provider turn binding for admitted AionCore turn, observed 0'
+    );
+    expect(duplicated.evidence).toBeNull();
+    expect(duplicated.violations).toContain(
+      'expected exactly one provider turn binding for admitted AionCore turn, observed 2'
+    );
+  });
+
+  it('rejects forged request identity and non-first provider binding calls', () => {
+    const forgedRequest = selectCommandEveTtftProviderTurnBinding({
+      lines: [providerBindingHistoryLine({ requestId: 'session:task:8hex:api:2' })],
+      expectedConversationId: 'conv-b',
+      expectedAionCoreTurnId: 'turn-b',
+      notBeforeEpochMs: 1_000,
+      notAfterEpochMs: 1_900,
+    });
+    const laterCall = selectCommandEveTtftProviderTurnBinding({
+      lines: [
+        providerBindingHistoryLine({
+          requestId: 'session:task:8hex:api:2',
+          callIndex: 2,
+        }),
+      ],
+      expectedConversationId: 'conv-b',
+      expectedAionCoreTurnId: 'turn-b',
+      notBeforeEpochMs: 1_000,
+      notAfterEpochMs: 1_900,
+    });
+
+    expect(forgedRequest.evidence).toBeNull();
+    expect(forgedRequest.violations).toContain('provider turn binding identity is invalid');
+    expect(laterCall.evidence).toBeNull();
+    expect(laterCall.violations).toContain('provider turn binding callIndex must be 1, observed 2');
+  });
+
   it('rejects a foreign single upstream receipt instead of assigning the admitted turn retroactively', () => {
     const selection = selectCommandEveTtftUpstreamEvidence({
       lines: [providerHistoryLine(providerReceipt('turn-a'))],
-      expectedTurnId: 'turn-b',
+      binding: exactEvidence.providerTurnBinding,
       notBeforeEpochMs: 1_000,
       notAfterEpochMs: 1_900,
     });
 
     expect(selection.evidence).toBeNull();
-    expect(selection.violations).toContain('expected exactly one provider receipt for admitted turn, observed 0');
+    expect(selection.violations).toContain('expected exactly one provider receipt for bound Hermes turn, observed 0');
   });
 
   it('rejects ambiguous same-turn calls and impossible provider-receipt chronology', () => {
@@ -241,9 +336,9 @@ describe('Command EVE TTFT formal correlation', () => {
     const ambiguous = selectCommandEveTtftUpstreamEvidence({
       lines: [
         providerHistoryLine(receipt),
-        providerHistoryLine({ ...receipt, call_index: 2, request_id: 'turn-b:api:2' }),
+        providerHistoryLine({ ...receipt, call_index: 2, request_id: 'session:task:8hex:api:2' }),
       ],
-      expectedTurnId: 'turn-b',
+      binding: exactEvidence.providerTurnBinding,
       notBeforeEpochMs: 1_000,
       notAfterEpochMs: 1_900,
     });
@@ -254,13 +349,13 @@ describe('Command EVE TTFT formal correlation', () => {
           observed_at: new Date(1_440).toISOString(),
         }),
       ],
-      expectedTurnId: 'turn-b',
+      binding: exactEvidence.providerTurnBinding,
       notBeforeEpochMs: 1_000,
       notAfterEpochMs: 1_900,
     });
 
     expect(ambiguous.evidence).toBeNull();
-    expect(ambiguous.violations).toContain('expected exactly one provider receipt for admitted turn, observed 2');
+    expect(ambiguous.violations).toContain('expected exactly one provider receipt for bound Hermes turn, observed 2');
     expect(reversed.evidence).toBeNull();
     expect(reversed.violations).toContain('provider history observed_at precedes first_body_chunk_at');
   });
@@ -281,6 +376,20 @@ describe('Command EVE TTFT formal correlation', () => {
     expect(wrongUpstream.missingGroups).toContain('upstream_transport');
     expect(wrongAttempt.outcome).toBe('INSUFFICIENT_EVIDENCE');
     expect(wrongUpstream.outcome).toBe('INSUFFICIENT_EVIDENCE');
+  });
+
+  it('rejects a provider retry even when the bound identities otherwise match', () => {
+    const selection = selectCommandEveTtftUpstreamEvidence({
+      lines: [providerHistoryLine({ ...providerReceipt(), attempt_count: 2 })],
+      binding: exactEvidence.providerTurnBinding,
+      notBeforeEpochMs: 1_000,
+      notAfterEpochMs: 1_900,
+    });
+
+    expect(selection.evidence).toBeNull();
+    expect(selection.violations).toContain(
+      'provider receipt invalid: provider receipt attempt_count must be exactly 1'
+    );
   });
 
   it('rejects over-attribution and content-bearing or malformed provider receipts', () => {

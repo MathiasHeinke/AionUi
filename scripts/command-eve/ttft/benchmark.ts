@@ -51,9 +51,11 @@ import {
   buildCommandEveTtftFormalReceipt,
   isCommandEveTtftVisibleElement,
   selectCommandEveTtftAttemptBinding,
+  selectCommandEveTtftProviderTurnBinding,
   selectCommandEveTtftUpstreamEvidence,
   type CommandEveTtftAttemptBinding,
   type CommandEveTtftFormalReceipt,
+  type CommandEveTtftProviderTurnBindingEvidence,
   type CommandEveTtftRuntimeReadinessEvidence,
   type CommandEveTtftUpstreamEvidence,
   type CommandEveTtftVisibleElementSnapshot,
@@ -343,11 +345,11 @@ function exactRuntimeReadinessEvidence(
 
 function uniqueUpstreamEvidence(
   lines: string[],
-  turnId: string,
+  binding: CommandEveTtftProviderTurnBindingEvidence | null,
   notBeforeEpochMs: number,
   notAfterEpochMs: number
 ): { evidence: CommandEveTtftUpstreamEvidence | null; violations: string[] } {
-  return selectCommandEveTtftUpstreamEvidence({ lines, expectedTurnId: turnId, notBeforeEpochMs, notAfterEpochMs });
+  return selectCommandEveTtftUpstreamEvidence({ lines, binding, notBeforeEpochMs, notAfterEpochMs });
 }
 
 function observed(
@@ -899,6 +901,12 @@ async function runMeasuredTurn(input: {
     'upstream-outcome-history.jsonl'
   );
   const upstreamHistoryOffset = fileSize(upstreamHistoryPath);
+  const providerTurnBindingHistoryPath = path.join(
+    input.args.userDataDir,
+    'command-eve-runtime',
+    'provider-turn-binding-history.jsonl'
+  );
+  const providerTurnBindingHistoryOffset = fileSize(providerTurnBindingHistoryPath);
   await resetRendererCollector(page);
   const textarea = page.locator(input.surface === 'start_chat' ? GUID_INPUT : EXISTING_INPUT).last();
   const measuredPrompt = `${input.args.prompt} [${input.iteration}]`;
@@ -1018,12 +1026,22 @@ async function runMeasuredTurn(input: {
     iteration: input.iteration,
     milestones,
   });
+  const providerTurnBindingSelection =
+    terminalAtEpochMs === undefined
+      ? { evidence: null, violations: ['terminal timestamp unavailable for provider turn binding correlation'] }
+      : selectCommandEveTtftProviderTurnBinding({
+          lines: readFromOffset(providerTurnBindingHistoryPath, providerTurnBindingHistoryOffset),
+          expectedConversationId: measuredConversationId,
+          expectedAionCoreTurnId: measuredTurnId,
+          notBeforeEpochMs: sendActionAt,
+          notAfterEpochMs: terminalAtEpochMs,
+        });
   const upstreamSelection =
     terminalAtEpochMs === undefined
       ? { evidence: null, violations: ['terminal timestamp unavailable for provider receipt correlation'] }
       : uniqueUpstreamEvidence(
           readFromOffset(upstreamHistoryPath, upstreamHistoryOffset),
-          measuredTurnId,
+          providerTurnBindingSelection.evidence,
           sendActionAt,
           terminalAtEpochMs
         );
@@ -1044,8 +1062,9 @@ async function runMeasuredTurn(input: {
             terminalAtEpochMs
           )
         : null,
+    providerTurnBinding: providerTurnBindingSelection.evidence,
     upstream: upstreamSelection.evidence,
-    evidenceViolations: upstreamSelection.violations,
+    evidenceViolations: [...providerTurnBindingSelection.violations, ...upstreamSelection.violations],
   });
   return { ...receipt, formal };
 }

@@ -8,6 +8,7 @@ import type { AcpPerformanceMark } from '../../../packages/desktop/src/renderer/
 export const COMMAND_EVE_TTFT_FORMAL_RECEIPT_VERSION = 'command-eve-ttft-formal-receipt/v1' as const;
 
 export const COMMAND_EVE_PROVIDER_CALL_RECEIPT_VERSION = 'command-eve-provider-call/v1' as const;
+export const COMMAND_EVE_PROVIDER_TURN_BINDING_VERSION = 'command-eve-provider-turn-binding/v1' as const;
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const USAGE_KEY = /^[a-z][a-z0-9_]{0,63}$/;
@@ -110,6 +111,16 @@ export type CommandEveTtftRuntimeReadinessEvidence = {
   hermesSessionReadyAtEpochMs: number | null;
 };
 
+export type CommandEveTtftProviderTurnBindingEvidence = {
+  conversationId: string;
+  sessionId: string;
+  aionCoreTurnId: string;
+  hermesTurnId: string;
+  requestId: string;
+  callIndex: number;
+  observedAtEpochMs: number;
+};
+
 export type CommandEveTtftUpstreamEvidence = {
   turnId: string;
   callIndex: number;
@@ -134,6 +145,7 @@ export type CommandEveTtftFormalInput = {
   attemptBinding: CommandEveTtftAttemptBinding | null;
   firstVisible: CommandEveTtftVisibleEvidence | null;
   runtimeReadiness: CommandEveTtftRuntimeReadinessEvidence | null;
+  providerTurnBinding: CommandEveTtftProviderTurnBindingEvidence | null;
   upstream: CommandEveTtftUpstreamEvidence | null;
   evidenceViolations?: string[];
   runtimeActivityLimitMs?: number;
@@ -351,11 +363,14 @@ export function validateCommandEveProviderCallReceipt(value: unknown): CommandEv
 
 export function selectCommandEveTtftUpstreamEvidence(input: {
   lines: string[];
-  expectedTurnId: string;
+  binding: CommandEveTtftProviderTurnBindingEvidence | null;
   notBeforeEpochMs: number;
   notAfterEpochMs: number;
 }): { evidence: CommandEveTtftUpstreamEvidence | null; violations: string[] } {
   const violations: string[] = [];
+  if (!input.binding) {
+    return { evidence: null, violations: ['provider turn binding is unavailable'] };
+  }
   const sameTurn: Array<{
     receipt: CommandEveProviderCallReceipt;
     history: CommandEveProviderCallHistoryRecord;
@@ -415,7 +430,7 @@ export function selectCommandEveTtftUpstreamEvidence(input: {
       continue;
     }
     if (startedAt < input.notBeforeEpochMs || observedAt > input.notAfterEpochMs) continue;
-    if (validation.receipt.turn_id === input.expectedTurnId) {
+    if (validation.receipt.turn_id === input.binding.hermesTurnId) {
       sameTurn.push({
         receipt: validation.receipt,
         history: history as CommandEveProviderCallHistoryRecord,
@@ -424,7 +439,7 @@ export function selectCommandEveTtftUpstreamEvidence(input: {
     }
   }
   if (sameTurn.length !== 1) {
-    violations.push(`expected exactly one provider receipt for admitted turn, observed ${sameTurn.length}`);
+    violations.push(`expected exactly one provider receipt for bound Hermes turn, observed ${sameTurn.length}`);
     return { evidence: null, violations };
   }
   const { receipt, history, startedAt } = sameTurn[0];
@@ -432,6 +447,12 @@ export function selectCommandEveTtftUpstreamEvidence(input: {
     violations.push(`provider receipt call_index must be 1, observed ${receipt.call_index}`);
   if (receipt.attempt_count !== 1) {
     violations.push(`provider receipt attempt_count must be 1, observed ${receipt.attempt_count}`);
+  }
+  if (receipt.request_id !== input.binding.requestId) {
+    violations.push('provider receipt request_id does not match provider turn binding');
+  }
+  if (receipt.call_index !== input.binding.callIndex) {
+    violations.push('provider receipt call_index does not match provider turn binding');
   }
   if (history.outcome !== 'completed') violations.push('provider history outcome must be completed');
   if (history.response_started !== true) violations.push('provider history response_started must be true');
@@ -466,6 +487,106 @@ export function selectCommandEveTtftUpstreamEvidence(input: {
     },
     violations: [],
   };
+}
+
+export function selectCommandEveTtftProviderTurnBinding(input: {
+  lines: string[];
+  expectedConversationId: string;
+  expectedAionCoreTurnId: string;
+  notBeforeEpochMs: number;
+  notAfterEpochMs: number;
+}): { evidence: CommandEveTtftProviderTurnBindingEvidence | null; violations: string[] } {
+  const violations: string[] = [];
+  const matches: CommandEveTtftProviderTurnBindingEvidence[] = [];
+  const requiredKeys = new Set([
+    'version',
+    'boundary',
+    'contentIncluded',
+    'conversationId',
+    'sessionId',
+    'aionCoreTurnId',
+    'hermesTurnId',
+    'requestId',
+    'callIndex',
+    'observedAt',
+  ]);
+  for (const line of input.lines) {
+    if (!line.trim()) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      Array.isArray(parsed) ||
+      (parsed as Record<string, unknown>).version !== COMMAND_EVE_PROVIDER_TURN_BINDING_VERSION
+    ) {
+      continue;
+    }
+    const record = parsed as Record<string, unknown>;
+    const unexpectedKeys = Object.keys(record).filter((key) => !requiredKeys.has(key));
+    const missingKeys = [...requiredKeys].filter((key) => !Object.hasOwn(record, key));
+    if (unexpectedKeys.length > 0) {
+      violations.push(`provider turn binding contains unexpected fields: ${unexpectedKeys.join(',')}`);
+      continue;
+    }
+    if (missingKeys.length > 0) {
+      violations.push(`provider turn binding is missing fields: ${missingKeys.join(',')}`);
+      continue;
+    }
+    if (record.boundary !== 'desktop_acp_session_info' || record.contentIncluded !== false) {
+      violations.push('provider turn binding boundary/content declaration is invalid');
+      continue;
+    }
+    if (
+      !isContentFreeCallIdentity(record.conversationId) ||
+      !isContentFreeCallIdentity(record.sessionId) ||
+      !isContentFreeCallIdentity(record.aionCoreTurnId) ||
+      !isContentFreeCallIdentity(record.hermesTurnId) ||
+      !isContentFreeCallIdentity(record.requestId) ||
+      !Number.isSafeInteger(record.callIndex) ||
+      (record.callIndex as number) < 1 ||
+      record.requestId !== commandEveProviderCallRequestId(record.hermesTurnId, record.callIndex as number)
+    ) {
+      violations.push('provider turn binding identity is invalid');
+      continue;
+    }
+    const observedAt = typeof record.observedAt === 'string' ? Date.parse(record.observedAt) : Number.NaN;
+    if (!Number.isFinite(observedAt)) {
+      violations.push('provider turn binding observedAt must be parseable');
+      continue;
+    }
+    if (observedAt < input.notBeforeEpochMs || observedAt > input.notAfterEpochMs) continue;
+    if (
+      record.conversationId === input.expectedConversationId &&
+      record.aionCoreTurnId === input.expectedAionCoreTurnId
+    ) {
+      matches.push({
+        conversationId: record.conversationId,
+        sessionId: record.sessionId,
+        aionCoreTurnId: record.aionCoreTurnId,
+        hermesTurnId: record.hermesTurnId,
+        requestId: record.requestId,
+        callIndex: record.callIndex as number,
+        observedAtEpochMs: observedAt,
+      });
+    }
+  }
+  if (matches.length !== 1) {
+    violations.push(
+      `expected exactly one provider turn binding for admitted AionCore turn, observed ${matches.length}`
+    );
+    return { evidence: null, violations };
+  }
+  const binding = matches[0];
+  if (binding.callIndex !== 1) {
+    violations.push(`provider turn binding callIndex must be 1, observed ${binding.callIndex}`);
+  }
+  if (violations.length > 0) return { evidence: null, violations };
+  return { evidence: binding, violations: [] };
 }
 
 export function selectCommandEveTtftAttemptBinding(input: {
@@ -569,21 +690,21 @@ export function buildCommandEveTtftFormalReceipt(input: CommandEveTtftFormalInpu
   );
   violations.push(...unexpectedKeys.map((key) => `non-content-free marker field: ${key}`));
 
-  const binding = input.attemptBinding;
-  if (!binding) violations.push('exact submit attempt binding is unavailable');
+  const attemptBinding = input.attemptBinding;
+  if (!attemptBinding) violations.push('exact submit attempt binding is unavailable');
   const uniqueMark = (label: string, candidates: AcpPerformanceMark[]): AcpPerformanceMark | undefined => {
     if (candidates.length > 1) violations.push(`${label} is ambiguous: observed ${candidates.length} matching marks`);
     return candidates.length === 1 ? candidates[0] : undefined;
   };
-  const submit = binding
+  const submit = attemptBinding
     ? uniqueMark(
         'submit_started',
         marks.filter(
           (mark) =>
             mark.stage === 'submit_started' &&
-            mark.conversationId === binding.conversationId &&
-            mark.attemptId === binding.attemptId &&
-            mark.seatGeneration === binding.seatGeneration
+            mark.conversationId === attemptBinding.conversationId &&
+            mark.attemptId === attemptBinding.attemptId &&
+            mark.seatGeneration === attemptBinding.seatGeneration
         )
       )
     : undefined;
@@ -594,15 +715,15 @@ export function buildCommandEveTtftFormalReceipt(input: CommandEveTtftFormalInpu
       )
     : undefined;
   const admission =
-    submit && binding
+    submit && attemptBinding
       ? uniqueMark(
           'turn_admitted',
           marks.filter(
             (mark) =>
               mark.stage === 'turn_admitted' &&
               sameAttempt(mark, submit) &&
-              mark.turnId === binding.turnId &&
-              mark.messageId === binding.requestMessageId
+              mark.turnId === attemptBinding.turnId &&
+              mark.messageId === attemptBinding.requestMessageId
           )
         )
       : undefined;
@@ -651,12 +772,27 @@ export function buildCommandEveTtftFormalReceipt(input: CommandEveTtftFormalInpu
     typeof input.runtimeReadiness.hermesSessionReadyAtEpochMs === 'number' &&
     Number.isFinite(input.runtimeReadiness.hermesSessionReadyAtEpochMs)
   );
-  const upstreamMatches = Boolean(
+  const providerTurnBindingMatches = Boolean(
     admission &&
-    input.upstream?.turnId === admission.turnId &&
+    input.providerTurnBinding?.conversationId === admission.conversationId &&
+    input.providerTurnBinding.aionCoreTurnId === admission.turnId &&
+    isContentFreeCallIdentity(input.providerTurnBinding.sessionId) &&
+    isContentFreeCallIdentity(input.providerTurnBinding.hermesTurnId) &&
+    input.providerTurnBinding.callIndex === 1 &&
+    isContentFreeCallIdentity(input.providerTurnBinding.requestId) &&
+    input.providerTurnBinding.requestId ===
+      commandEveProviderCallRequestId(input.providerTurnBinding.hermesTurnId, input.providerTurnBinding.callIndex) &&
+    Number.isFinite(input.providerTurnBinding.observedAtEpochMs)
+  );
+  const upstreamMatches = Boolean(
+    providerTurnBindingMatches &&
+    input.providerTurnBinding &&
+    input.upstream?.turnId === input.providerTurnBinding.hermesTurnId &&
     input.upstream.callIndex === 1 &&
+    input.upstream.callIndex === input.providerTurnBinding.callIndex &&
     isContentFreeCallIdentity(input.upstream.requestId) &&
     input.upstream.requestId === commandEveProviderCallRequestId(input.upstream.turnId, input.upstream.callIndex) &&
+    input.upstream.requestId === input.providerTurnBinding.requestId &&
     SHA256.test(input.upstream.finalRequestFingerprintSha256) &&
     SHA256.test(input.upstream.responseUsageFingerprintSha256) &&
     input.upstream.attemptCount === 1 &&
@@ -689,6 +825,11 @@ export function buildCommandEveTtftFormalReceipt(input: CommandEveTtftFormalInpu
   requireChronology('warmup settled -> turn_admitted', warmupSettled?.atEpochMs, admission?.atEpochMs);
   requireChronology('submit_started -> turn_admitted', submit?.atEpochMs, admission?.atEpochMs);
   requireChronology('turn_admitted -> task ready', admission?.atEpochMs, input.runtimeReadiness?.taskReadyAtEpochMs);
+  requireChronology(
+    'turn_admitted -> provider turn binding',
+    admission?.atEpochMs,
+    input.providerTurnBinding?.observedAtEpochMs
+  );
   requireChronology('turn_admitted -> upstream started', admission?.atEpochMs, input.upstream?.startedAtEpochMs);
   requireChronology(
     'task ready -> upstream started',
@@ -713,6 +854,11 @@ export function buildCommandEveTtftFormalReceipt(input: CommandEveTtftFormalInpu
   requireChronology(
     'first body chunk -> provider receipt observed',
     input.upstream?.firstBodyChunkAtEpochMs,
+    input.upstream?.observedAtEpochMs
+  );
+  requireChronology(
+    'provider turn binding -> provider receipt observed',
+    input.providerTurnBinding?.observedAtEpochMs,
     input.upstream?.observedAtEpochMs
   );
   requireChronology('turn_admitted -> first_output_state', admission?.atEpochMs, firstOutput?.atEpochMs);
@@ -740,7 +886,7 @@ export function buildCommandEveTtftFormalReceipt(input: CommandEveTtftFormalInpu
   if (!admission) missingGroups.push('turn_admission');
   if (!warmupDisposition || !warmupSettled) missingGroups.push('warmup_or_residency');
   if (!runtimeReadinessMatches) missingGroups.push('task_and_session_ready');
-  if (!upstreamMatches) missingGroups.push('upstream_transport');
+  if (!providerTurnBindingMatches || !upstreamMatches) missingGroups.push('upstream_transport');
   if (!firstOutput || !visibleMatches) missingGroups.push('first_visible_output');
   if (!terminal) missingGroups.push('terminal');
 
