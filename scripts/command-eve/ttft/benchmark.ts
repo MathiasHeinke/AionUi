@@ -28,7 +28,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
-import { isLocalSelection } from '../../../packages/desktop/src/common/config/eveInferenceCore';
+import {
+  EVE_LOCAL_PICKER_TIERS,
+  isLocalSelection,
+  localTierValue,
+} from '../../../packages/desktop/src/common/config/eveInferenceCore';
 import { ACP_PERFORMANCE_MARK_EVENT } from '../../../packages/desktop/src/renderer/utils/performance/acpPerformanceMarks';
 import type { AcpPerformanceMark } from '../../../packages/desktop/src/renderer/utils/performance/acpPerformanceMarks';
 import {
@@ -64,6 +68,7 @@ const PROJECT_ROOT = path.resolve(import.meta.dirname, '../../..');
 const GUID_INPUT = '.guid-input-card-shell textarea';
 const EXISTING_INPUT = '.acp-send-box textarea';
 const LOCAL_SELECTION_KEY = 'commandEve.inferenceSelection';
+const LOCAL_MODEL_TIER_KEY = 'commandEve.localModelTierId';
 const RESPONSE_TIMEOUT_MS = 180_000;
 const PAGE_EVALUATE_NAME_HELPER =
   "globalThis.__name ??= (target, value) => Object.defineProperty(target, 'name', { value, configurable: true });";
@@ -534,11 +539,15 @@ async function prepareManifestLocalDefault(page: Page, manifestPath: string): Pr
   };
   const tierId = manifest.local_runtime?.default_tier_id;
   if (!tierId) throw new Error('BLOCKED_LOCAL_ONLY: runtime manifest has no local default tier');
-  const selection = `command-eve-local:${tierId}`;
+  const pickerTier = EVE_LOCAL_PICKER_TIERS.find((tier) => tier.localTierId === tierId);
+  if (!pickerTier) {
+    throw new Error(`BLOCKED_LOCAL_ONLY: runtime manifest default tier ${tierId} has no product picker mapping`);
+  }
+  const selection = localTierValue(pickerTier.id);
   if (!isLocalSelection(selection)) throw new Error('BLOCKED_LOCAL_ONLY: manifest local selection is invalid');
   const settingsKey = activeSeatId === 'seat-1' ? LOCAL_SELECTION_KEY : `seat:${activeSeatId}:${LOCAL_SELECTION_KEY}`;
   await page.evaluate(
-    async ({ key, value }) => {
+    async ({ selectionKey, selectionValue, tierKey, tierValue }) => {
       const runtimeWindow = window as Window & {
         __backendPort?: number;
         __aionBackend?: { getPort?: () => number };
@@ -548,11 +557,20 @@ async function prepareManifestLocalDefault(page: Page, manifestPath: string): Pr
       const response = await fetch(`http://127.0.0.1:${port}/api/settings/client`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [key]: value }),
+        // Mirror Settings → Modell exactly: the install-global tier drives
+        // bootstrap/ACP model selection, while the seat-scoped picker value
+        // activates the private lane. Writing only one key measures a state the
+        // product UI never creates.
+        body: JSON.stringify({ [tierKey]: tierValue, [selectionKey]: selectionValue }),
       });
       if (!response.ok) throw new Error(`local-selection write failed: ${response.status}`);
     },
-    { key: settingsKey, value: selection }
+    {
+      selectionKey: settingsKey,
+      selectionValue: selection,
+      tierKey: LOCAL_MODEL_TIER_KEY,
+      tierValue: tierId,
+    }
   );
 }
 
@@ -883,7 +901,9 @@ async function runMeasuredTurn(input: {
   await armRendererCollector(page, sendActionAt);
   await textarea.press('Enter');
   if (input.surface === 'start_chat') {
-    await page.waitForFunction(() => window.location.hash.includes('/conversation/'), undefined, { timeout: 20_000 });
+    await page.waitForFunction(() => window.location.hash.includes('/conversation/'), undefined, {
+      timeout: RESPONSE_TIMEOUT_MS,
+    });
     measuredConversationId = windowConversationId(page.url());
   }
   if (!measuredConversationId) throw new Error('measured composer conversation id is unavailable');
