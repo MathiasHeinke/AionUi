@@ -304,6 +304,13 @@ function runtimeMilestone(
     : { status: 'observed', atEpochMs, source: 'runtime_log', evidence };
 }
 
+function preferObservedMilestone(
+  primary: CommandEveTtftMilestone,
+  fallback: () => CommandEveTtftMilestone
+): CommandEveTtftMilestone {
+  return primary.status === 'observed' ? primary : fallback();
+}
+
 function exactRuntimeReadinessEvidence(
   lines: string[],
   conversationId: string,
@@ -929,6 +936,8 @@ async function runMeasuredTurn(input: {
   const terminalAtEpochMs = collector.marks.find(
     (mark) => mark.stage === 'response_finished' && mark.turnId === measuredTurnId
   )?.atEpochMs;
+  const requestAccepted = rendererMark(collector.marks, 'request_accepted', { turnId: measuredTurnId });
+  const requestAcceptedAt = requestAccepted.status === 'observed' ? requestAccepted.atEpochMs : sendActionAt;
   const milestones: Partial<Record<CommandEveTtftStage, CommandEveTtftMilestone>> = {
     app_process_started: input.includeColdMilestones
       ? observed(
@@ -942,16 +951,38 @@ async function runMeasuredTurn(input: {
       : { status: 'unavailable', reason: 'warm cohort does not claim cold renderer startup' },
     hermes_spawned:
       input.sessionReadiness?.hermes_spawned ??
-      runtimeMilestone(logLines, /\[ACP-PERF\].*process spawned/, 'Hermes process spawned'),
+      runtimeMilestone(
+        logLines,
+        /\[ACP-PERF\].*process spawned|CLI process spawned \(SDK mode\).*command=program=.*\/hermes(?:\s|")/,
+        'Hermes process spawned'
+      ),
     hermes_ready:
       input.sessionReadiness?.hermes_ready ??
-      runtimeMilestone(logLines, /\[ACP-PERF\] connect: protocol initialized/, 'Hermes ACP protocol initialized'),
+      runtimeMilestone(
+        logLines,
+        /\[ACP-PERF\] connect: protocol initialized|\[ACP\] <- \$initialize direction="agent_response" method="initialize"/,
+        'Hermes ACP protocol initialized'
+      ),
     acp_session_ready:
       input.sessionReadiness?.acp_session_ready ??
-      rendererMark(collector.marks, 'acp_session_ready', { notBefore: sendActionAt }),
+      preferObservedMilestone(rendererMark(collector.marks, 'acp_session_ready', { notBefore: sendActionAt }), () =>
+        runtimeMilestone(logLines, /ACP session warmed up/, 'AionCore ACP session warmed up', {
+          notBefore: sendActionAt,
+          notAfter: requestAcceptedAt,
+        })
+      ),
     send_action: observed(sendActionAt, 'harness', 'Enter dispatched from the measured composer'),
-    request_accepted: rendererMark(collector.marks, 'request_accepted', { turnId: measuredTurnId }),
-    model_request_started: rendererMark(collector.marks, 'model_request_started', { turnId: measuredTurnId }),
+    request_accepted: requestAccepted,
+    model_request_started: preferObservedMilestone(
+      rendererMark(collector.marks, 'model_request_started', { turnId: measuredTurnId }),
+      () =>
+        runtimeMilestone(
+          logLines,
+          /OpenAI client created \(chat_completion_stream_request, shared=False\)/,
+          'Hermes upstream model request started',
+          { notBefore: requestAcceptedAt, notAfter: terminalAtEpochMs }
+        )
+    ),
     model_first_token: {
       status: 'unavailable',
       reason: 'ACP transport chunks are not exact upstream/local model first-token evidence',
