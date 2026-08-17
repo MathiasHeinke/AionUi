@@ -162,11 +162,8 @@ describe('Command EVE context and cache policy', () => {
   });
 
   /**
-   * The turn/call identity below is supplied BY THIS TEST, not by Hermes. It
-   * covers the shim's reader only; nothing in the product sends these headers.
-   * See tests/unit/command-eve/commandEveProviderCallWire.test.ts for the wire
-   * itself, and do not read a green run here as evidence that the TTFT formal
-   * gate can observe a real turn.
+   * This isolates the Main-side reader. The emitted Hermes middleware producer
+   * is exercised separately in commandEveProviderCallWire.test.ts.
    */
   it('binds exact local response usage to the final provider payload and a SUPPLIED turn/call identity', async () => {
     const receipts: CommandEveBoundUpstreamOutcomeReceipt[] = [];
@@ -221,6 +218,39 @@ describe('Command EVE context and cache policy', () => {
     });
     expect(receipts[0].provider_call.final_request_fingerprint_sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(receipts[0].provider_call.response_usage_fingerprint_sha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('increments the content-free provider receipt attempt count for a repeated authenticated identity', async () => {
+    const receipts: CommandEveBoundUpstreamOutcomeReceipt[] = [];
+    const ollamaBaseUrl = await startFakeOllamaWarmupServer({
+      model: 'command-eve-gemma4-e4b-64k:latest',
+      responseUsage: { prompt_eval_count: 3, eval_count: 1 },
+    });
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      upstreamOutcomeReporter: (receipt) => {
+        if (receipt.version === 'command-eve-upstream-outcome/v3') receipts.push(receipt);
+      },
+    });
+    const request = (): Promise<Response> =>
+      fetch(`${shimServerUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          ...SHIM_JSON_HEADERS,
+          'x-command-eve-turn-id': 'turn-retry-1',
+          'x-command-eve-call-index': '1',
+        },
+        body: JSON.stringify({
+          model: 'custom:command-eve-gemma4-e4b-64k:latest',
+          messages: [{ role: 'user', content: 'provider-free retry-count probe' }],
+          stream: false,
+        }),
+      });
+
+    expect((await request()).status).toBe(200);
+    expect((await request()).status).toBe(200);
+    expect(receipts.map((receipt) => receipt.provider_call.attempt_count)).toEqual([1, 2]);
   });
 
   it('does not mint an exact receipt from malformed SUPPLIED turn/call headers', async () => {

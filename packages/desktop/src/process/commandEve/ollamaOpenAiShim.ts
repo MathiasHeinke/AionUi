@@ -88,7 +88,10 @@ export const COMMAND_EVE_LOCAL_MODEL_KEEP_ALIVE = '30m';
 const COMMAND_EVE_OLLAMA_RESIDENCY_PROBE_TIMEOUT_MS = 2_000;
 const DEFAULT_UPSTREAM_FIRST_BYTE_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS = 5 * 60_000;
+const PROVIDER_CALL_ATTEMPT_TTL_MS = 15 * 60_000;
+const MAX_PROVIDER_CALL_ATTEMPTS = 4096;
 let bootShimAuthToken = '';
+const providerCallAttempts = new Map<string, { count: number; touchedAtMs: number }>();
 
 export function resolveCommandEveShimListenPort(
   requestedPort: number | undefined,
@@ -404,7 +407,7 @@ export type CommandEveProviderCallResponseUsage = {
 };
 
 export type CommandEveProviderCallReceipt = {
-  attempt_count: 1;
+  attempt_count: number;
   call_index: number;
   content_included: false;
   final_request_fingerprint_sha256: string;
@@ -999,7 +1002,12 @@ function commandEveProviderCallContext(
   if (!isContentFreeCallIdentity(turnId) || !/^[1-9]\d{0,8}$/.test(callIndexText)) return undefined;
   const callIndex = Number(callIndexText);
   if (!Number.isSafeInteger(callIndex)) return undefined;
-  return { turnId, callIndex, finalRequestFingerprintSha256 };
+  return {
+    attemptCount: nextCommandEveProviderCallAttempt(turnId, callIndex),
+    turnId,
+    callIndex,
+    finalRequestFingerprintSha256,
+  };
 }
 
 type UpstreamAbortReason = Extract<CommandEveUpstreamOutcome, 'client_closed' | 'first_byte_timeout' | 'idle_timeout'>;
@@ -1015,10 +1023,38 @@ type UpstreamRequestScope = {
 };
 
 type CommandEveProviderCallContext = {
+  attemptCount: number;
   turnId: string;
   callIndex: number;
   finalRequestFingerprintSha256: string;
 };
+
+/**
+ * Hermes keeps one `api_request_id` across its own bounded retry loop. This
+ * tiny process-local cache records only the opaque identity and attempt count,
+ * expires inactive entries, and evicts oldest entries under pressure.
+ */
+function nextCommandEveProviderCallAttempt(turnId: string, callIndex: number): number {
+  const now = Date.now();
+  for (const [key, record] of providerCallAttempts) {
+    if (now - record.touchedAtMs > PROVIDER_CALL_ATTEMPT_TTL_MS) providerCallAttempts.delete(key);
+  }
+  const key = commandEveProviderCallRequestId(turnId, callIndex);
+  const previous = providerCallAttempts.get(key);
+  if (previous) {
+    const count = previous.count + 1;
+    providerCallAttempts.delete(key);
+    providerCallAttempts.set(key, { count, touchedAtMs: now });
+    return count;
+  }
+  while (providerCallAttempts.size >= MAX_PROVIDER_CALL_ATTEMPTS) {
+    const oldest = providerCallAttempts.keys().next().value;
+    if (oldest === undefined) break;
+    providerCallAttempts.delete(oldest);
+  }
+  providerCallAttempts.set(key, { count: 1, touchedAtMs: now });
+  return 1;
+}
 
 /**
  * Mint the immutable provider-call receipt for one observed inference call.
@@ -1039,7 +1075,7 @@ function commandEveProviderCallReceipt(
     Object.fromEntries(Object.entries(responseUsage).toSorted(([left], [right]) => left.localeCompare(right)))
   );
   return {
-    attempt_count: 1,
+    attempt_count: providerCall.attemptCount,
     call_index: providerCall.callIndex,
     content_included: false,
     final_request_fingerprint_sha256: providerCall.finalRequestFingerprintSha256,

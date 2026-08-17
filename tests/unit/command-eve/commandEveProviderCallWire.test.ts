@@ -4,112 +4,63 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * The provider-call correlation wire has a reader and no writer (1.823.0).
- *
- * `commandEveProviderCallContext` mints the v3 receipt only from
- * `x-command-eve-turn-id` and `x-command-eve-call-index`. Nothing in this
- * repository sends them, the emitted seat runtime does not add them, and the
- * bundled Hermes wheel contains no `x-command-eve` header at all. A real turn
- * therefore yields a v2 receipt carrying a fresh UUID, and the TTFT formal gate
- * — which selects on `command-eve-upstream-outcome/v3` — can only ever answer
- * INSUFFICIENT_EVIDENCE.
- *
- * The shim's own tests set both headers themselves. That proves the reader
- * parses what it is handed; it cannot prove the wire, and without this guard the
- * green run reads as though it did.
- *
- * This test is meant to go red the day a producer lands, because a producer
- * alone does not make the gate measurable. Hermes mints
- * `api_request_id = f"{turn_id}:api:{api_call_count}"` ONCE before its retry
- * loop (whl:agent/conversation_loop.py), while the shim writes a constant
- * `attempt_count: 1`. One transient retry then emits two receipts under a
- * single identity and the gate's "exactly one provider receipt" rule rejects the
- * turn; its `call_index === 1` rule additionally excludes every tool-loop turn.
- * Whoever adds the writer owns both contract questions in the same change.
- */
-
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
-const CORRELATION_HEADERS = ['x-command-eve-turn-id', 'x-command-eve-call-index'] as const;
-const SEARCH_ROOTS = ['packages', 'scripts'] as const;
-const SOURCE_SUFFIXES = ['.ts', '.tsx', '.js', '.mjs', '.cjs', '.py'] as const;
-const SHIM_READER = 'packages/desktop/src/process/commandEve/ollamaOpenAiShim.ts';
-const HEADER_NAMESPACE = 'x-command-eve';
-const WHEEL_PATH = fileURLToPath(
-  new URL('../../../resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl', import.meta.url)
-);
+import {
+  provisionSeatRuntimeFiles,
+  resolveCommandEveRuntimeBootstrapPaths,
+} from '@/process/commandEve/runtimeBootstrapCore';
+import { __resetActiveSeatForTests, clearActiveSeat, setActiveSeatId } from '@/process/commandEve/seatContextCore';
 
-function sourceFilesUnder(root: string): string[] {
-  const absoluteRoot = path.resolve(root);
-  if (!fs.existsSync(absoluteRoot)) return [];
-  const files: string[] = [];
-  const pending = [absoluteRoot];
-  while (pending.length > 0) {
-    const directory = pending.pop() as string;
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
-      const entryPath = path.join(directory, entry.name);
-      if (entry.isDirectory()) pending.push(entryPath);
-      else if (SOURCE_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) files.push(entryPath);
-    }
-  }
-  return files;
-}
+const REAL_UUID = 'a1b2c3d4-e5f6-4789-aabb-ccddeeff0011';
+const roots: string[] = [];
 
-/**
- * Wheel members that mention the header namespace, read from the DECOMPRESSED
- * entries. Searching the archive bytes would answer "no" for a wheel that does
- * carry the header, because deflate leaves no plain substring behind.
- */
-async function wheelEntriesMentioningHeaderNamespace(): Promise<string[]> {
-  const yauzl = await import('yauzl');
-  const buffer = fs.readFileSync(WHEEL_PATH);
-  return new Promise<string[]>((resolve, reject) => {
-    const matches: string[] = [];
-    yauzl.fromBuffer(buffer, { lazyEntries: true }, (openError, zip) => {
-      if (openError || !zip) return reject(openError ?? new Error('bundled Hermes wheel could not be opened'));
-      zip.on('entry', (entry: { fileName: string }) => {
-        if (entry.fileName.endsWith('/')) return zip.readEntry();
-        zip.openReadStream(entry, (streamError, stream) => {
-          if (streamError || !stream) {
-            return reject(streamError ?? new Error(`wheel entry unreadable: ${entry.fileName}`));
-          }
-          const chunks: Buffer[] = [];
-          stream.on('error', reject);
-          stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-          stream.on('end', () => {
-            if (Buffer.concat(chunks).toString('utf8').includes(HEADER_NAMESPACE)) matches.push(entry.fileName);
-            zip.readEntry();
-          });
-        });
-      });
-      zip.on('error', reject);
-      zip.on('end', () => resolve(matches));
-      zip.readEntry();
-    });
-  });
+afterEach(() => {
+  __resetActiveSeatForTests();
+  clearActiveSeat();
+  for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+});
+
+function runMiddlewareHarness(): Record<string, Record<string, string>> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-provider-call-wire-'));
+  roots.push(root);
+  setActiveSeatId(REAL_UUID);
+  const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+  provisionSeatRuntimeFiles({ userDataPath: root, seatId: REAL_UUID });
+  const providerPath = path.join(paths.hermesHome, 'plugins', 'model-providers', 'custom', '__init__.py');
+  const harness = spawnSync(
+    'python3',
+    [path.resolve('tests/fixtures/command-eve/provider_call_identity_middleware_harness.py'), providerPath],
+    { encoding: 'utf8', timeout: 15_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
+  );
+  expect(harness.status, harness.stderr || harness.stdout).toBe(0);
+  return JSON.parse(harness.stdout) as Record<string, Record<string, string>>;
 }
 
 describe('Command EVE provider-call correlation wire', () => {
-  it('has no producer, so the TTFT formal gate cannot observe a real turn', () => {
-    const referencing = new Set<string>();
-    for (const root of SEARCH_ROOTS) {
-      for (const file of sourceFilesUnder(root)) {
-        const contents = fs.readFileSync(file, 'utf8');
-        if (CORRELATION_HEADERS.some((header) => contents.includes(header))) {
-          referencing.add(path.relative(process.cwd(), file));
-        }
-      }
-    }
+  it('executes the emitted Hermes 0.20 middleware and stamps valid local attempts', () => {
+    const result = runMiddlewareHarness();
 
-    expect([...referencing].toSorted()).toEqual([SHIM_READER]);
+    expect(result.first).toMatchObject({
+      'x-command-eve-turn-id': 'turn-local-1',
+      'x-command-eve-call-index': '1',
+    });
+    expect(result.retry).toEqual(result.first);
+    expect(result.new_turn).toMatchObject({
+      'x-command-eve-turn-id': 'turn-local-2',
+      'x-command-eve-call-index': '1',
+    });
   });
 
-  it('confirms the bundled Hermes wheel never sends the header the shim reads', async () => {
-    await expect(wheelEntriesMentioningHeaderNamespace()).resolves.toEqual([]);
+  it('does not stamp malformed identities or public/non-custom targets', () => {
+    const result = runMiddlewareHarness();
+
+    expect(result.malformed).toEqual({});
+    expect(result.public_provider).toEqual({});
+    expect(result.non_custom).toEqual({});
   });
 });
