@@ -32,7 +32,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isSha256Hex } from '@/common/config/eveOpaqueTokenCore';
-import { sanitizeSeatId } from '@/common/config/seatConfigKeyCore';
+import { LEGACY_SEAT_ID, sanitizeSeatId } from '@/common/config/seatConfigKeyCore';
 import {
   isWellFormedArtifactCapabilityHandle,
   mintImageEditCapabilityGrant,
@@ -94,7 +94,7 @@ function parseGrant(value: unknown): ArtifactCapabilityGrant | undefined {
     return undefined;
   }
   if (record.operation === 'image_edit') {
-    const seatId = Object.prototype.hasOwnProperty.call(record, 'seat_id') ? record.seat_id : 'seat-1';
+    const seatId = Object.prototype.hasOwnProperty.call(record, 'seat_id') ? record.seat_id : LEGACY_SEAT_ID;
     if (typeof seatId !== 'string' || sanitizeSeatId(seatId) !== seatId) return undefined;
     return { ...record, operation: 'image_edit', seat_id: seatId } as unknown as ArtifactCapabilityGrant;
   }
@@ -287,7 +287,7 @@ export function ensureImageEditCapabilityHandle(
   const nowMs = options.nowMs ?? Date.now();
   const file = imageIndexFile(dataPath, artifact.seat_id, artifact.conversation_id, artifact.artifact_id);
   const candidateIndexes = [file];
-  if (artifact.seat_id === 'seat-1') {
+  if (artifact.seat_id === LEGACY_SEAT_ID) {
     candidateIndexes.push(indexFile(dataPath, artifact.conversation_id, artifact.artifact_id));
   }
   for (const candidate of candidateIndexes) {
