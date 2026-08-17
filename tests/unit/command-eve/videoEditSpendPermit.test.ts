@@ -31,7 +31,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   describeSpendPermitRefusal,
   evaluateVideoEditSpendPermit,
@@ -66,6 +66,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   fs.rmSync(dataRoot, { recursive: true, force: true });
 });
 
@@ -525,5 +526,105 @@ describe('at most one paid edit in flight per conversation', () => {
     expect(acquireVideoEditInflightLock(dataRoot, 'conv-1', 1_000)).toBe(true);
     expect(acquireVideoEditInflightLock(dataRoot, 'conv-1', 1_000 + VIDEO_EDIT_INFLIGHT_LOCK_TTL_MS - 1)).toBe(false);
     expect(acquireVideoEditInflightLock(dataRoot, 'conv-1', 1_000 + VIDEO_EDIT_INFLIGHT_LOCK_TTL_MS + 1)).toBe(true);
+  });
+});
+
+describe('DURABILITY — the claim and the record reach the platter, not just the cache', () => {
+  /**
+   * Record every path whose descriptor was fsynced.
+   *
+   * Asserting "the file exists afterwards" would pass on the exact
+   * `writeFileSync` + `rename` this store used before: the name is published
+   * while the bytes are still only in the page cache. So the fsync itself is
+   * the measurement — on the data descriptor AND on the publishing directory.
+   */
+  function recordFsyncedPaths(): string[] {
+    const fsyncedFiles: string[] = [];
+    const openPaths = new Map<number, string>();
+    const realOpen = fs.openSync;
+    const realFsync = fs.fsyncSync;
+    vi.spyOn(fs, 'openSync').mockImplementation(((file: fs.PathLike, ...rest: unknown[]) => {
+      const descriptor = (realOpen as (...args: unknown[]) => number)(file, ...rest);
+      openPaths.set(descriptor, String(file));
+      return descriptor;
+    }) as typeof fs.openSync);
+    vi.spyOn(fs, 'fsyncSync').mockImplementation((descriptor: number) => {
+      fsyncedFiles.push(openPaths.get(descriptor) ?? '');
+      realFsync(descriptor);
+    });
+    return fsyncedFiles;
+  }
+
+  const syncedUnderTempName = (fsynced: string[], file: string): boolean =>
+    fsynced.some((synced) => path.basename(synced).includes(path.basename(file)));
+
+  function permitKeyFiles(permit: string): { record: string; consumed: string } {
+    const key = crypto.createHash('sha256').update(permit).digest('hex');
+    const dir = path.join(dataRoot, 'command-eve-artifact-capabilities', 'spend-permits');
+    return { record: path.join(dir, `${key}.json`), consumed: path.join(dir, `${key}.consumed.json`) };
+  }
+
+  it('fsyncs the permit record and the active-turn pointer it is judged against', () => {
+    const fsynced = recordFsyncedPaths();
+
+    const permit = issueVideoEditSpendPermit(dataRoot, {
+      conversationId: 'conv-1',
+      userTurnSha256: TURN_SHA,
+      allowedArtifactSha256: [CLIP_SHA],
+    })!;
+
+    const { record } = permitKeyFiles(permit);
+    expect(syncedUnderTempName(fsynced, record)).toBe(true);
+    expect(fsynced).toContain(path.dirname(record));
+  });
+
+  it('fsyncs the single-use consumed marker before the provider is ever called', () => {
+    const permit = issueVideoEditSpendPermit(dataRoot, {
+      conversationId: 'conv-1',
+      userTurnSha256: TURN_SHA,
+      allowedArtifactSha256: [CLIP_SHA],
+    })!;
+    const fsynced = recordFsyncedPaths();
+
+    expect(
+      consumeVideoEditSpendPermit(dataRoot, {
+        permit,
+        conversationId: 'conv-1',
+        userTurnSha256: TURN_SHA,
+        instructionSha256: INSTRUCTION_SHA,
+        artifactSha256: CLIP_SHA,
+      }).ok
+    ).toBe(true);
+
+    // The marker is what makes the spend single-use. Lost to a crash, the
+    // permit reads unused again and only the gateway's content key stands
+    // between a retry and a second charge.
+    const { consumed } = permitKeyFiles(permit);
+    expect(syncedUnderTempName(fsynced, consumed)).toBe(true);
+    expect(fsynced).toContain(path.dirname(consumed));
+  });
+
+  it('keeps create-only semantics: the loser gets false, and the winner is not overwritten', () => {
+    const permit = issueVideoEditSpendPermit(dataRoot, {
+      conversationId: 'conv-1',
+      userTurnSha256: TURN_SHA,
+      allowedArtifactSha256: [CLIP_SHA],
+    })!;
+    const spend = {
+      permit,
+      conversationId: 'conv-1',
+      userTurnSha256: TURN_SHA,
+      instructionSha256: INSTRUCTION_SHA,
+      artifactSha256: CLIP_SHA,
+    };
+
+    expect(consumeVideoEditSpendPermit(dataRoot, spend).ok).toBe(true);
+    const claimAfterFirst = fs.readFileSync(permitKeyFiles(permit).consumed, 'utf8');
+    const second = consumeVideoEditSpendPermit(dataRoot, spend);
+
+    // A durable write that replaced the claim would still "succeed" and would
+    // hand a second arrival the same permission the first one already took.
+    expect(second.ok).toBe(false);
+    expect(fs.readFileSync(permitKeyFiles(permit).consumed, 'utf8')).toBe(claimAfterFirst);
   });
 });

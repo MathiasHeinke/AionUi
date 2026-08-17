@@ -82,6 +82,7 @@ import {
   type VideoEditSpendPermitRecord,
 } from '@/common/config/eveVideoEditSpendPermitCore';
 import { hasVisibleCharacters, isSha256Hex } from '@/common/config/eveOpaqueTokenCore';
+import { writeFileCreateOnly, writeJsonAtomic } from '@process/services/project-workspace/storage/atomicJson';
 
 const SPEND_PERMIT_DIR = 'command-eve-artifact-capabilities';
 const SPEND_PERMIT_SUBDIR = 'spend-permits';
@@ -134,19 +135,15 @@ function readJson(file: string): unknown {
   }
 }
 
-function writeJsonPrivate(file: string, value: unknown): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const temp = `${file}.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  fs.writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  fs.chmodSync(temp, 0o600);
-  fs.renameSync(temp, file);
-}
-
 /** Exclusive create. Returns false when the file already existed. */
 function createExclusive(file: string, value: unknown): boolean {
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    // The claim has to reach the platter, not just the page cache: a consumed
+    // marker lost to a crash is a permit that reads unused again, and the
+    // gateway's content-key is then the only thing between a retry and a second
+    // charge. `writeFileCreateOnly` keeps the create-only guarantee — the link
+    // step never overwrites — and adds the fsync this claim always needed.
+    writeFileCreateOnly(file, `${JSON.stringify(value, null, 2)}\n`);
     return true;
   } catch {
     return false;
@@ -283,7 +280,7 @@ export function denyVideoEditSpend(
   processScopedSpendDeny.add(conversationId);
   if (typeof dataPath !== 'string' || dataPath.length === 0) return 'process';
   try {
-    writeJsonPrivate(denyFile(dataPath, conversationId), {
+    writeJsonAtomic(denyFile(dataPath, conversationId), {
       conversation_id: conversationId,
       denied_at_ms: nowMs,
     });
@@ -582,7 +579,7 @@ export function recordActiveUserTurn(
   if (typeof conversationId !== 'string' || conversationId.length === 0) return false;
   if (!isSha256Hex(userTurnSha256)) return false;
   try {
-    writeJsonPrivate(activeTurnFile(dataPath, conversationId), {
+    writeJsonAtomic(activeTurnFile(dataPath, conversationId), {
       user_turn_sha256: userTurnSha256,
       observed_at_ms: nowMs,
     });
@@ -936,7 +933,7 @@ export function issueVideoEditSpendPermit(dataPath: string, input: IssueVideoEdi
       denyVideoEditSpend(dataPath, input.conversationId, nowMs);
       return undefined;
     }
-    writeJsonPrivate(permitFiles(dataPath, minted.permit).record, minted.record);
+    writeJsonAtomic(permitFiles(dataPath, minted.permit).record, minted.record);
     // LAST, and only here. If the marker cannot be removed the conversation stays
     // denied and this permit buys nothing — a refusal, never a charge.
     clearVideoEditSpendDeny(dataPath, input.conversationId);
@@ -1056,7 +1053,7 @@ export function recordVideoEditSpendCompletion(
 ): void {
   if (!isWellFormedVideoEditSpendPermit(permit)) return;
   try {
-    writeJsonPrivate(permitFiles(dataPath, permit).result, completion);
+    writeJsonAtomic(permitFiles(dataPath, permit).result, completion);
   } catch {
     /* the clip is saved either way; losing the receipt only costs a retry a refusal */
   }

@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommandEveVideoConversationArtifact } from '@/common/config/videoGenerationRequestCore';
 import {
   listVideoArtifactRecords,
@@ -30,8 +30,34 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   fs.rmSync(tmpRoot, { recursive: true, force: true });
 });
+
+/**
+ * Record every path whose descriptor was fsynced.
+ *
+ * A durability test that only asserts "the file is there afterwards" passes on
+ * the very implementation this store had before — `writeFileSync` + `rename`
+ * leaves the file visible and the bytes unflushed. So the measurement has to be
+ * the fsync itself, on the data descriptor AND on the publishing directory.
+ */
+function recordFsyncedPaths(): string[] {
+  const fsyncedFiles: string[] = [];
+  const openPaths = new Map<number, string>();
+  const realOpen = fs.openSync;
+  const realFsync = fs.fsyncSync;
+  vi.spyOn(fs, 'openSync').mockImplementation(((file: fs.PathLike, ...rest: unknown[]) => {
+    const descriptor = (realOpen as (...args: unknown[]) => number)(file, ...rest);
+    openPaths.set(descriptor, String(file));
+    return descriptor;
+  }) as typeof fs.openSync);
+  vi.spyOn(fs, 'fsyncSync').mockImplementation((descriptor: number) => {
+    fsyncedFiles.push(openPaths.get(descriptor) ?? '');
+    realFsync(descriptor);
+  });
+  return fsyncedFiles;
+}
 
 function makeArtifact(
   overrides: Partial<CommandEveVideoConversationArtifact> = {}
@@ -151,5 +177,37 @@ describe('saveVideoArtifactRecord + listVideoArtifactRecords — survives a relo
     saveVideoArtifactRecord(tmpRoot, makeArtifact({ conversation_id: '../escape' }));
     expect(listVideoArtifactRecords(tmpRoot, '../escape')).toEqual([]);
     expect(fs.existsSync(path.join(tmpRoot, 'command-eve-video-artifacts', '..', 'escape'))).toBe(false);
+  });
+});
+
+describe('DURABILITY — a paid video survives a power cut, not just a remount', () => {
+  it('fsyncs the manifest record and the directory that publishes it', () => {
+    const fsynced = recordFsyncedPaths();
+    const artifact = makeArtifact();
+
+    saveVideoArtifactRecord(tmpRoot, artifact);
+
+    const recordFile = path.join(tmpRoot, 'command-eve-video-artifacts', 'conv-1', `${artifact.id}.json`);
+    // Flushed while still under its temp name — after the rename it is too late
+    // for the bytes, and a lost record is a paid video gone from the artifact
+    // list with no rehydration path to bring it back.
+    expect(fsynced.some((file) => path.basename(file).includes(path.basename(recordFile)))).toBe(true);
+    expect(fsynced).toContain(path.dirname(recordFile));
+  });
+
+  it('fsyncs the generated video bytes and their directory', () => {
+    const fsynced = recordFsyncedPaths();
+
+    const savedPath = saveGeneratedVideoFile({
+      conversationId: 'conv-1',
+      artifactId: 'artifact-durable',
+      dataBase64: Buffer.from('hello video').toString('base64'),
+      mimeType: 'video/mp4',
+      downloadsRoot: tmpRoot,
+    });
+
+    expect(fsynced.some((file) => path.basename(file).includes(path.basename(savedPath)))).toBe(true);
+    expect(fsynced).toContain(path.dirname(savedPath));
+    expect(fs.readFileSync(savedPath, 'utf8')).toBe('hello video');
   });
 });
