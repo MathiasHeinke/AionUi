@@ -451,7 +451,9 @@ async function invokeBridge<T>(page: Page, key: string, data?: unknown, timeoutM
     async ({ requestKey, requestData, requestTimeoutMs }) => {
       const api = (window as unknown as { electronAPI?: { emit?: Function; on?: Function } }).electronAPI;
       if (!api?.emit || !api?.on) throw new Error('electronAPI bridge unavailable');
-      const id = `ttft_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+      const id = `${requestKey}${Math.floor(Math.random() * 0x1_0000_0000)
+        .toString(16)
+        .padStart(8, '0')}`;
       const callbackName = `subscribe.callback-${requestKey}${id}`;
       return new Promise<unknown>((resolve, reject) => {
         let settled = false;
