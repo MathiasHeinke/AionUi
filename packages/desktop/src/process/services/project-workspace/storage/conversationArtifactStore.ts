@@ -220,6 +220,40 @@ function assertOfficeArtifactParentClosure(artifacts: readonly CommandEveOfficeC
   for (const artifact of artifacts) assertOfficeArtifactParentChain(artifact, artifactsById, visiting, verified);
 }
 
+/**
+ * The same parent rule as `assertOfficeArtifactParentClosure`, expressed as a
+ * FILTER instead of an assertion.
+ *
+ * Authority paths must refuse an incomplete lineage outright, so they keep the
+ * assertion. A read-only listing has a different obligation: one unreadable
+ * record must not erase every OTHER document of the conversation. Dropping an
+ * artifact whose chain is broken is the same fail-closed verdict, applied per
+ * artifact rather than to the whole directory.
+ */
+function officeArtifactsWithValidParentChains(
+  artifacts: readonly CommandEveOfficeConversationArtifact[]
+): CommandEveOfficeConversationArtifact[] {
+  const artifactsById = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
+  const decided = new Map<string, boolean>();
+  const chainIsValid = (artifact: CommandEveOfficeConversationArtifact, visiting: Set<string>): boolean => {
+    const cached = decided.get(artifact.id);
+    if (cached !== undefined) return cached;
+    // A cycle can never be a valid chain, and must not recurse forever.
+    if (visiting.has(artifact.id)) return false;
+    visiting.add(artifact.id);
+    let valid = true;
+    if (artifact.payload.origin_action === 'edit') {
+      const parentId = artifact.payload.parent_artifact_id;
+      const parent = parentId ? artifactsById.get(parentId) : undefined;
+      valid = Boolean(parent && officeArtifactParentMatchesSource(artifact, parent) && chainIsValid(parent, visiting));
+    }
+    visiting.delete(artifact.id);
+    decided.set(artifact.id, valid);
+    return valid;
+  };
+  return artifacts.filter((artifact) => chainIsValid(artifact, new Set()));
+}
+
 function assertSafeValue(value: unknown, key = ''): void {
   if (SENSITIVE_KEY.test(key)) throw new ProjectWorkspaceError('semantic.bundle-mismatch');
   if (typeof value === 'string') {
@@ -631,6 +665,58 @@ export class ProjectWorkspaceConversationArtifactStore {
       .toSorted((left, right) => left.created_at - right.created_at || left.id.localeCompare(right.id));
   }
 
+  /**
+   * The readable Office artifacts of a conversation, plus how many records had
+   * to be skipped.
+   *
+   * `listOfficeArtifacts` is the AUTHORITY read: one unreadable record makes the
+   * whole directory untrustworthy, which is correct when membership decides
+   * whether an operation is complete. It is the wrong answer for DISPLAY: a
+   * single hardlinked or truncated JSON would otherwise hide every other
+   * document of that conversation indefinitely, reported only as a console
+   * warning.
+   *
+   * The line this draws is DAMAGE versus FORGERY. A record that cannot be read
+   * (truncated, hardlinked, mid-read mutation) has lost itself and is skipped
+   * alone — never repaired, never deleted. A record that reads fine but claims a
+   * location it does not occupy is a positive false statement about the store:
+   * something added or moved a manifest. Nothing in the directory can be trusted
+   * to be authoritative after that, so it stays fatal here too.
+   */
+  listReadableOfficeArtifacts(
+    seatId: string,
+    conversationId: string
+  ): { artifacts: CommandEveOfficeConversationArtifact[]; skipped: number } {
+    const directory = this.officeArtifactDirectory(seatId, conversationId);
+    if (!fs.existsSync(directory)) return { artifacts: [], skipped: 0 };
+    // A broken durability chain is a property of the DIRECTORY, not of one
+    // record, so it stays fatal: nothing below it can be trusted per-file.
+    assertOfficeRecordChainDurable(this.options.state_root, directory);
+    let skipped = 0;
+    const artifacts: CommandEveOfficeConversationArtifact[] = [];
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (!entry.name.endsWith('.json')) continue;
+      let artifact: ReturnType<typeof parseStoredArtifact>;
+      try {
+        artifact = parseStoredArtifact(readImmutableOfficeRecord(path.join(directory, entry.name)));
+      } catch {
+        skipped += 1;
+        continue;
+      }
+      if (artifact.kind !== 'file') continue;
+      if (!artifactMatchesOfficeStoreLocation(artifact, seatId, conversationId, entry.name)) {
+        throw new ProjectWorkspaceError('workspace.journal-corrupt');
+      }
+      artifacts.push(artifact);
+    }
+    return {
+      artifacts: artifacts.toSorted(
+        (left, right) => left.created_at - right.created_at || left.id.localeCompare(right.id)
+      ),
+      skipped,
+    };
+  }
+
   readOfficeArtifact(
     seatId: string,
     conversationId: string,
@@ -709,6 +795,72 @@ export class ProjectWorkspaceConversationArtifactStore {
     );
     assertOfficeArtifactParentClosure(verified);
     return verified;
+  }
+
+  /**
+   * The display counterpart of `listOfficeArtifactsWithVerifiedRecordLineage`.
+   *
+   * Every surviving artifact passes exactly the same checks — immutable record
+   * identity, store location, operation match, exact completion receipt, intact
+   * parent chain. The only difference is the blast radius of a failure: a record
+   * that cannot prove itself is dropped alone instead of taking the whole
+   * conversation's list with it. `skipped` is how the caller learns that
+   * something was withheld rather than absent.
+   */
+  listReadableOfficeArtifactsWithVerifiedRecordLineage(
+    seatId: string,
+    conversationId: string
+  ): { artifacts: CommandEveOfficeConversationArtifact[]; skipped: number } {
+    const readable = this.listReadableOfficeArtifacts(seatId, conversationId);
+    const operationsById = new Map<string, CommandEveOfficeOperationRecord>();
+    const withOperation: CommandEveOfficeConversationArtifact[] = [];
+    let skipped = readable.skipped;
+    for (const artifact of readable.artifacts) {
+      if (artifact.payload.origin_action === 'source') {
+        withOperation.push(artifact);
+        continue;
+      }
+      let operation: CommandEveOfficeOperationRecord | null;
+      try {
+        operation =
+          operationsById.get(artifact.payload.operation_id) ??
+          this.readOfficeOperation(seatId, conversationId, artifact.payload.operation_id);
+      } catch {
+        operation = null;
+      }
+      if (!operation || !commandEveOfficeArtifactMatchesOperation(artifact, operation)) {
+        skipped += 1;
+        continue;
+      }
+      operationsById.set(operation.operation_id, operation);
+      withOperation.push(artifact);
+    }
+    // Receipt membership is evaluated per operation, so one operation whose
+    // receipt disagrees withholds only its own artifacts.
+    const completedOperationIds = new Set<string>();
+    for (const operation of operationsById.values()) {
+      try {
+        for (const id of this.completedOfficeOperationIdsWithExactReceipts(
+          seatId,
+          conversationId,
+          [operation],
+          withOperation
+        )) {
+          completedOperationIds.add(id);
+        }
+      } catch {
+        // An operation that cannot prove exact membership stays unverified; its
+        // artifacts are dropped below and counted as skipped.
+      }
+    }
+    const claimed = withOperation.filter(
+      (artifact) =>
+        artifact.payload.origin_action === 'source' || completedOperationIds.has(artifact.payload.operation_id)
+    );
+    skipped += withOperation.length - claimed.length;
+    const verified = officeArtifactsWithValidParentChains(claimed);
+    skipped += claimed.length - verified.length;
+    return { artifacts: verified, skipped };
   }
 
   readOfficeArtifactWithVerifiedRecordLineage(

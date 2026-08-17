@@ -132,6 +132,38 @@ function officeSourcePayload(
   };
 }
 
+function officeSecondSourcePayload(): CommandEveOfficeConversationArtifactPayload {
+  const sha = 'c'.repeat(64);
+  return {
+    ...officePayload,
+    artifact_id: 'office-beta',
+    path: commandEveOfficeArtifactRelativePath('conversation-alpha', 'office-beta', sha, 'word'),
+    hash: sha,
+    source_sha256: sha,
+    source_fingerprint: commandEveOfficeFingerprint('word', sha, 42),
+    result_sha256: sha,
+    result_fingerprint: commandEveOfficeFingerprint('word', sha, 42),
+    origin_action: 'source',
+    operation_id: commandEveOfficeSourceOperationId({
+      seatId: 'seat-alpha',
+      seatContextRevision: 7,
+      conversationId: 'conversation-alpha',
+      artifactId: 'office-beta',
+      mode: 'word',
+      resultSha256: sha,
+      resultSize: 42,
+      sourceTool: 'office_transcript_import',
+      sourceMessageId: 'msg-source-beta',
+      sourceTurnId: 'turn-source-beta',
+      sourceDirectiveIndex: 0,
+    }),
+    source_message_id: 'msg-source-beta',
+    source_turn_id: 'turn-source-beta',
+    source_directive_index: 0,
+    source_tool: 'office_transcript_import',
+  };
+}
+
 describe('ProjectWorkspaceConversationArtifactStore', () => {
   it('persists before emitting and lists only the requested seat and conversation', () => {
     const { store, changed } = setup();
@@ -388,6 +420,80 @@ describe('ProjectWorkspaceConversationArtifactStore', () => {
     fs.copyFileSync(file, path.join(path.dirname(file), 'office-copy.json'));
 
     expect(() => store.listOfficeArtifacts('seat-alpha', 'conversation-alpha')).toThrow();
+  });
+
+  // One unreadable record used to hide EVERY Office document of the same
+  // conversation, indefinitely and silently. The authority read still refuses
+  // the whole directory; the display read withholds only the bad record and says
+  // how many it withheld.
+  it.each([
+    [
+      'a truncated record',
+      (file: string) => {
+        fs.writeFileSync(file, '{ this is not json');
+      },
+    ],
+    [
+      'a hardlinked record',
+      (file: string) => {
+        fs.linkSync(file, file + '.backup-link');
+      },
+    ],
+  ])('isolates %s from the rest of the conversation on the display read', (_label, damage) => {
+    const { root, store } = setup();
+    const survivorPayload = officeSourcePayload('office_transcript_import');
+    const survivor = store.createOfficeArtifact({
+      seat_id: 'seat-alpha',
+      conversation_id: 'conversation-alpha',
+      artifact_id: survivorPayload.artifact_id,
+      payload: survivorPayload,
+    });
+    const secondPayload = officeSecondSourcePayload();
+    const damaged = store.createOfficeArtifact({
+      seat_id: 'seat-alpha',
+      conversation_id: 'conversation-alpha',
+      artifact_id: secondPayload.artifact_id,
+      payload: secondPayload,
+    });
+    expect(store.listOfficeArtifacts('seat-alpha', 'conversation-alpha')).toHaveLength(2);
+
+    damage(path.join(path.dirname(officeArtifactFile(root)), damaged.id + '.json'));
+
+    // Authority read: unchanged, still refuses the whole directory.
+    expect(() => store.listOfficeArtifacts('seat-alpha', 'conversation-alpha')).toThrow();
+
+    // Display read: the survivor is served, the damaged record is counted.
+    const readable = store.listReadableOfficeArtifacts('seat-alpha', 'conversation-alpha');
+    expect(readable.artifacts).toEqual([survivor]);
+    expect(readable.skipped).toBe(1);
+
+    const verified = store.listReadableOfficeArtifactsWithVerifiedRecordLineage('seat-alpha', 'conversation-alpha');
+    expect(verified.artifacts).toEqual([survivor]);
+    expect(verified.skipped).toBe(1);
+  });
+
+  it('serves an intact conversation identically on both reads and reports nothing skipped', () => {
+    const { store } = setup();
+    const sourcePayload = officeSourcePayload('office_transcript_import');
+    const artifact = store.createOfficeArtifact({
+      seat_id: 'seat-alpha',
+      conversation_id: 'conversation-alpha',
+      artifact_id: sourcePayload.artifact_id,
+      payload: sourcePayload,
+    });
+    expect(store.listReadableOfficeArtifacts('seat-alpha', 'conversation-alpha')).toEqual({
+      artifacts: [artifact],
+      skipped: 0,
+    });
+    expect(store.listReadableOfficeArtifactsWithVerifiedRecordLineage('seat-alpha', 'conversation-alpha')).toEqual({
+      artifacts: store.listOfficeArtifactsWithVerifiedRecordLineage('seat-alpha', 'conversation-alpha'),
+      skipped: 0,
+    });
+    // A foreign seat still sees nothing at all.
+    expect(store.listReadableOfficeArtifacts('seat-beta', 'conversation-alpha')).toEqual({
+      artifacts: [],
+      skipped: 0,
+    });
   });
 
   it.each(['office_transcript_import', 'aioncore_artifact_import'] as const)(

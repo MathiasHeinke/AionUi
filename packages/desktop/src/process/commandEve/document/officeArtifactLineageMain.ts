@@ -255,12 +255,13 @@ export interface CommandEveOfficeArtifactRuntimeDeps {
   resolveAuthority?: (conversationId: string) => Promise<CommandEveOfficeConversationAuthority>;
   readOfficeSource?: typeof readBoundedOfficeSource;
   writeImmutable?: typeof writePrivateDocumentImmutable;
+  /** Records withheld artifacts. A listing never throws, so this is the only trace. */
+  log?: (line: string) => void;
 }
 
 export interface CommandEveOfficeArtifactReconcileDeps extends CommandEveOfficeArtifactRuntimeDeps {
   fetchTranscript: (conversationId: string, window: number) => Promise<unknown>;
   window?: number;
-  log?: (line: string) => void;
   onFreshArtifact?: (conversationId: string) => void;
 }
 
@@ -970,7 +971,18 @@ export async function listCommandEveOfficeArtifactRecords(
   const seatStillMatches = () => runtime.getSeatId() === seatId && runtime.getSeatRevision() === seatRevision;
   try {
     const store = artifactStore(dataPath);
-    const records = store.listOfficeArtifactsWithVerifiedRecordLineage(seatId, conversationId);
+    // Display read: a single unreadable record withholds itself, not every other
+    // document of this conversation. Every returned record still passed the full
+    // identity, operation, receipt and parent-chain verification.
+    const listed = store.listReadableOfficeArtifactsWithVerifiedRecordLineage(seatId, conversationId);
+    const records = listed.artifacts;
+    if (listed.skipped > 0) {
+      deps.log?.(
+        '[command-eve-office-artifacts] withheld ' +
+          String(listed.skipped) +
+          ' unverifiable record(s) for this conversation'
+      );
+    }
     const verifiedById = new Map(records.map((artifact) => [artifact.id, artifact]));
     const readable = await mapWithinOfficeReadBudget(records, async (record) =>
       (await artifactLineageIsReadable({
