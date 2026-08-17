@@ -34,6 +34,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { CommandEveVideoConversationArtifact } from '@/common/config/videoGenerationRequestCore';
 import { hydrateVideoArtifactPayload } from '@/common/config/videoGenerationRequestCore';
+import { ensurePrivateDirectory, writeJsonAtomic } from '@process/services/project-workspace/storage/atomicJson';
+import { writePrivateDocumentImmutable } from './document/privateDocumentCache';
 
 const VIDEO_ARTIFACT_MANIFEST_DIR = 'command-eve-video-artifacts';
 const VIDEO_DOWNLOADS_SUBDIR = 'Command EVE Videos';
@@ -45,17 +47,6 @@ const MIME_TO_EXTENSION: Record<string, string> = {
   'video/webm': 'webm',
   'video/quicktime': 'mov',
 };
-
-function ensureDir(dir: string): void {
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-}
-
-function writeJsonAtomic(file: string, value: unknown): void {
-  ensureDir(path.dirname(file));
-  const tempFile = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
-  fs.writeFileSync(tempFile, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(tempFile, file);
-}
 
 function manifestDirectory(dataPath: string, conversationId: string): string {
   return path.join(dataPath, VIDEO_ARTIFACT_MANIFEST_DIR, conversationId);
@@ -72,14 +63,15 @@ export function saveGeneratedVideoFile(input: {
 }): string {
   const extension = MIME_TO_EXTENSION[input.mimeType] ?? 'mp4';
   const safeConversationId = SAFE_ID.test(input.conversationId) ? input.conversationId : FALLBACK_DIR_NAME;
-  const directory = path.join(
-    input.downloadsRoot ?? path.join(os.homedir(), 'Downloads'),
-    VIDEO_DOWNLOADS_SUBDIR,
-    safeConversationId
-  );
-  ensureDir(directory);
-  const filePath = path.join(directory, `${input.artifactId}.${extension}`);
-  fs.writeFileSync(filePath, Buffer.from(input.dataBase64, 'base64'), { mode: 0o600 });
+  const videoRoot = path.join(input.downloadsRoot ?? path.join(os.homedir(), 'Downloads'), VIDEO_DOWNLOADS_SUBDIR);
+  const filePath = path.join(videoRoot, safeConversationId, `${input.artifactId}.${extension}`);
+  // The bytes ARE the paid artifact; the record written after this only names
+  // them. Without the same fsync the record now gets, a crash can leave a
+  // listed video whose file never reached the platter — the identical loss,
+  // pointing the other way. Create-only publication also stops a retry from
+  // replacing a clip the user already has.
+  ensurePrivateDirectory(videoRoot);
+  writePrivateDocumentImmutable(videoRoot, filePath, Buffer.from(input.dataBase64, 'base64'));
   return filePath;
 }
 
