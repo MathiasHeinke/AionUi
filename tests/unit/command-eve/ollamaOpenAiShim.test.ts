@@ -161,7 +161,14 @@ describe('Command EVE context and cache policy', () => {
     expect(commandEveOllamaUsageReceipt({ prompt_eval_count: -1, eval_count: Number.NaN })).toBeUndefined();
   });
 
-  it('binds exact local response usage to the final provider payload and Hermes turn/call identity', async () => {
+  /**
+   * The turn/call identity below is supplied BY THIS TEST, not by Hermes. It
+   * covers the shim's reader only; nothing in the product sends these headers.
+   * See tests/unit/command-eve/commandEveProviderCallWire.test.ts for the wire
+   * itself, and do not read a green run here as evidence that the TTFT formal
+   * gate can observe a real turn.
+   */
+  it('binds exact local response usage to the final provider payload and a SUPPLIED turn/call identity', async () => {
     const receipts: CommandEveBoundUpstreamOutcomeReceipt[] = [];
     const ollamaBaseUrl = await startFakeOllamaWarmupServer({
       model: 'command-eve-gemma4-e4b-64k:latest',
@@ -216,7 +223,7 @@ describe('Command EVE context and cache policy', () => {
     expect(receipts[0].provider_call.response_usage_fingerprint_sha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('does not mint an exact receipt from malformed turn/call headers', async () => {
+  it('does not mint an exact receipt from malformed SUPPLIED turn/call headers', async () => {
     let exactReceiptObserved = false;
     const ollamaBaseUrl = await startFakeOllamaWarmupServer({
       model: 'command-eve-gemma4-e4b-64k:latest',
