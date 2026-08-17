@@ -747,12 +747,37 @@ export async function handleCommandEveImageGenerate(
     }
   );
   if (!capturedSeatEpochIsActive()) {
-    const artifactState = result.ok === false ? result.artifactState : 'stored_not_bound';
-    return refuseImageGenerate('image-generate-seat-changed', 'Der aktive Platz hat gewechselt. Bitte erneut senden.', {
-      requestId: request.requestId,
-      retryable: true,
-      artifactState,
-    });
+    // The seat moved while this generation was finishing. The result cannot be
+    // handed to the seat that is active NOW — that would serve one tenant's
+    // paid artifact to another.
+    //
+    // What must NOT happen is asking for a resend. On the success branch the
+    // image was already generated, DEBITED and durably bound to the captured
+    // seat (`bind` above ran with `expectedSeatId: capturedSeatId`), so it is
+    // waiting in that seat's conversation, not lost. "Bitte erneut senden"
+    // would buy the same picture a second time for a race the user never saw.
+    // A completed-but-withheld result is therefore explicitly NOT retryable and
+    // says where the image is.
+    if (result.ok === false) {
+      const artifactState = result.artifactState;
+      return refuseImageGenerate(
+        'image-generate-seat-changed',
+        'Der aktive Platz hat gewechselt. Bitte erneut senden.',
+        {
+          requestId: request.requestId,
+          // Only an UNFINISHED attempt may be retried. `created_not_stored` and
+          // `stored_not_bound` both mean the provider already ran and the seat
+          // was already charged, so a retry there is a second payment too.
+          retryable: artifactState === 'creation_unverified' || artifactState === 'none',
+          artifactState,
+        }
+      );
+    }
+    return refuseImageGenerate(
+      'image-generate-seat-changed-artifact-retained',
+      'Der aktive Platz hat gewechselt, während das Bild fertig wurde. Es ist fertig und im vorherigen Platz gespeichert — wechsle dorthin zurück, statt es erneut zu erstellen.',
+      { requestId: request.requestId, retryable: false, artifactState: 'stored_and_bound' }
+    );
   }
   return result;
 }

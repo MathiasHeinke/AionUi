@@ -59,7 +59,14 @@ export type CommandEveImageGenerateFailureArtifactState =
   | 'none'
   | 'creation_unverified'
   | 'created_not_stored'
-  | 'stored_not_bound';
+  | 'stored_not_bound'
+  /**
+   * Generated, debited AND durably bound — but withheld from the caller because
+   * the active seat changed before delivery. The artifact is intact in the
+   * capturing seat's conversation, so this is the one failure state that must
+   * never invite a retry: a retry would pay for the same image twice.
+   */
+  | 'stored_and_bound';
 
 export type CommandEveImageGenerateResult =
   | {

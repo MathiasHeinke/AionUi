@@ -659,6 +659,59 @@ describe('handleCommandEveImageGenerate', () => {
     expect(bind).not.toHaveBeenCalled();
   });
 
+  // The provider already ran, so the seat was already charged. Offering a retry
+  // here sells the same picture twice for a race the user never saw.
+  it('never offers a retry once the provider has run and been charged', async () => {
+    const record = seedActiveImage();
+    let revision = 7;
+    const result = await handleCommandEveImageGenerate(
+      imageGenerateRequest(),
+      imageGenerateDeps(record, {
+        getActiveSeatContextRevision: () => revision,
+        runManagedGeneration: vi.fn(async () => {
+          revision = 8;
+          return { status: 200, body: { data: [{ artifact_handle: CHILD_HANDLE }] } };
+        }),
+        bind: vi.fn(),
+      })
+    );
+    expect(result).toMatchObject({ ok: false, artifactState: 'stored_not_bound', retryable: false });
+  });
+
+  // The seat moved AFTER the image was generated, charged and durably bound to
+  // the capturing seat. It is finished and waiting there, so this must read as
+  // "go back and get it", never as "send it again".
+  it('withholds a completed image after a late seat change without inviting a second purchase', async () => {
+    const record = seedActiveImage();
+    let revision = 7;
+    const bind = vi.fn(() => ({ ok: true as const, record, alreadyBound: false }));
+    const result = await handleCommandEveImageGenerate(
+      imageGenerateRequest(),
+      imageGenerateDeps(record, {
+        // Still the captured epoch for every in-flight fence, so the generation
+        // completes and binds; the switch lands only once the work is done.
+        getActiveSeatContextRevision: () => revision,
+        bind,
+        coordinator: {
+          run: async (_input, work) => {
+            const value = await work();
+            revision = 8;
+            return value;
+          },
+        },
+      })
+    );
+
+    expect(bind).toHaveBeenCalledTimes(1);
+    expect(bind.mock.calls[0][1]).toMatchObject({ expectedSeatId: SEAT_ID });
+    expect(result).toMatchObject({
+      ok: false,
+      reasonCode: 'image-generate-seat-changed-artifact-retained',
+      artifactState: 'stored_and_bound',
+      retryable: false,
+    });
+  });
+
   it('reports generated-but-not-stored distinctly and does not attempt a bind', async () => {
     const record = seedActiveImage();
     const bind = vi.fn();
