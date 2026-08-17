@@ -47,9 +47,9 @@ describe('Command EVE local-model blocker description', () => {
       ])
     ).toBe('BLOCKED_RAM: Local model needs 16GB; found 8GB');
 
-    expect(
-      describeCommandEveWarmupBlocker([{ id: 'capacity', status: 'skip', code: 'BLOCKED_DISK' }])
-    ).toBe('BLOCKED_DISK');
+    expect(describeCommandEveWarmupBlocker([{ id: 'capacity', status: 'skip', code: 'BLOCKED_DISK' }])).toBe(
+      'BLOCKED_DISK'
+    );
   });
 
   it('ignores a managed provider’s expected runtime skip and unrelated stages', () => {
