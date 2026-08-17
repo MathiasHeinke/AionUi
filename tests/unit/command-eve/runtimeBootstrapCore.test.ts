@@ -1760,6 +1760,10 @@ describe('Command EVE runtime bootstrap core', () => {
         server_factory_bound: true,
         rung_five_command_auto_approved_once: true,
         closed_decision_reaches_human: true,
+        structured_tool_reaches_acp_permission: true,
+        missing_acp_callback_blocks_without_queue: true,
+        full_tool_authority_skips_card: true,
+        authority_timeout_is_distinct_and_visible: true,
         idempotent_install: true,
       });
       const browserUseUvXReceiptHarness = spawnSync(
