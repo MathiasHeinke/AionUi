@@ -11,6 +11,23 @@ const aliases = {
   '@mcp/': path.resolve(__dirname, './packages/desktop/src/common') + '/',
 };
 
+/**
+ * Tests that spawn a real `process.execPath` child and block on it.
+ *
+ * Listed explicitly rather than matched by a path pattern: spawning a child is a
+ * property of what a test does, not of where it lives, and a glob would either
+ * miss a new one or quietly pull in a neighbour that does not need the slot.
+ */
+const SUBPROCESS_TEST_FILES = [
+  'tests/unit/assets/prepareAioncoreReuse.test.ts',
+  'tests/unit/bootstrap/buildWithBuilder.test.ts',
+  'tests/unit/command-eve/runtimeBridgeRegistration.test.ts',
+  'tests/unit/e2e-harness/e2eBaselineDiff.test.ts',
+  'tests/unit/scripts/benchmarkProcessTree.test.ts',
+  'tests/unit/scripts/buildWithBuilderExitCode.test.ts',
+  'tests/unit/scripts/productionAuditCore.test.ts',
+];
+
 export default defineConfig({
   resolve: {
     alias: aliases,
@@ -45,7 +62,7 @@ export default defineConfig({
             'tests/integration/**/*.test.ts',
             'tests/regression/**/*.test.ts',
           ],
-          exclude: ['tests/unit/**/*.dom.test.ts', 'tests/unit/**/*.dom.test.tsx'],
+          exclude: ['tests/unit/**/*.dom.test.ts', 'tests/unit/**/*.dom.test.tsx', ...SUBPROCESS_TEST_FILES],
           setupFiles: ['./tests/vitest.setup.ts'],
         },
       },
@@ -57,6 +74,28 @@ export default defineConfig({
           environment: 'jsdom',
           include: ['tests/unit/**/*.dom.test.ts', 'tests/unit/**/*.dom.test.tsx'],
           setupFiles: ['./tests/vitest.dom.setup.ts'],
+        },
+      },
+      // Tests that spawn a REAL `process.execPath` child and wait for it to
+      // finish. They are not slow because of their own work — `buildWithBuilder`
+      // costs 14s alone — but because that child competes with `maxWorkers` peers
+      // for the same cores. That is why raising this file's budget from 30s to
+      // 120s did not settle it: at 766 files the same case still measured 131s
+      // and failed on the larger budget, three times on a byte-identical tree.
+      //
+      // `groupOrder: 1` runs them after the parallel groups instead, so the child
+      // process gets an unloaded machine. This is the cause, not the symptom: a
+      // timeout that only appears under peer load says nothing about the target
+      // contract this file asserts, and a gate that goes red for reasons unrelated
+      // to any defect stops being readable evidence for a release.
+      {
+        extends: true,
+        test: {
+          name: 'subprocess',
+          environment: 'node',
+          include: SUBPROCESS_TEST_FILES,
+          setupFiles: ['./tests/vitest.setup.ts'],
+          sequence: { groupOrder: 1 },
         },
       },
     ],
