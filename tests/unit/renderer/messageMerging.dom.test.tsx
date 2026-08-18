@@ -167,11 +167,22 @@ function createAcpPermission(callId: string): IMessageAcpPermission {
     position: 'left',
     content: {
       session_id: 'session-1',
-      options: [{ option_id: 'allow_once', name: 'Allow once', kind: 'allow_once' }],
+      options: [{ option_id: 'clarify_choice_0', name: 'Make it blue', kind: 'allow_once' }],
       tool_call: {
         tool_call_id: callId,
-        title: 'Write file',
+        title: 'Should I make the artifact blue?',
         kind: 'edit',
+        raw_input: {
+          question: 'Should I make the artifact blue?',
+          choices: ['Make it blue'],
+          metadata: {
+            interaction_kind: 'artifact_followup',
+            artifact_mode: 'image',
+            question: 'Should I make the artifact blue?',
+            choices: ['Make it blue'],
+            source_user_turn: 'Please make the image blue.',
+          },
+        },
       },
     },
   };
@@ -276,7 +287,7 @@ describe('message merging', () => {
     expect(messages.filter((message) => message.type === 'acp_tool_call')).toHaveLength(1);
   });
 
-  it('replaces a live ACP permission with the authoritative confirmation projection', async () => {
+  it('keeps rich ACP data when a later generic confirmation updates the same call id', async () => {
     const { result } = renderHook(() => useMessageHarness(), {
       wrapper: TestWrapper,
     });
@@ -288,10 +299,19 @@ describe('message merging', () => {
     await flushMessageQueue();
 
     expect(result.current.messages).toHaveLength(1);
-    expect(result.current.messages[0].type).toBe('permission');
+    expect(result.current.messages[0].type).toBe('acp_permission');
+    if (result.current.messages[0].type === 'acp_permission') {
+      expect(result.current.messages[0].content.options[0]?.option_id).toBe('clarify_choice_0');
+      expect(result.current.messages[0].content.tool_call.raw_input).toMatchObject({
+        metadata: {
+          artifact_mode: 'image',
+          source_user_turn: 'Please make the image blue.',
+        },
+      });
+    }
   });
 
-  it('ignores a late duplicate ACP frame after the authoritative confirmation arrived', async () => {
+  it('upgrades a generic permission when a later rich ACP frame has the same call id', async () => {
     const { result } = renderHook(() => useMessageHarness(), {
       wrapper: TestWrapper,
     });
@@ -303,7 +323,15 @@ describe('message merging', () => {
     await flushMessageQueue();
 
     expect(result.current.messages).toHaveLength(1);
-    expect(result.current.messages[0].type).toBe('permission');
+    expect(result.current.messages[0].type).toBe('acp_permission');
+    if (result.current.messages[0].type === 'acp_permission') {
+      expect(result.current.messages[0].content.tool_call.raw_input).toMatchObject({
+        metadata: {
+          artifact_mode: 'image',
+          source_user_turn: 'Please make the image blue.',
+        },
+      });
+    }
   });
 
   it('reconciles legacy ACP tool calls without an update payload', () => {

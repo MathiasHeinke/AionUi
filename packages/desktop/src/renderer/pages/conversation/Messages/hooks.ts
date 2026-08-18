@@ -5,7 +5,14 @@
  */
 
 import { ipcBridge } from '@/common';
-import type { AgentStreamErrorInfo, IMessageText, IMessageTips, TMessage } from '@/common/chat/chatLib';
+import type {
+  AgentStreamErrorInfo,
+  IConfirmation,
+  IMessageAcpPermission,
+  IMessageText,
+  IMessageTips,
+  TMessage,
+} from '@/common/chat/chatLib';
 import {
   composeMessage,
   mergeAcpToolCallContent,
@@ -67,6 +74,38 @@ function getPermissionCallId(message: TMessage): string | undefined {
     return message.content?.tool_call?.tool_call_id || message.msg_id || message.id;
   }
   return undefined;
+}
+
+function confirmationLifecycleStatus(confirmation: IConfirmation<unknown>): string | undefined {
+  const record = confirmation as unknown as Record<string, unknown>;
+  const authority =
+    record.authority && typeof record.authority === 'object' && !Array.isArray(record.authority)
+      ? (record.authority as Record<string, unknown>)
+      : null;
+  for (const candidate of [record.status, authority?.lifecycle, record.action]) {
+    if (typeof candidate === 'string' && candidate) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Confirmation recovery advances lifecycle state but never substitutes a rich
+ * ACP frame's app-authored question, choices, artifact target or source turn.
+ */
+export function mergeAcpPermissionWithConfirmation(
+  message: IMessageAcpPermission,
+  confirmation: IConfirmation<unknown>
+): IMessageAcpPermission {
+  const record = confirmation as unknown as Record<string, unknown>;
+  const lifecycleStatus = confirmationLifecycleStatus(confirmation);
+  return {
+    ...message,
+    content: {
+      ...message.content,
+      ...(lifecycleStatus ? { status: lifecycleStatus, lifecycle_status: lifecycleStatus } : {}),
+      ...(record.authority !== undefined ? { authority: record.authority } : {}),
+    },
+  } as IMessageAcpPermission;
 }
 
 // 使用 WeakMap 缓存索引，当列表被 GC 时自动清理
@@ -224,7 +263,14 @@ function composeMessageWithIndex(message: TMessage | undefined, list: TMessage[]
     if (existingIdx !== undefined && existingIdx < list.length) {
       const existingMsg = list[existingIdx];
       if (existingMsg.type === 'permission') {
-        return list;
+        const newList = list.slice();
+        newList[existingIdx] = mergeAcpPermissionWithConfirmation(message, existingMsg.content);
+        const rebuilt = buildMessageIndex(newList);
+        index.msgIdIndex = rebuilt.msgIdIndex;
+        index.call_idIndex = rebuilt.call_idIndex;
+        index.tool_call_idIndex = rebuilt.tool_call_idIndex;
+        index.permission_call_idIndex = rebuilt.permission_call_idIndex;
+        return newList;
       }
       if (existingMsg.type === 'acp_permission') {
         const newList = list.slice();
@@ -261,12 +307,7 @@ function composeMessageWithIndex(message: TMessage | undefined, list: TMessage[]
       }
       if (existingMsg.type === 'acp_permission') {
         const newList = list.slice();
-        newList[existingIdx] = message;
-        const rebuilt = buildMessageIndex(newList);
-        index.msgIdIndex = rebuilt.msgIdIndex;
-        index.call_idIndex = rebuilt.call_idIndex;
-        index.tool_call_idIndex = rebuilt.tool_call_idIndex;
-        index.permission_call_idIndex = rebuilt.permission_call_idIndex;
+        newList[existingIdx] = mergeAcpPermissionWithConfirmation(existingMsg, message.content);
         return newList;
       }
     }

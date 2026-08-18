@@ -130,6 +130,30 @@ describe('native Hermes clarify rendering', () => {
     unsubscribe();
   });
 
+  it('accepts the known AionCore unknown-classification title prefix and still emits the confirmed followup', async () => {
+    const message = clarifyMessage();
+    if (message.content?.tool_call) {
+      message.content.tool_call.title = `[classification=unknown] ${message.content.tool_call.title}`;
+    }
+    const events: unknown[] = [];
+    const unsubscribe = addEventListener('commandEve.composer.followup.confirmed', (event) => events.push(event));
+    render(<MessageAcpPermission message={message} isCommandEve />);
+
+    expect(screen.getByTestId('message-acp-clarify-card')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('message-acp-clarify-option-0'));
+
+    await waitFor(() =>
+      expect(events).toEqual([
+        {
+          conversation_id: 'conversation-1',
+          artifact_id: 'img-source',
+          source_user_turn: 'Nee, machen wir die Linie doch lieber blau.',
+        },
+      ])
+    );
+    unsubscribe();
+  });
+
   it('cancels without selecting an artifact or dispatching another turn', async () => {
     const events: unknown[] = [];
     const unsubscribe = addEventListener('commandEve.composer.followup.confirmed', (event) => events.push(event));
@@ -224,6 +248,15 @@ describe('native Hermes clarify rendering', () => {
       'a non-app clarify call id',
       (message: IMessageAcpPermission) => {
         if (message.content?.tool_call) message.content.tool_call.tool_call_id = 'model-authored-call';
+        return message;
+      },
+      true,
+    ],
+    [
+      'an unexpected title prefix',
+      (message: IMessageAcpPermission) => {
+        if (message.content?.tool_call)
+          message.content.tool_call.title = `[classification=routine_edit] ${message.content.tool_call.title}`;
         return message;
       },
       true,

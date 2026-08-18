@@ -161,7 +161,7 @@ describe('pending confirmations recovery', () => {
     expect(hasPermissionMessageForCallId(list, 'tool-1')).toBe(true);
   });
 
-  it('replaces a live ACP card with the authoritative recovered projection', () => {
+  it('retains a rich ACP card when recovery updates lifecycle authority', () => {
     const live = [
       {
         id: 'acp-card',
@@ -171,8 +171,22 @@ describe('pending confirmations recovery', () => {
         position: 'left',
         content: {
           session_id: 'session-1',
-          options: [],
-          tool_call: { tool_call_id: 'tool-1' },
+          options: [{ option_id: 'clarify_choice_0', name: 'Make it blue', kind: 'allow_once' }],
+          tool_call: {
+            tool_call_id: 'tool-1',
+            title: 'Should I make the artifact blue?',
+            raw_input: {
+              question: 'Should I make the artifact blue?',
+              choices: ['Make it blue'],
+              metadata: {
+                interaction_kind: 'artifact_followup',
+                artifact_mode: 'image',
+                question: 'Should I make the artifact blue?',
+                choices: ['Make it blue'],
+                source_user_turn: 'Please make the image blue.',
+              },
+            },
+          },
         },
       },
     ] as TMessage[];
@@ -180,7 +194,20 @@ describe('pending confirmations recovery', () => {
     const result = upsertPendingConfirmationMessage(live, 'conv-1', withAuthority(confirmation, 2));
 
     expect(result).toHaveLength(1);
-    expect(result[0].type).toBe('permission');
+    expect(result[0].type).toBe('acp_permission');
+    if (result[0].type === 'acp_permission') {
+      expect(result[0].content.status).toBe('pending');
+      expect(result[0].content.options[0]?.option_id).toBe('clarify_choice_0');
+      expect(result[0].content.tool_call.raw_input).toMatchObject({
+        metadata: {
+          artifact_mode: 'image',
+          source_user_turn: 'Please make the image blue.',
+        },
+      });
+      expect((result[0].content as Record<string, unknown>).authority).toMatchObject({
+        confirmation_version: 2,
+      });
+    }
   });
 
   it('ignores stale authority versions but accepts lifecycle updates at the current version', () => {

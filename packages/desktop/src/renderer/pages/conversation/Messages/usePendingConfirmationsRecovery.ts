@@ -7,7 +7,7 @@
 import { ipcBridge } from '@/common';
 import type { IConfirmation, IMessagePermission, TMessage } from '@/common/chat/chatLib';
 import { useEffect } from 'react';
-import { useUpdateMessageList } from './hooks';
+import { mergeAcpPermissionWithConfirmation, useUpdateMessageList } from './hooks';
 import { shouldApplyPermissionConfirmation } from './acp/permissionCardPolicy';
 
 export const pendingConfirmationMsgId = (confirmationId: string) => `confirmation:${confirmationId}`;
@@ -67,6 +67,11 @@ export function upsertPendingConfirmationMessage(
   });
   if (existing?.type === 'permission' && !shouldApplyPermissionConfirmation(existing.content, confirmation)) {
     return list;
+  }
+  if (existing?.type === 'acp_permission') {
+    return list.map((message) =>
+      message === existing ? mergeAcpPermissionWithConfirmation(existing, confirmation) : message
+    );
   }
   const withoutExisting = removePermissionMessage(list, {
     id: confirmation.id,

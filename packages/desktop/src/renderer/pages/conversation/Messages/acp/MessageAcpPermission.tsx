@@ -30,6 +30,7 @@ interface MessageAcpPermissionProps {
 
 const COMMAND_EVE_CLARIFY_CALL_ID = /^clarify-[0-9a-f]{32}$/;
 const COMMAND_EVE_ARTIFACT_FOLLOWUP_MODES = new Set(['image', 'video', 'word', 'excel']);
+const AIONCORE_UNKNOWN_CLASSIFICATION_TITLE_PREFIX = '[classification=unknown] ';
 
 const isExactCommandEveClarifyMessage = (message: IMessageAcpPermission, isCommandEve: boolean): boolean => {
   if (!isCommandEve) return false;
@@ -52,7 +53,14 @@ const isExactCommandEveClarifyMessage = (message: IMessageAcpPermission, isComma
   const question = metadata.question;
   const choices = metadata.choices;
   const sourceUserTurn = metadata.source_user_turn;
-  if (typeof question !== 'string' || !question || question.length > 4000 || toolCall.title !== question) return false;
+  if (
+    typeof question !== 'string' ||
+    !question ||
+    question.length > 4000 ||
+    (toolCall.title !== question && toolCall.title !== `${AIONCORE_UNKNOWN_CLASSIFICATION_TITLE_PREFIX}${question}`)
+  ) {
+    return false;
+  }
   if (rawInput.question !== question || !Array.isArray(choices) || choices.length < 1 || choices.length > 4)
     return false;
   if (!choices.every((choice) => typeof choice === 'string' && choice.length > 0 && choice.length <= 512)) return false;
