@@ -1,0 +1,257 @@
+{
+  "version": "multi-model-execution/v2",
+  "receipt_id": "route-2026-08-18-eve-18234-dual-review",
+  "task_id": "MAT-1624-local-18234-review",
+  "execution_surface": "codex-collaboration",
+  "phase": "reported",
+  "state": "PASS",
+  "reason_codes": [],
+  "contract": {
+    "work_item": "Command EVE 1.823.4 authority slice review",
+    "contract_hash": "sha256:6beffaea1a81f9bc67a270b5bb47c6193982ff665eae944cbbe8ec6b526a1c51",
+    "lock_id": "local-frozen-97e7576e7",
+    "ledger": "none"
+  },
+  "snapshot": {
+    "git_sha": "97e7576e7125c88662488554766cfcd041f62da0",
+    "dirty_state_hash": "sha256:clean-at-review-contract",
+    "input_snapshot_hash": "sha256:45b8b36fd98c01b88b8c1cd19948e3997eab37b883f7549f21af4b3c45a816b5"
+  },
+  "artifacts": {
+    "integrated_snapshot_hash": "sha256:45b8b36fd98c01b88b8c1cd19948e3997eab37b883f7549f21af4b3c45a816b5"
+  },
+  "classification": {
+    "task_class": "P2",
+    "sensitivity": "S1",
+    "export_packet_sensitivity": "S1",
+    "verifiability": "V2",
+    "human_gate": "HG-2",
+    "security_sensitive": true
+  },
+  "routes": [
+    {
+      "id": "author-controller",
+      "run_id": "run-eve-18234-author-controller",
+      "attempt": 1,
+      "role": "author",
+      "lane": "codex",
+      "mode": "implement",
+      "runtime": "codex-app",
+      "resolved_runtime": "codex-app",
+      "provider_family": "openai",
+      "model_alias": "active-codex-controller",
+      "resolved_model_alias": "active-codex-controller",
+      "effort": "xhigh",
+      "transport": "app-runtime",
+      "selection_reason": "existing frozen controller-authored commit",
+      "capability_profile": "bounded-local-implementation",
+      "fallback_used": false,
+      "input_snapshot_hash": "sha256:45b8b36fd98c01b88b8c1cd19948e3997eab37b883f7549f21af4b3c45a816b5",
+      "review_input_hash": null,
+      "write_paths": ["/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-18225-integration"],
+      "completion_sentinel": {
+        "expected": "AUTHOR_COMMIT_96efee4c2",
+        "observed": "AUTHOR_COMMIT_96efee4c2"
+      },
+      "runtime_proof": {
+        "status": "PASS",
+        "checked_at": "2026-08-18T17:35:00Z",
+        "cli_version": "codex-app-active-session",
+        "proof_type": "existing-frozen-commit",
+        "auth_lane": "codex-subscription",
+        "permission_mode": "controller-local-worktree",
+        "entitlement": "verified-current",
+        "billing_class": "fixed-subscription",
+        "billing_status": "verified-current",
+        "marginal_cost": "verified-current",
+        "retention_class": "approved-S1",
+        "model_smoke_sentinel": "AUTHOR_COMMIT_96efee4c2",
+        "proof_evidence_path": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-18225-integration/reports/command-eve/2026-08-18/eve-18234-controller-review-summary.md",
+        "env_keys_unset": []
+      }
+    },
+    {
+      "id": "reviewer-kimi",
+      "run_id": "run-eve-18234-kimi-k3-review",
+      "attempt": 1,
+      "role": "reviewer",
+      "lane": "kimi",
+      "mode": "review",
+      "runtime": "kimi-cli",
+      "resolved_runtime": "kimi-cli",
+      "provider_family": "moonshot",
+      "model_alias": "kimi-code/k3",
+      "resolved_model_alias": "kimi-code/k3",
+      "effort": "high",
+      "transport": "local-cli",
+      "selection_reason": "preferred independent security-arm",
+      "capability_profile": "read-only-frozen-diff-review",
+      "fallback_used": false,
+      "input_snapshot_hash": "sha256:45b8b36fd98c01b88b8c1cd19948e3997eab37b883f7549f21af4b3c45a816b5",
+      "review_input_hash": "sha256:45b8b36fd98c01b88b8c1cd19948e3997eab37b883f7549f21af4b3c45a816b5",
+      "write_paths": [],
+      "completion_sentinel": {
+        "expected": "EVE_18234_KIMI_REVIEW_COMPLETE",
+        "observed": "EVE_18234_KIMI_REVIEW_COMPLETE"
+      },
+      "runtime_proof": {
+        "status": "PASS",
+        "checked_at": "2026-08-18T17:58:35Z",
+        "cli_version": "kimi-cli-0.36.1",
+        "proof_type": "managed-oauth-fresh-session",
+        "auth_lane": "kimi-code-oauth",
+        "permission_mode": "read-only-prompt",
+        "entitlement": "verified-current",
+        "billing_class": "fixed-subscription",
+        "billing_status": "verified-current",
+        "marginal_cost": "verified-current",
+        "retention_class": "approved-S1",
+        "model_smoke_sentinel": "KIMI_K3_REVIEW_RUNTIME_OK",
+        "proof_evidence_path": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-18225-integration/reports/command-eve/2026-08-18/eve-18234-kimi-runtime-proof.md",
+        "env_keys_unset": ["MOONSHOT_API_KEY", "KIMI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY"]
+      }
+    },
+    {
+      "id": "reviewer-sol",
+      "run_id": "run-eve-18234-sol-pro-review",
+      "attempt": 1,
+      "role": "reviewer",
+      "lane": "codex",
+      "mode": "review",
+      "runtime": "codex-cli-openrouter",
+      "resolved_runtime": "codex-cli-openrouter",
+      "provider_family": "openai",
+      "model_alias": "openai/gpt-5.6-sol-pro",
+      "resolved_model_alias": "openai/gpt-5.6-sol-pro",
+      "effort": "xhigh",
+      "transport": "local-cli",
+      "selection_reason": "user-authorized independent architecture-arm",
+      "capability_profile": "read-only-frozen-diff-review",
+      "fallback_used": false,
+      "input_snapshot_hash": "sha256:45b8b36fd98c01b88b8c1cd19948e3997eab37b883f7549f21af4b3c45a816b5",
+      "review_input_hash": "sha256:45b8b36fd98c01b88b8c1cd19948e3997eab37b883f7549f21af4b3c45a816b5",
+      "write_paths": [],
+      "completion_sentinel": {
+        "expected": "EVE_18234_SOL_REVIEW_COMPLETE",
+        "observed": "EVE_18234_SOL_REVIEW_COMPLETE"
+      },
+      "runtime_proof": {
+        "status": "PASS",
+        "checked_at": "2026-08-18T17:52:31Z",
+        "cli_version": "codex-cli-0.134.0",
+        "proof_type": "openrouter-xhigh-fresh-session",
+        "auth_lane": "openrouter-api-key",
+        "permission_mode": "read-only-ephemeral",
+        "entitlement": "verified-current",
+        "billing_class": "variable-api",
+        "billing_status": "metered-approved",
+        "marginal_cost": "metered-approved",
+        "retention_class": "approved-S1",
+        "model_smoke_sentinel": "GPT_SOL_XHIGH_REVIEW_RUNTIME_OK",
+        "proof_evidence_path": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-18225-integration/reports/command-eve/2026-08-18/eve-18234-sol-runtime-proof.md",
+        "env_keys_unset": []
+      }
+    },
+    {
+      "id": "controller-synthesis",
+      "run_id": "run-eve-18234-controller-synthesis",
+      "attempt": 1,
+      "role": "controller",
+      "lane": "codex",
+      "mode": "review",
+      "runtime": "codex-app",
+      "resolved_runtime": "codex-app",
+      "provider_family": "openai",
+      "model_alias": "active-codex-controller",
+      "resolved_model_alias": "active-codex-controller",
+      "effort": "xhigh",
+      "transport": "app-runtime",
+      "selection_reason": "integrate-independent-review-results",
+      "capability_profile": "controller-read-only-synthesis",
+      "fallback_used": false,
+      "input_snapshot_hash": "sha256:45b8b36fd98c01b88b8c1cd19948e3997eab37b883f7549f21af4b3c45a816b5",
+      "review_input_hash": "sha256:45b8b36fd98c01b88b8c1cd19948e3997eab37b883f7549f21af4b3c45a816b5",
+      "write_paths": [],
+      "completion_sentinel": {
+        "expected": "CONTROLLER_REVIEW_SYNTHESIS_COMPLETE",
+        "observed": "CONTROLLER_REVIEW_SYNTHESIS_COMPLETE"
+      },
+      "runtime_proof": {
+        "status": "PASS",
+        "checked_at": "2026-08-18T18:12:00Z",
+        "cli_version": "codex-app-active-session",
+        "proof_type": "active-controller-session",
+        "auth_lane": "codex-subscription",
+        "permission_mode": "controller-read-only",
+        "entitlement": "verified-current",
+        "billing_class": "fixed-subscription",
+        "billing_status": "verified-current",
+        "marginal_cost": "verified-current",
+        "retention_class": "approved-S1",
+        "model_smoke_sentinel": "CONTROLLER_REVIEW_SYNTHESIS_COMPLETE",
+        "proof_evidence_path": "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-18225-integration/reports/command-eve/2026-08-18/eve-18234-controller-review-summary.md",
+        "env_keys_unset": []
+      }
+    }
+  ],
+  "concurrency": {
+    "strategy": "parallel-independent-reviewers",
+    "spawn_owner": "codex-controller",
+    "max_active_children": 1,
+    "spawn_depth": 1,
+    "integration_order": ["author-controller"],
+    "single_writer_per_path": true
+  },
+  "review": {
+    "author_route_ids": ["author-controller"],
+    "reviewer_route_ids": ["reviewer-kimi", "reviewer-sol"],
+    "security_reviewer_route_ids": ["reviewer-kimi", "reviewer-sol"],
+    "independence_required": true
+  },
+  "gates": [
+    {
+      "id": "focused-unit-tests",
+      "owner": "author-controller",
+      "status": "PASS",
+      "required_for_phase": ["reported"]
+    },
+    {
+      "id": "dual-independent-review",
+      "owner": "reviewer-kimi+reviewer-sol",
+      "status": "FAIL",
+      "required_for_phase": ["released"]
+    },
+    {
+      "id": "security-convergence",
+      "owner": "controller-synthesis",
+      "status": "FAIL",
+      "required_for_phase": ["released"]
+    },
+    {
+      "id": "cao",
+      "owner": "fresh-cao-session",
+      "status": "PENDING",
+      "required_for_phase": ["released"]
+    },
+    {
+      "id": "typecheck",
+      "owner": "controller-synthesis",
+      "status": "PASS",
+      "required_for_phase": ["reported", "released"]
+    }
+  ],
+  "blocked_actions": ["merge", "deploy", "r2-publication", "production-write", "notarization", "linear-done"],
+  "cost": {
+    "basis": "fixed-subscription-plus-approved-variable-api",
+    "currency": "USD",
+    "amount": 0,
+    "max_spend": 5
+  },
+  "heartbeat": null,
+  "evidence": [
+    "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-18225-integration/reports/command-eve/2026-08-18/eve-18234-review-contract.md",
+    "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-18225-integration/reports/command-eve/2026-08-18/eve-18234-kimi-review.md",
+    "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-18225-integration/reports/command-eve/2026-08-18/eve-18234-sol-review.md",
+    "/Users/mathiasheinke/Developer/.agent-sandboxes/aionui/eve-18230-18225-integration/reports/command-eve/2026-08-18/eve-18234-controller-review-summary.md"
+  ]
+}
