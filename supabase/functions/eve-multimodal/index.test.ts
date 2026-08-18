@@ -4,7 +4,10 @@
 
 import { assertEquals } from 'jsr:@std/assert@1';
 import crypto from 'node:crypto';
+import { reserveBillableOperation } from '../_shared/billable-operations.ts';
 import { buildLicensePayloadV2, signLicenseCode } from '../_shared/license-code-core.ts';
+import { callOpenRouterImageGeneration, extractEveImageGenerationInput } from './image-generation-core.ts';
+import { resolveImageGenerationModel } from './image-model-registry.ts';
 import { handleEveMultimodal as handleEveMultimodalRaw, resetEveMultimodalPublicKeyCacheForTests } from './index.ts';
 import { buildXaiVideoEditBody, videoEditDebitExternalRef, videoPromptSha256 } from './video-generation-core.ts';
 
@@ -773,6 +776,86 @@ Deno.test('rejects a mismatched PDF hash before calling OpenRouter', async () =>
   } finally {
     disablePdfOcrProvider();
   }
+});
+
+Deno.test('GPT Image 2 reference input reaches the OpenRouter provider request as input_references', async () => {
+  const referenceBytes = new TextEncoder().encode('gpt-image-2-reference');
+  const referenceBase64 = btoa(String.fromCharCode(...referenceBytes));
+  const referenceSha256 = crypto.createHash('sha256').update(referenceBytes).digest('hex');
+  const input = extractEveImageGenerationInput({
+    prompt: 'Keep the composition and replace the background with a studio wall.',
+    aspect_ratio: '1:1',
+    resolution: '1K',
+    image_model: 'max',
+    input_references: [
+      {
+        mime_type: 'image/png',
+        sha256: referenceSha256,
+        data_base64: referenceBase64,
+      },
+    ],
+  });
+  const imageModel = resolveImageGenerationModel('max');
+  assertEquals(input?.imageModel.providerSlug, 'openai/gpt-image-2');
+  assertEquals(imageModel?.supportsReferenceImages, true);
+
+  const reserved = await reserveBillableOperation({
+    port: {
+      commit: (commitInput) =>
+        Promise.resolve({
+          status: 'applied' as const,
+          entitlementId: TEST_ENTITLEMENT_ID,
+          externalRef: commitInput.externalRef,
+        }),
+      reverse: () => Promise.resolve({ ok: true }),
+    },
+    operationId: 'multimodal.image_generation',
+    tenantId: '00000000-0000-4000-8000-000000000001',
+    externalRef: 'image:gpt-image-2-reference-probe',
+    model: 'openai/gpt-image-2',
+    boundUnits: 1,
+    explicitBoundRetailEurCents: 230,
+  });
+  if (reserved.status !== 'reserved' || !input) {
+    throw new Error(`probe setup failed: reserve=${reserved.status}, input=${input ? 'parsed' : 'refused'}`);
+  }
+
+  const observedProvider = { body: null as Record<string, unknown> | null };
+  const generatedBytes = new TextEncoder().encode('generated-image');
+  const generated = await callOpenRouterImageGeneration({
+    apiKey: 'test-openrouter-key',
+    input,
+    timeoutMs: 1_000,
+    receipt: reserved.receipt,
+    fetchFn: (_url, init) => {
+      observedProvider.body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                b64_json: btoa(String.fromCharCode(...generatedBytes)),
+                media_type: 'image/png',
+              },
+            ],
+            usage: { cost: 0.01 },
+          }),
+          { status: 200 }
+        )
+      );
+    },
+  });
+
+  assertEquals(generated.ok, true);
+  assertEquals(observedProvider.body?.model, 'openai/gpt-image-2');
+  assertEquals(observedProvider.body?.input_references, [
+    {
+      type: 'image_url',
+      image_url: {
+        url: `data:image/png;base64,${referenceBase64}`,
+      },
+    },
+  ]);
 });
 
 Deno.test('fails closed when OpenRouter omits trustworthy physical page boundaries', async () => {

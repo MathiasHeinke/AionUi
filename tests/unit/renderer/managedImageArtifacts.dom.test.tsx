@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { Message } from '@arco-design/web-react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 
@@ -197,5 +198,25 @@ describe('the managed image card previews by artifact id', () => {
     // No open/reveal affordance without a path — and no path anywhere in the DOM.
     expect(screen.queryByTestId('generated-artifact-reveal')).toBeNull();
     expect(document.body.innerHTML).not.toContain('/Users/');
+  });
+
+  it('downloads the verified managed preview without fetching an internal artifact handle', async () => {
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:managed-image');
+    const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const success = vi.spyOn(Message, 'success').mockImplementation(() => () => undefined);
+
+    render(<MessageGeneratedArtifact artifact={asConversationArtifact(managedImageArtifact()) as never} />);
+    await screen.findByTestId('generated-artifact-image');
+    fireEvent.click(screen.getByTestId('generated-artifact-download'));
+
+    await waitFor(() => expect(createObjectUrl).toHaveBeenCalledWith(expect.any(Blob)));
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:managed-image');
+
+    click.mockRestore();
+    revokeObjectUrl.mockRestore();
+    createObjectUrl.mockRestore();
+    success.mockRestore();
   });
 });

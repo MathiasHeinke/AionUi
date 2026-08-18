@@ -214,6 +214,25 @@ describe('handleCommandEveVideoGenerate', () => {
     expect(result.reasonCode).toBe('entitlement-not-drawable');
   });
 
+  it('refuses an unavailable conversation before the paid video provider is called', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
+
+    const result = await handleCommandEveVideoGenerate(
+      { prompt: 'p', tierId: 'fast', durationSeconds: 5, conversationId: 'conv-1' },
+      deps(fetchMock as unknown as typeof fetch, {
+        resolveWorkspace: async () => ({ status: 'refused', reasonCode: 'conversation-unavailable' }),
+      })
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      reasonCode: 'video-workspace-unavailable',
+      retryable: false,
+    });
+    expect(result.ok === false ? result.message : '').toContain('Unterhaltung');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['insufficient_credits', 402, false],
     ['spend_cap_exceeded', 402, false],
@@ -665,7 +684,8 @@ describe('handleCommandEveVideoGenerate', () => {
 
   it('saves a successful generation as a durable, path-based conversation artifact', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
-    const savedPath = '/tmp/Downloads/Command EVE Videos/conv-1/artifact-fixed.mp4';
+    const workspaceRoot = '/tmp/eve-data/command-eve-temp-artifacts/conv-1';
+    const savedPath = `${workspaceRoot}/videos/p-2026-08-17.mp4`;
     const saveVideoFileMock = vi.fn(() => savedPath);
     const saveArtifactRecordMock = vi.fn();
 
@@ -682,6 +702,9 @@ describe('handleCommandEveVideoGenerate', () => {
       artifactId: 'artifact-fixed',
       dataBase64: 'AAAA',
       mimeType: 'video/mp4',
+      dataPath: '/tmp/eve-data',
+      workspaceRoot,
+      nameHint: 'p',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -692,6 +715,28 @@ describe('handleCommandEveVideoGenerate', () => {
     // A local file PATH — never a data: URL, which is exactly the ephemeral shape
     // this lane must not repeat.
     expect(result.conversationArtifact?.payload.path).toBe(savedPath);
+    expect(result.conversationArtifact?.payload.relative_path).toBe('videos/p-2026-08-17.mp4');
+    expect(saveArtifactRecordMock).toHaveBeenCalledWith('/tmp/eve-data', result.conversationArtifact);
+  });
+
+  it('forwards the sparse folder-cleanup notice with the saved video artifact', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, okBody));
+    const saveArtifactRecordMock = vi.fn();
+
+    const result = await handleCommandEveVideoGenerate(
+      { prompt: 'p', tierId: 'fast', durationSeconds: 5, conversationId: 'conv-1' },
+      deps(fetchMock as unknown as typeof fetch, {
+        saveVideoFile: () => ({
+          path: '/tmp/eve-data/command-eve-temp-artifacts/conv-1/videos/p.mp4',
+          cleanupNotice: 'Hinweis: Im Ordner „videos“ wurden mindestens 100 Artefakte angelegt.',
+        }),
+        saveArtifactRecord: saveArtifactRecordMock,
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.conversationArtifact?.payload.cleanup_notice).toContain('100 Artefakte');
     expect(saveArtifactRecordMock).toHaveBeenCalledWith('/tmp/eve-data', result.conversationArtifact);
   });
 

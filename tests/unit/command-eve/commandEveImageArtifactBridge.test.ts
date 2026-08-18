@@ -299,12 +299,12 @@ describe('handleCommandEveImageEdit', () => {
     expect(runManagedEdit).not.toHaveBeenCalled();
   });
 
-  it('a tampered blob (bytes changed under the handle) refuses as artifact-changed before the provider', async () => {
+  it('a changed visible image recovers from the private source before the provider', async () => {
     const source = seedActiveImage();
     const permit = issueImagePermit();
     fs.writeFileSync(
-      path.join(dataRoot, 'command-eve-managed-image-artifacts', 'blobs', source.id),
-      Buffer.from('tampered-bytes'),
+      path.join(dataRoot, 'command-eve-temp-artifacts', 'conv-1', ...source.payload.path.split('/')),
+      Buffer.from('tampered-image-xyz'),
       { mode: 0o600 }
     );
     const records = fs.readdirSync(path.join(dataRoot, 'command-eve-artifact-capabilities'));
@@ -315,7 +315,38 @@ describe('handleCommandEveImageEdit', () => {
       }
     ).handle;
 
+    const runManagedEdit = vi.fn(async () => ({
+      status: 200,
+      body: {
+        created: 1,
+        data: [{ artifact_handle: CHILD_HANDLE, media_type: 'image/png', sha256: 'f'.repeat(64), bytes_count: 10 }],
+      },
+    }));
+    const result = await handleCommandEveImageEdit(
+      { handle: grantHandle, permit, instruction: 'heller' },
+      editDeps(runManagedEdit)
+    );
+    expect(result).toEqual({ ok: true, artifactHandle: CHILD_HANDLE, parentArtifactId: source.id });
+    const call = runManagedEdit.mock.calls[0][0];
+    expect(Buffer.from(call.referenceDataUrl.split(',')[1], 'base64')).toEqual(SOURCE_BYTES);
+  });
+
+  it('changed visible and private copies refuse as artifact-changed before the provider', async () => {
+    const source = seedActiveImage();
+    const permit = issueImagePermit();
+    fs.writeFileSync(
+      path.join(dataRoot, 'command-eve-temp-artifacts', 'conv-1', ...source.payload.path.split('/')),
+      Buffer.from('tampered-visible-xyz'),
+      { mode: 0o600 }
+    );
+    fs.writeFileSync(
+      path.join(dataRoot, 'command-eve-managed-image-artifacts', 'blobs', source.id),
+      Buffer.from('tampered-private-xyz'),
+      { mode: 0o600 }
+    );
+    const grantHandle = imageEditHandleFor('conv-1', source.id);
     const runManagedEdit = vi.fn();
+
     const result = await handleCommandEveImageEdit(
       { handle: grantHandle, permit, instruction: 'heller' },
       editDeps(runManagedEdit)
@@ -325,7 +356,6 @@ describe('handleCommandEveImageEdit', () => {
       reasonCode: 'image-edit-artifact-changed',
       message: 'Die Bilddatei hat sich seit dem Erstellen geändert — die Bearbeitung wurde abgebrochen.',
     });
-    expect(result.ok === false ? result.message : '').not.toContain('Video');
     expect(runManagedEdit).not.toHaveBeenCalled();
   });
 
@@ -494,6 +524,28 @@ describe('handleCommandEveImageGenerate', () => {
       imageGenerateDeps(record, { runManagedGeneration })
     );
     expect(malformed).toMatchObject({ ok: false, reasonCode: 'image-generate-reference-path-invalid' });
+    expect(runManagedGeneration).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unavailable conversation before the paid image provider is called', async () => {
+    const record = seedActiveImage();
+    const runManagedGeneration = vi.fn();
+
+    const result = await handleCommandEveImageGenerate(
+      imageGenerateRequest(),
+      imageGenerateDeps(record, {
+        runManagedGeneration,
+        resolveWorkspace: async () => ({ status: 'refused', reasonCode: 'conversation-unavailable' }),
+      })
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      reasonCode: 'image-generate-workspace-unavailable',
+      retryable: false,
+      artifactState: 'none',
+    });
+    expect(result.ok === false ? result.message : '').toContain('Unterhaltung');
     expect(runManagedGeneration).not.toHaveBeenCalled();
   });
 
@@ -738,6 +790,26 @@ describe('handleCommandEveImageGenerate', () => {
     });
     expect(bind).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['artifact-placement-collision-limit', 'image-generate-name-collision-limit', 'Wähle einen anderen Namen.'],
+    [
+      'artifact-placement-no-space',
+      'image-generate-storage-full',
+      'Schaffe Speicherplatz und versuche es dann erneut.',
+    ],
+  ] as const)('keeps the %s placement cause actionable at the user boundary', async (reason, reasonCode, message) => {
+    const record = seedActiveImage();
+    const result = await handleCommandEveImageGenerate(
+      imageGenerateRequest(),
+      imageGenerateDeps(record, {
+        bind: vi.fn(() => ({ ok: false as const, reason, message: 'store detail' })),
+      })
+    );
+
+    expect(result).toMatchObject({ ok: false, reasonCode, artifactState: 'stored_not_bound' });
+    expect(result.ok === false ? result.message : '').toContain(message);
+  });
 });
 
 describe('bind / list / preview / import handlers', () => {
@@ -792,7 +864,7 @@ describe('bind / list / preview / import handlers', () => {
     expect(listRecords).not.toHaveBeenCalled();
   });
 
-  it('preview handler: serves the active record by id, hash-verified — and refuses other conversations and tampered blobs', async () => {
+  it('preview handler recovers from one good copy and refuses only when both copies are invalid', async () => {
     const source = seedActiveImage();
     const deps = { getDataPath: () => dataRoot, getActiveSeatId: () => SEAT_ID };
     const preview = await handleCommandEveImageArtifactPreview(
@@ -810,8 +882,19 @@ describe('bind / list / preview / import handlers', () => {
     ).toBeNull();
 
     fs.writeFileSync(
+      path.join(dataRoot, 'command-eve-temp-artifacts', 'conv-1', ...source.payload.path.split('/')),
+      Buffer.from('tampered-image-xyz'),
+      { mode: 0o600 }
+    );
+    const recovered = await handleCommandEveImageArtifactPreview(
+      { conversationId: 'conv-1', artifactId: source.id },
+      deps
+    );
+    expect(Buffer.from(recovered!.data_base64, 'base64')).toEqual(SOURCE_BYTES);
+
+    fs.writeFileSync(
       path.join(dataRoot, 'command-eve-managed-image-artifacts', 'blobs', source.id),
-      Buffer.from('tampered'),
+      Buffer.from('tampered-private-xyz'),
       { mode: 0o600 }
     );
     expect(

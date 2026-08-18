@@ -8,6 +8,7 @@ import {
   bindStagedImageArtifact,
   importLegacyImageArtifact,
   listActiveImageArtifacts,
+  MANAGED_IMAGE_ARTIFACT_RECOVERY_RETENTION_MS,
   purgeExpiredStagedImageArtifacts,
   readImageArtifactBytes,
   readImageArtifactRecordById,
@@ -207,6 +208,486 @@ describe('LEGACY SEAT RESOLUTION', () => {
 });
 
 describe('BIND', () => {
+  it('publishes the visible image while retaining the private recovery source', () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-'));
+    const { record, handle } = stage(Date.now(), SEAT_A);
+    const recordFile = path.join(dataRoot, 'command-eve-managed-image-artifacts', 'records', `${record.id}.json`);
+    const stagedRecord = JSON.parse(fs.readFileSync(recordFile, 'utf8')) as Record<string, unknown>;
+    stagedRecord.payload = { ...(stagedRecord.payload as Record<string, unknown>), title: 'Kampagne JABADS' };
+    fs.writeFileSync(recordFile, `${JSON.stringify(stagedRecord, null, 2)}\n`);
+
+    const result = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-visible',
+      expectedSeatId: SEAT_A,
+      workspaceRoot: workspace,
+      nowMs: new Date(2026, 7, 17, 12).getTime(),
+    });
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    expect(result.record.payload.path).toBe('bilder/kampagne-jabads-2026-08-17.png');
+    const visible = path.join(workspace, ...result.record.payload.path!.split('/'));
+    expect(fs.readFileSync(visible).equals(BYTES)).toBe(true);
+    expect(fs.statSync(visible).nlink).toBe(1);
+    expect(fs.readFileSync(path.join(dataRoot, 'command-eve-managed-image-artifacts', 'blobs', record.id))).toEqual(
+      BYTES
+    );
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('reads the private recovery source when the visible image was changed outside EVE', () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-'));
+    const { record, handle } = stage();
+    const result = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-changed',
+      expectedSeatId: SEAT_A,
+      workspaceRoot: workspace,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    fs.writeFileSync(path.join(workspace, ...result.record.payload.path!.split('/')), 'changed');
+    expect(readImageArtifactBytes(dataRoot, record.id, SEAT_A)).toEqual(BYTES);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('returns the bytes from the verified descriptor instead of reopening a replaced path', () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-'));
+    const { record, handle } = stage();
+    const result = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-replaced-after-verify',
+      expectedSeatId: SEAT_A,
+      workspaceRoot: workspace,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const visible = path.join(workspace, ...result.record.payload.path!.split('/'));
+    const moved = `${visible}.moved`;
+    const realOpen = fs.openSync;
+    const realClose = fs.closeSync;
+    const openPaths = new Map<number, string>();
+    let replaced = false;
+    vi.spyOn(fs, 'openSync').mockImplementation(((file: fs.PathLike, ...rest: unknown[]) => {
+      const descriptor = (realOpen as (...args: unknown[]) => number)(file, ...rest);
+      openPaths.set(descriptor, String(file));
+      return descriptor;
+    }) as typeof fs.openSync);
+    vi.spyOn(fs, 'closeSync').mockImplementation((descriptor) => {
+      const openedPath = openPaths.get(descriptor);
+      realClose(descriptor);
+      if (openedPath === visible && !replaced) {
+        replaced = true;
+        fs.renameSync(visible, moved);
+        fs.writeFileSync(visible, Buffer.from('replaced-bytes'), { mode: 0o600 });
+      }
+    });
+
+    expect(readImageArtifactBytes(dataRoot, record.id, SEAT_A)?.equals(BYTES)).toBe(true);
+    expect(fs.readFileSync(visible, 'utf8')).toBe('replaced-bytes');
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('retains the staged blob after a failed active-record commit and succeeds on retry', () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-'));
+    const { record, handle } = stage(new Date(2026, 7, 17, 12).getTime());
+    const store = path.join(dataRoot, 'command-eve-managed-image-artifacts');
+    const recordPath = path.join(store, 'records', `${record.id}.json`);
+    const blobPath = path.join(store, 'blobs', record.id);
+    const realRename = fs.renameSync;
+    let failActiveRecordOnce = true;
+    vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+      if (
+        failActiveRecordOnce &&
+        newPath === recordPath &&
+        fs.readFileSync(oldPath, 'utf8').includes('"status": "active"')
+      ) {
+        failActiveRecordOnce = false;
+        throw Object.assign(new Error('simulated record commit failure'), { code: 'EIO' });
+      }
+      return realRename(oldPath, newPath);
+    });
+
+    const first = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-partial',
+      expectedSeatId: SEAT_A,
+      workspaceRoot: workspace,
+      nowMs: new Date(2026, 7, 17, 12).getTime(),
+    });
+    expect(first).toEqual({ ok: false, reason: 'artifact-missing' });
+    expect(fs.readFileSync(blobPath).equals(BYTES)).toBe(true);
+    expect(readImageArtifactRecordById(dataRoot, record.id, SEAT_A)?.status).toBe('staged');
+
+    const retry = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-partial',
+      expectedSeatId: SEAT_A,
+      workspaceRoot: workspace,
+      nowMs: new Date(2026, 7, 17, 12).getTime(),
+    });
+    expect(retry).toMatchObject({ ok: true, alreadyBound: false });
+    if (!retry.ok) return;
+    expect(readImageArtifactBytes(dataRoot, record.id, SEAT_A)?.equals(BYTES)).toBe(true);
+    expect(fs.readFileSync(blobPath)).toEqual(BYTES);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('does not publish bytes when the pre-publication receipt fails, then retries cleanly', () => {
+    const nowMs = new Date(2026, 7, 17, 12).getTime();
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-'));
+    const { record, handle } = stage(nowMs);
+    const store = path.join(dataRoot, 'command-eve-managed-image-artifacts');
+    const stagedPath = path.join(store, 'staged', `${crypto.createHash('sha256').update(handle).digest('hex')}.json`);
+    const blobPath = path.join(store, 'blobs', record.id);
+    const realRename = fs.renameSync;
+    let failPublicationReceiptOnce = true;
+    vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+      if (
+        failPublicationReceiptOnce &&
+        newPath === stagedPath &&
+        fs.readFileSync(oldPath, 'utf8').includes('"published_placement"')
+      ) {
+        failPublicationReceiptOnce = false;
+        throw Object.assign(new Error('simulated pre-publication receipt failure'), { code: 'EIO' });
+      }
+      return realRename(oldPath, newPath);
+    });
+
+    const bind = () =>
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle,
+        toolCallId: 'call-pre-publication-retry',
+        expectedSeatId: SEAT_A,
+        workspaceRoot: workspace,
+        nowMs,
+      });
+    expect(bind()).toEqual({ ok: false, reason: 'artifact-missing' });
+    expect(fs.readdirSync(path.join(workspace, 'bilder'))).toEqual([]);
+    expect(fs.readFileSync(blobPath)).toEqual(BYTES);
+
+    const retry = bind();
+    expect(retry).toMatchObject({ ok: true, alreadyBound: false });
+    if (!retry.ok) return;
+    const published = path.join(workspace, ...retry.record.payload.path!.split('/'));
+    expect(fs.readdirSync(path.join(workspace, 'bilder'))).toHaveLength(1);
+    expect(fs.readFileSync(published)).toEqual(BYTES);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('retains recovery bytes when the active record commits but the bound handle marker does not', () => {
+    const nowMs = new Date(2026, 7, 17, 12).getTime();
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-'));
+    const { record, handle } = stage(nowMs);
+    const store = path.join(dataRoot, 'command-eve-managed-image-artifacts');
+    const blobPath = path.join(store, 'blobs', record.id);
+    const stagedPath = path.join(store, 'staged', `${crypto.createHash('sha256').update(handle).digest('hex')}.json`);
+    const realRename = fs.renameSync;
+    let failBoundMarkerOnce = true;
+    vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+      if (failBoundMarkerOnce && newPath === stagedPath && fs.readFileSync(oldPath, 'utf8').includes('"bound": true')) {
+        failBoundMarkerOnce = false;
+        throw Object.assign(new Error('simulated bound marker commit failure'), { code: 'EIO' });
+      }
+      return realRename(oldPath, newPath);
+    });
+
+    expect(
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle,
+        toolCallId: 'call-partial-marker',
+        expectedSeatId: SEAT_A,
+        workspaceRoot: workspace,
+        nowMs,
+      })
+    ).toEqual({ ok: false, reason: 'artifact-missing' });
+    expect(readImageArtifactRecordById(dataRoot, record.id, SEAT_A)?.status).toBe('active');
+
+    purgeExpiredStagedImageArtifacts(dataRoot, nowMs + IMAGE_STAGED_HANDLE_TTL_MS + 1);
+    expect(fs.readFileSync(blobPath)).toEqual(BYTES);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('reuses its verified published image after location commit failure instead of creating a suffix duplicate', () => {
+    const nowMs = new Date(2026, 7, 17, 12).getTime();
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-'));
+    const { record, handle } = stage(nowMs);
+    const locationPath = path.join(dataRoot, 'command-eve-managed-image-artifacts', 'locations', `${record.id}.json`);
+    const realRename = fs.renameSync;
+    let failLocationCommitOnce = true;
+    vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+      if (failLocationCommitOnce && newPath === locationPath) {
+        failLocationCommitOnce = false;
+        throw Object.assign(new Error('simulated location commit failure'), { code: 'EIO' });
+      }
+      return realRename(oldPath, newPath);
+    });
+
+    const bind = () =>
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle,
+        toolCallId: 'call-location-retry',
+        expectedSeatId: SEAT_A,
+        workspaceRoot: workspace,
+        nowMs,
+      });
+    expect(bind()).toEqual({ ok: false, reason: 'artifact-missing' });
+    const publishedFiles = fs.readdirSync(path.join(workspace, 'bilder'));
+    expect(publishedFiles).toHaveLength(1);
+    expect(fs.readFileSync(path.join(workspace, 'bilder', publishedFiles[0]!))).toEqual(BYTES);
+
+    const retry = bind();
+    expect(retry).toMatchObject({ ok: true, alreadyBound: false });
+    if (!retry.ok) return;
+    expect(fs.readdirSync(path.join(workspace, 'bilder'))).toHaveLength(1);
+    expect(fs.readFileSync(path.join(workspace, ...retry.record.payload.path!.split('/')))).toEqual(BYTES);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('does not reuse a tampered published image after location commit failure', () => {
+    const nowMs = new Date(2026, 7, 17, 12).getTime();
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-'));
+    const { record, handle } = stage(nowMs);
+    const locationPath = path.join(dataRoot, 'command-eve-managed-image-artifacts', 'locations', `${record.id}.json`);
+    const realRename = fs.renameSync;
+    let failLocationCommitOnce = true;
+    vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+      if (failLocationCommitOnce && newPath === locationPath) {
+        failLocationCommitOnce = false;
+        throw Object.assign(new Error('simulated location commit failure'), { code: 'EIO' });
+      }
+      return realRename(oldPath, newPath);
+    });
+
+    const bind = () =>
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle,
+        toolCallId: 'call-location-tampered-retry',
+        expectedSeatId: SEAT_A,
+        workspaceRoot: workspace,
+        nowMs,
+      });
+    expect(bind()).toEqual({ ok: false, reason: 'artifact-missing' });
+    const [publishedFile] = fs.readdirSync(path.join(workspace, 'bilder'));
+    expect(publishedFile).toBeDefined();
+    const tampered = Buffer.from('foreign-replacement');
+    const publishedPath = path.join(workspace, 'bilder', publishedFile!);
+    fs.writeFileSync(publishedPath, tampered);
+
+    const retry = bind();
+    expect(retry).toMatchObject({ ok: true, alreadyBound: false });
+    if (!retry.ok) return;
+    expect(retry.record.payload.path).toMatch(/-2\.png$/);
+    expect(fs.readdirSync(path.join(workspace, 'bilder'))).toHaveLength(2);
+    expect(fs.readFileSync(publishedPath)).toEqual(tampered);
+    expect(fs.readFileSync(path.join(workspace, ...retry.record.payload.path!.split('/')))).toEqual(BYTES);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('moves its verified first publication to the retry workspace after a location commit failure', () => {
+    const nowMs = new Date(2026, 7, 17, 12).getTime();
+    const firstWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-first-'));
+    const retryWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-retry-'));
+    const { record, handle } = stage(nowMs);
+    const locationPath = path.join(dataRoot, 'command-eve-managed-image-artifacts', 'locations', `${record.id}.json`);
+    const realRename = fs.renameSync;
+    let failLocationCommitOnce = true;
+    vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+      if (failLocationCommitOnce && newPath === locationPath) {
+        failLocationCommitOnce = false;
+        throw Object.assign(new Error('simulated location commit failure'), { code: 'EIO' });
+      }
+      return realRename(oldPath, newPath);
+    });
+
+    const first = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-workspace-switch-retry',
+      expectedSeatId: SEAT_A,
+      workspaceRoot: firstWorkspace,
+      nowMs,
+    });
+    expect(first).toEqual({ ok: false, reason: 'artifact-missing' });
+    expect(fs.readdirSync(path.join(firstWorkspace, 'bilder'))).toHaveLength(1);
+
+    const retry = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-workspace-switch-retry',
+      expectedSeatId: SEAT_A,
+      workspaceRoot: retryWorkspace,
+      nowMs,
+    });
+    expect(retry).toMatchObject({ ok: true, alreadyBound: false });
+    if (!retry.ok) return;
+    expect(fs.readdirSync(path.join(firstWorkspace, 'bilder'))).toEqual([]);
+    expect(fs.readFileSync(path.join(retryWorkspace, ...retry.record.payload.path!.split('/')))).toEqual(BYTES);
+    fs.rmSync(firstWorkspace, { recursive: true, force: true });
+    fs.rmSync(retryWorkspace, { recursive: true, force: true });
+  });
+
+  it('leaves a changed first publication in the old workspace when retrying in another project', () => {
+    const nowMs = new Date(2026, 7, 17, 12).getTime();
+    const firstWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-first-'));
+    const retryWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-retry-'));
+    const { record, handle } = stage(nowMs);
+    const locationPath = path.join(dataRoot, 'command-eve-managed-image-artifacts', 'locations', `${record.id}.json`);
+    const realRename = fs.renameSync;
+    let failLocationCommitOnce = true;
+    vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+      if (failLocationCommitOnce && newPath === locationPath) {
+        failLocationCommitOnce = false;
+        throw Object.assign(new Error('simulated location commit failure'), { code: 'EIO' });
+      }
+      return realRename(oldPath, newPath);
+    });
+
+    expect(
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle,
+        toolCallId: 'call-workspace-switch-tampered',
+        expectedSeatId: SEAT_A,
+        workspaceRoot: firstWorkspace,
+        nowMs,
+      })
+    ).toEqual({ ok: false, reason: 'artifact-missing' });
+    const original = path.join(firstWorkspace, 'bilder', fs.readdirSync(path.join(firstWorkspace, 'bilder'))[0]!);
+    const userBytes = Buffer.from('user-kept-this-file');
+    fs.writeFileSync(original, userBytes);
+
+    const retry = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-workspace-switch-tampered',
+      expectedSeatId: SEAT_A,
+      workspaceRoot: retryWorkspace,
+      nowMs,
+    });
+    expect(retry).toMatchObject({ ok: true, alreadyBound: false });
+    if (!retry.ok) return;
+    expect(fs.readFileSync(original)).toEqual(userBytes);
+    expect(fs.readFileSync(path.join(retryWorkspace, ...retry.record.payload.path!.split('/')))).toEqual(BYTES);
+    fs.rmSync(firstWorkspace, { recursive: true, force: true });
+    fs.rmSync(retryWorkspace, { recursive: true, force: true });
+  });
+
+  it('tells projectless users that the image belongs to the conversation and how to keep it permanently', () => {
+    const { handle } = stage();
+
+    const result = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-temporary-notice',
+      expectedSeatId: SEAT_A,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      record: {
+        payload: {
+          cleanup_notice:
+            'Dieses Bild gehört zu dieser Unterhaltung und ist nur temporär abgelegt. Ordne die Unterhaltung einem Projekt zu, um es dauerhaft im Projektordner zu sichern.',
+        },
+      },
+    });
+  });
+
+  it('removes the private recovery source after 30 days only while the visible image fully verifies', () => {
+    const nowMs = new Date(2026, 7, 17, 12).getTime();
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-'));
+    const { record, handle } = stage(nowMs);
+    const blobPath = path.join(dataRoot, 'command-eve-managed-image-artifacts', 'blobs', record.id);
+    const result = bindStagedImageArtifact(dataRoot, {
+      conversationId: 'conv-1',
+      handle,
+      toolCallId: 'call-retention-expired',
+      expectedSeatId: SEAT_A,
+      workspaceRoot: workspace,
+      nowMs,
+    });
+    expect(result.ok).toBe(true);
+
+    purgeExpiredStagedImageArtifacts(dataRoot, nowMs + MANAGED_IMAGE_ARTIFACT_RECOVERY_RETENTION_MS - 1);
+    expect(fs.existsSync(blobPath)).toBe(true);
+    purgeExpiredStagedImageArtifacts(dataRoot, nowMs + MANAGED_IMAGE_ARTIFACT_RECOVERY_RETENTION_MS);
+    expect(fs.existsSync(blobPath)).toBe(false);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it.each(['changed', 'moved'] as const)(
+    'retains the private recovery source indefinitely when the visible image was %s',
+    (failureMode) => {
+      const nowMs = new Date(2026, 7, 17, 12).getTime();
+      const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-'));
+      const { record, handle } = stage(nowMs);
+      const blobPath = path.join(dataRoot, 'command-eve-managed-image-artifacts', 'blobs', record.id);
+      const result = bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle,
+        toolCallId: `call-retention-${failureMode}`,
+        expectedSeatId: SEAT_A,
+        workspaceRoot: workspace,
+        nowMs,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const visible = path.join(workspace, ...result.record.payload.path!.split('/'));
+      if (failureMode === 'changed') fs.writeFileSync(visible, 'changed outside EVE');
+      else fs.renameSync(visible, `${visible}.moved`);
+
+      purgeExpiredStagedImageArtifacts(dataRoot, nowMs + MANAGED_IMAGE_ARTIFACT_RECOVERY_RETENTION_MS);
+      expect(fs.readFileSync(blobPath)).toEqual(BYTES);
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  );
+
+  it('reports an exhausted filename space truthfully while retaining the paid blob', () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-image-workspace-'));
+    const { record, handle } = stage(new Date(2026, 7, 17, 12).getTime());
+    const folder = path.join(workspace, 'bilder');
+    fs.mkdirSync(folder);
+    const occupied = path.join(folder, 'occupied');
+    fs.writeFileSync(occupied, 'occupied');
+    const occupiedStat = fs.lstatSync(occupied);
+    const realLstat = fs.lstatSync;
+    vi.spyOn(fs, 'lstatSync').mockImplementation(((candidate: fs.PathLike, ...rest: unknown[]) => {
+      const file = String(candidate);
+      if (path.dirname(file) === folder && path.basename(file).startsWith('bild-2026-08-17')) return occupiedStat;
+      return (realLstat as (...args: unknown[]) => fs.Stats)(candidate, ...rest);
+    }) as typeof fs.lstatSync);
+
+    expect(
+      bindStagedImageArtifact(dataRoot, {
+        conversationId: 'conv-1',
+        handle,
+        toolCallId: 'call-collisions',
+        expectedSeatId: SEAT_A,
+        workspaceRoot: workspace,
+        nowMs: new Date(2026, 7, 17, 12).getTime(),
+      })
+    ).toEqual({
+      ok: false,
+      reason: 'artifact-placement-collision-limit',
+      message:
+        'Das Bild ist sicher gespeichert, aber dieser Dateiname ist im Projektordner zu oft vergeben. Wähle einen anderen Namen.',
+    });
+    expect(
+      fs.readFileSync(path.join(dataRoot, 'command-eve-managed-image-artifacts', 'blobs', record.id)).equals(BYTES)
+    ).toBe(true);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
   it('flips staged -> active with the conversation, records the tool call id, and mints the durable image_edit grant', () => {
     const { record, handle } = stage();
     const result = bindStagedImageArtifact(dataRoot, {

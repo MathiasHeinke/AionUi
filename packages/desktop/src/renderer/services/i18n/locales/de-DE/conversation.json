@@ -628,6 +628,8 @@
       "qualityStandard": "Standard",
       "qualityHigh": "Hoch",
       "referencesOnly": "Im Bildmodus kannst du nur Bilder als Referenz anhängen.",
+      "referenceCeilingModel": "{{model}} nimmt höchstens {{ceiling}} Referenzbilder. Du hast {{count}} angehängt — entferne {{excess}}, sonst kann das Bild nicht erstellt werden.",
+      "referenceCeilingLane": "Pro Bild sind höchstens {{ceiling}} Referenzbilder möglich. Du hast {{count}} angehängt — entferne {{excess}}, sonst kann das Bild nicht erstellt werden.",
       "generateFailed": "Das Bild konnte nicht erstellt werden. Entwurf und Auswahl bleiben erhalten."
     },
     "video": { "label": "Video erstellen", "tooltip": "Video erstellen oder bearbeiten" },

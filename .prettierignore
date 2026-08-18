@@ -16,3 +16,32 @@ resources/bundled-skills/eve-chief-of-staff-orchestration/
 resources/bundled-skills/plaud-recording-ingest/
 resources/bundled-skills/seo/
 resources/bundled-skills/seo-aeo-best-practices/
+
+# Bundled Hermes UI locale payloads are committed product runtime data, not
+# repository prose. oxfmt (package.json `format:`×2) reads .yaml through a
+# stricter parser than the project's standard YAML loader, fails on valid
+# heredoc multi-line strings, and would exit 2 (`bun run format:check`).
+# These keys are exact; the formatter must not have an opinion about them.
+resources/bundled-hermes/locales/de.yaml
+resources/bundled-hermes/locales/ar.yaml
+resources/bundled-hermes/locales/af.yaml
+resources/bundled-hermes/locales/en.yaml
+resources/bundled-hermes/locales/es.yaml
+resources/bundled-hermes/locales/fr.yaml
+resources/bundled-hermes/locales/ga.yaml
+resources/bundled-hermes/locales/hu.yaml
+resources/bundled-hermes/locales/it.yaml
+resources/bundled-hermes/locales/ja.yaml
+resources/bundled-hermes/locales/ko.yaml
+resources/bundled-hermes/locales/pt.yaml
+resources/bundled-hermes/locales/ru.yaml
+resources/bundled-hermes/locales/tr.yaml
+resources/bundled-hermes/locales/uk.yaml
+resources/bundled-hermes/locales/zh.yaml
+resources/bundled-hermes/locales/zh-hant.yaml
+
+# External review artifacts are owned by their authors, not by this
+# format gate. 1823-independent-review-armA-fable.md is a foreign report that
+# must stay byte-identical; oxfmt would otherwise rewrite its Markdown prose
+# and it would fail every `format:check`. Keep it permanently exempt.
+reports/command-eve/1823-independent-review-armA-fable.md

@@ -38,6 +38,7 @@ import {
   commandEveOfficeSourceOperationId,
   ProjectWorkspaceConversationArtifactStore,
 } from '@process/services/project-workspace/storage/conversationArtifactStore';
+import { publishCanonicalArtifact } from '@process/services/project-workspace/storage/canonicalArtifactPlacement';
 
 export type { CommandEveOfficeArtifactMode, CommandEveOfficeArtifactRefusalReason };
 
@@ -66,6 +67,12 @@ export type CommandEveOfficeConversationAuthority =
       status: 'ready';
       backendPort: number;
       workspace: string;
+      seatId: string;
+      seatContextRevision: number;
+    }>
+  | Readonly<{
+      /** A real conversation may intentionally run without a project workspace. */
+      status: 'temporary';
       seatId: string;
       seatContextRevision: number;
     }>
@@ -414,12 +421,14 @@ export async function resolveCommandEveOfficeConversationAuthority(
     await fetchApiData(deps, backendPort, '/api/conversations/' + encodeURIComponent(conversationId))
   );
   const workspace = readString(recordOf(conversationData?.extra), ['workspace']);
-  if (conversationData?.id !== conversationId || !workspace || !path.isAbsolute(workspace)) {
+  if (conversationData?.id !== conversationId) {
     return { status: 'refused', reasonCode: 'conversation-unavailable' };
   }
   if (deps.getActiveSeatId() !== seatId || deps.getActiveSeatContextRevision() !== seatContextRevision) {
     return { status: 'refused', reasonCode: 'seat-changed' };
   }
+  if (!workspace) return { status: 'temporary', seatId, seatContextRevision };
+  if (!path.isAbsolute(workspace)) return { status: 'refused', reasonCode: 'conversation-unavailable' };
   return { status: 'ready', backendPort, workspace, seatId, seatContextRevision };
 }
 
@@ -449,14 +458,17 @@ function persistImportedOfficeParent(input: {
   const store = new ProjectWorkspaceConversationArtifactStore({
     state_root: path.join(input.dataPath, 'project-workspace'),
   });
-  const relativePath = commandEveOfficeArtifactRelativePath(
-    input.conversationId,
-    input.artifactId,
-    input.source.sha256,
-    input.mode
-  );
-  const immutablePath = path.resolve(input.workspace, ...relativePath.split('/'));
-  writePrivateDocumentImmutable(input.workspace, immutablePath, input.source.buffer);
+  const fileName = cleanOfficeFileName(input.sourcePath, input.mode);
+  const placement = publishCanonicalArtifact({
+    dataPath: input.dataPath,
+    workspaceRoot: input.workspace,
+    folder: 'dokumente',
+    nameHint: fileName,
+    fallbackName: input.mode === 'word' ? 'dokument' : 'tabelle',
+    extension: commandEveOfficeExtension(input.mode),
+    bytes: input.source.buffer,
+  });
+  const relativePath = placement.relativePath;
   const operationId = commandEveOfficeSourceOperationId({
     seatId: input.seatId,
     seatContextRevision: input.seatContextRevision,
@@ -470,7 +482,6 @@ function persistImportedOfficeParent(input: {
     sourceTurnId: input.provenance.turnId,
     sourceDirectiveIndex: input.provenance.directiveIndex,
   });
-  const fileName = cleanOfficeFileName(input.sourcePath, input.mode);
   const fingerprint = commandEveOfficeFingerprint(input.mode, input.source.sha256, input.source.buffer.length);
   const payload: CommandEveOfficeConversationArtifactPayload = {
     artifact_type: 'file',
@@ -479,6 +490,7 @@ function persistImportedOfficeParent(input: {
     file_name: fileName,
     mime_type: commandEveOfficeMimeType(input.mode),
     path: relativePath,
+    ...(placement.cleanupNotice === undefined ? {} : { cleanup_notice: placement.cleanupNotice }),
     size: input.source.buffer.length,
     hash: input.source.sha256,
     managed_office: true,
@@ -526,6 +538,7 @@ export async function resolveCommandEveOfficeArtifactAttachment(
   }
 
   const authority = await resolveCommandEveOfficeConversationAuthority(request.conversationId, deps);
+  if (authority.status === 'temporary') return { status: 'refused', reasonCode: 'conversation-unavailable' };
   if (authority.status !== 'ready') return authority;
   const { backendPort: port, workspace, seatId: capturedSeatId, seatContextRevision: capturedSeatRevision } = authority;
   const seatStillMatches = () =>

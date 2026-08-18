@@ -38,9 +38,21 @@ import {
 import { parseMySeats, resolveSeatAccess, type SeatKind, type SeatRole } from './seatSwitchCore';
 import { readMySeatsWire } from './seatWireFetchCore';
 import { readCompanyBrainSeedState } from './companyBrainSeedCore';
+import { normalizeHermesCommandPath } from './assistantStorageRepair';
 
 export type EnsureCommandEveAssistantOptions = {
   userDataPath?: string;
+  /**
+   * Bounded first-run wait for the app-managed Hermes shim, in milliseconds.
+   * Omitted or <= 0 means DO NOT WAIT.
+   *
+   * The wait is injected by the composition root (the desktop `index.ts`) rather
+   * than defaulted here on purpose: only that caller knows a deferred runtime
+   * bootstrap was scheduled for this process. A module-level default would make
+   * every other caller — WebUI, migrations, tests — silently block on a file
+   * that nothing in their run is going to create.
+   */
+  hermesShimWaitMs?: number;
 };
 
 export type CommandEveAssistantEnsureResult = {
@@ -408,6 +420,140 @@ function resolveCommandEveAssistantCliPath(
   }
 }
 
+/**
+ * FIRST-RUN COLD-START RACE (the `USER_AGENT_STARTUP_FAILED` on message one).
+ *
+ * On a fresh install the Hermes shim does not exist when AionCore boots:
+ * `writeHermesCliShim` returns early while the venv is still being built
+ * (runtimeBootstrapCore.ts:5501-5512), and the shim is only written by the
+ * DEFERRED bootstrap (runtimeBootstrapCore.ts:12713 ff.). Measured on a warm
+ * machine that gap was 11s (backend start 03:52:03 → `Runtime bootstrap ready`
+ * 03:52:14); a genuine cold install with a Hermes installation is minutes.
+ *
+ * A turn sent inside that window spawns whatever the registry says, and the
+ * builtin seed says the BARE name `hermes` — a bet on the user's PATH. On a
+ * machine without a foreign `hermes` that is
+ * "Agent 'Hermes' CLI unavailable: command 'hermes' not found in PATH".
+ *
+ * So the turn WAITS for the runtime instead of failing against a half-built one.
+ * Bounded on purpose: the wait ends the moment the shim appears (the warm case,
+ * seconds), and a runtime that never finishes yields a typed `timeout` rather
+ * than an unbounded hang — the caller then proceeds fail-open exactly as before
+ * this wait existed. There is deliberately NO "please restart the app" prompt:
+ * that was the rejected answer.
+ *
+ * The ceiling matches the existing deferred-runtime restart reservation
+ * (`COMMAND_EVE_DEFERRED_RUNTIME_RESTART_QUEUE_WAIT_MS`, index.ts:356) so the
+ * app has one first-run patience budget rather than two competing ones.
+ */
+export const COMMAND_EVE_HERMES_SHIM_WAIT_TIMEOUT_MS = 300_000;
+const COMMAND_EVE_HERMES_SHIM_POLL_MS = 250;
+
+export type CommandEveHermesShimWait =
+  | { ok: true; waitedMs: number; reason?: undefined }
+  | { ok: false; waitedMs: number; reason: 'no-path' | 'timeout' };
+
+export async function waitForCommandEveHermesShim(
+  shimPath: string | undefined,
+  options: {
+    timeoutMs?: number;
+    pollMs?: number;
+    exists?: (candidate: string) => boolean;
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {}
+): Promise<CommandEveHermesShimWait> {
+  const exists = options.exists ?? ((candidate: string): boolean => fs.existsSync(candidate));
+  const now = options.now ?? ((): number => Date.now());
+  const sleep = options.sleep ?? ((ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)));
+  const timeoutMs = options.timeoutMs ?? COMMAND_EVE_HERMES_SHIM_WAIT_TIMEOUT_MS;
+  const pollMs = options.pollMs ?? COMMAND_EVE_HERMES_SHIM_POLL_MS;
+
+  if (!shimPath) return { ok: false, waitedMs: 0, reason: 'no-path' };
+
+  const startedAt = now();
+  // Probe BEFORE the first sleep: the warm path (shim already written) must not
+  // pay a poll interval for a condition that is already true.
+  for (;;) {
+    if (exists(shimPath)) return { ok: true, waitedMs: now() - startedAt };
+    if (now() - startedAt >= timeoutMs) return { ok: false, waitedMs: now() - startedAt, reason: 'timeout' };
+    await sleep(pollMs);
+  }
+}
+
+/**
+ * Pin the LIVE Hermes registry row to the app-managed shim, in THIS session.
+ *
+ * The pre-flight SQLite repair (assistantStorageRepair.ts) already pins this
+ * row, but it runs BEFORE `backendManager.start` — on a fresh install
+ * `aionui-backend.db` does not exist yet, so it exits with `skipped: 'no-db'`
+ * and the pin first lands on the SECOND app start. That is precisely why the
+ * log line "pinned 1 Hermes registry row(s)" never appears on run one.
+ *
+ * This is NOT a second repair mechanism: it is the same pin, applied through
+ * AionCore's own native seam at the moment the shim actually exists. Verified in
+ * the aioncore source that ships in this build (source commit 8c2e7c34):
+ *
+ *   - `PUT /api/agents/{id}/overrides` (routes/agent.rs:36-38)
+ *   - `set_agent_overrides` persists and then calls
+ *     `registry.invalidate_and_rehydrate()` itself (services/agent.rs:163-166)
+ *   - which re-reads the DB and re-probes PATH (registry.rs:208-212), and
+ *     `decode_row` projects `command_override` onto `meta.command` at the single
+ *     point BOTH the spawn factory and the availability probe read
+ *     (registry.rs:451-470).
+ *
+ * So no backend restart and no separate `/api/agents/refresh` is required — the
+ * next spawn sees the absolute path. `command_override` is also the column that
+ * SURVIVES the builtin re-seed: AionCore's boot upsert overwrites `command`
+ * on every start but does not list `command_override` in its UPDATE set.
+ *
+ * Fail-open by contract: no Hermes row, no id, a non-absolute path or any HTTP
+ * failure leaves the row untouched and never throws. A missing pin degrades to
+ * today's behaviour; a thrown error would break assistant readiness for a
+ * best-effort repair.
+ */
+async function pinCommandEveHermesRegistryCommand(
+  backendPort: number,
+  agents: CommandEveDetectedAgent[],
+  shimPath: string | undefined
+): Promise<'pinned' | 'unchanged' | 'skipped'> {
+  const command = normalizeHermesCommandPath(shimPath);
+  if (!command) return 'skipped';
+
+  const hermes = agents.find((agent) => (agent.backend || agent.agent_type || '').toLowerCase() === 'hermes');
+  const agentId = typeof hermes?.id === 'string' ? hermes.id.trim() : '';
+  if (!agentId) return 'skipped';
+
+  try {
+    // Read first, for two reasons. (1) Idempotence: an unchanged pin must not
+    // churn the row or force a needless rehydrate on every send. (2) Safety:
+    // `update_agent_overrides` writes command_override AND env_override in ONE
+    // statement (sqlite_agent_metadata.rs:243-249), so omitting env_override
+    // here would silently ERASE an operator's env overrides. We echo back what
+    // we read instead of blanking it.
+    const current = await requestJson<{
+      command_override?: string | null;
+      env_override?: Array<{ name: string; value: string; description?: string }>;
+    }>(backendPort, `/api/agents/${encodeURIComponent(agentId)}/overrides`);
+    if (typeof current?.command_override === 'string' && current.command_override.trim() === command) {
+      return 'unchanged';
+    }
+    const envOverride = Array.isArray(current?.env_override) ? current.env_override : [];
+    await requestJson<unknown>(backendPort, `/api/agents/${encodeURIComponent(agentId)}/overrides`, {
+      method: 'PUT',
+      body: JSON.stringify({ command_override: command, env_override: envOverride }),
+    });
+    return 'pinned';
+  } catch (error) {
+    console.warn(
+      `[CommandEVE] Could not pin the Hermes registry row to the app-managed shim: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return 'skipped';
+  }
+}
+
 async function loadCommandEveDetectedAgents(backendPort: number): Promise<CommandEveDetectedAgent[]> {
   // aioncore v0.1.37 renamed the agent-list GET to /api/agents/management (plain
   // /api/agents now 404s). A 404 here threw and aborted the whole EVE re-seed.
@@ -544,7 +690,37 @@ export async function ensureCommandEveAssistant(
   options: EnsureCommandEveAssistantOptions = {}
 ): Promise<CommandEveAssistantEnsureResult> {
   const isFounderBuild = isCommandEveFounderBuildAllowed(Boolean(app?.isPackaged));
+  // FIRST-RUN COLD-START RACE — see `waitForCommandEveHermesShim`. Every EVE
+  // turn passes through here before it is sent (useGuidSend.ts calls
+  // `commandEve.ensureAssistant` first), so this is the narrowest place that can
+  // hold a turn until the runtime is genuinely usable. Waiting BEFORE the agent
+  // list is read matters: the availability probe behind `/api/agents/management`
+  // resolves the spawn command, and probing while the shim is still missing is
+  // what marks Hermes unavailable in the first place.
+  //
+  // Windows is intentionally excluded: no shim is ever written there
+  // (runtimeBootstrapCore.ts:5515 returns early on win32), so the Windows first
+  // run keeps its existing backend-restart activation
+  // (`shouldRestartWindowsBackendAfterRuntimeBootstrap`). Waiting for a file
+  // that by design never appears would stall every Windows turn.
+  const hermesShimPath =
+    process.platform === 'win32' ? undefined : resolveCommandEveAssistantCliPath(options.userDataPath, 'hermes');
+  const hermesShimWaitMs = typeof options.hermesShimWaitMs === 'number' ? options.hermesShimWaitMs : 0;
+  if (hermesShimPath && hermesShimWaitMs > 0) {
+    const shimWait = await waitForCommandEveHermesShim(hermesShimPath, { timeoutMs: hermesShimWaitMs });
+    if (!shimWait.ok && shimWait.reason === 'timeout') {
+      // Fail-open: proceed exactly as before the wait existed. A runtime that
+      // needs longer than the first-run budget is a bootstrap problem, and
+      // blocking the assistant forever would turn a slow install into a dead app.
+      console.warn(
+        `[CommandEVE] Hermes runtime shim did not appear within ${hermesShimWaitMs}ms; continuing without it.`
+      );
+    }
+  }
   const agents = await loadCommandEveDetectedAgents(backendPort);
+  // Now that the shim exists, teach the LIVE registry its absolute address so
+  // the very first spawn cannot fall back to the bare `hermes` PATH bet.
+  await pinCommandEveHermesRegistryCommand(backendPort, agents, hermesShimPath);
   const presetAgentType = selectCommandEvePresetAgentType(agents);
   const agentId = resolveCommandEveAssistantAgentId(agents, presetAgentType);
   const agentName = resolveCommandEveAssistantAgentName(agents, presetAgentType);

@@ -20,13 +20,14 @@ import { useConversationContextSafe } from '@/renderer/hooks/context/Conversatio
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { iconColors } from '@/renderer/styles/colors';
 import { emitter } from '@/renderer/utils/emitter';
+import { downloadDataUrl, downloadFileFromPath, downloadTextContent } from '@/renderer/utils/file/download';
 import {
   openWorkbenchArtifact,
   registerWorkbenchArtifactResolver,
 } from '@/renderer/pages/conversation/Preview/services/workbenchArtifactResolver';
 import { isUsableMediaEditSource } from '@/renderer/pages/conversation/Messages/artifacts';
-import { Message } from '@arco-design/web-react';
-import { EditOne, FolderOpen, Paperclip, PreviewOpen } from '@renderer/components/icons';
+import { Button, Message } from '@arco-design/web-react';
+import { Download, EditOne, FolderOpen, Paperclip, PreviewOpen } from '@renderer/components/icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import PDFPreview from '../../Preview/components/viewers/PDFViewer';
@@ -63,6 +64,24 @@ const SOURCE_PATH_KEYS = ['path', 'file_path', 'filePath', 'absolute_path', 'abs
 const ARTIFACT_ID_KEYS = ['artifact_id', 'artifactId'];
 const REQUEST_ID_KEYS = ['request_id', 'requestId'];
 const RECEIPT_PATH_KEYS = ['receipt_path', 'receiptPath'];
+const DOWNLOAD_EXTENSION_BY_MIME: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.ms-powerpoint': 'ppt',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'image/avif': 'avif',
+  'image/gif': 'gif',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/svg+xml': 'svg',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+  'video/webm': 'webm',
+};
 
 function parsePayload(payload: ArtifactPayload): Record<string, unknown> {
   if (!payload) return {};
@@ -194,6 +213,19 @@ export function fileUrlToPath(url: string): string | undefined {
 
 export function isDirectoryMetadata(metadata: IFileMetadata): boolean {
   return Boolean(metadata.isDirectory || metadata.is_directory);
+}
+
+export function resolveArtifactDownloadFileName(input: {
+  title: string;
+  path?: string;
+  source?: string;
+  mimeType?: string;
+}): string {
+  const namedSource = getFileName(input.path) || getFileName(input.source);
+  const requested = namedSource || input.title.trim() || 'artifact';
+  if (requested.includes('.')) return requested;
+  const extension = input.mimeType ? DOWNLOAD_EXTENSION_BY_MIME[input.mimeType.toLowerCase()] : undefined;
+  return extension ? `${requested}.${extension}` : requested;
 }
 
 function inferLocalMediaMime(
@@ -520,6 +552,8 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const previewSource = managedImagePreviewSource ?? (source?.startsWith('file:') ? localFilePreviewSource : source);
   const pdfPreviewSource = openPath ? localFilePreviewSource : source;
   const canOpen = Boolean(openPath || (source && /^https?:/i.test(source)));
+  const downloadFileName = resolveArtifactDownloadFileName({ title, path, source, mimeType });
+  const canDownload = Boolean(openPath || managedImagePreviewSource);
   const composerReference = useMemo(() => {
     const reference = resolveComposerArtifactReference(artifact);
     if (!reference) return null;
@@ -554,6 +588,43 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
     } catch (revealError) {
       console.error('[MessageGeneratedArtifact] Failed to reveal artifact:', revealError);
       Message.error(t('messages.artifact.revealFailed'));
+    }
+  };
+
+  const handleDownload = async () => {
+    try {
+      if (openPath) {
+        try {
+          await downloadFileFromPath(openPath, downloadFileName, workspace);
+        } catch {
+          // The Downloads preview bridge verifies only media, HTML and PDF
+          // signatures. Generic files (including Office packages) use the
+          // visible workspace path above and must not enter that narrower API.
+          if (type === 'file') throw new Error('artifact_download_unavailable');
+          const approved = await ipcBridge.application.readGeneratedArtifactPreview.invoke({
+            path: openPath,
+            kind: type,
+          });
+          if (!approved) throw new Error('artifact_download_unavailable');
+          if (approved.encoding === 'base64') {
+            downloadDataUrl(
+              `data:${approved.mimeType};base64,${approved.data}`,
+              downloadFileName,
+              approved.mimeType || mimeType || 'application/octet-stream'
+            );
+          } else {
+            downloadTextContent(approved.data, downloadFileName, approved.mimeType || mimeType || 'text/plain');
+          }
+        }
+      } else if (managedImagePreviewSource) {
+        downloadDataUrl(managedImagePreviewSource, downloadFileName, mimeType || 'image/png');
+      } else {
+        throw new Error('artifact_download_unavailable');
+      }
+      Message.success(t('messages.downloadSuccess'));
+    } catch (downloadError) {
+      console.error('[MessageGeneratedArtifact] Failed to download artifact:', downloadError);
+      Message.error(t('messages.downloadFailed'));
     }
   };
 
@@ -866,40 +937,55 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
           </div>
         )}
 
-        {(canOpen || openPath || composerReference) && (
+        {(canOpen || openPath || composerReference || canDownload) && (
           <div className='eve-artifact-actions flex items-center gap-8px px-14px py-10px'>
             {composerReference && (
-              <button
-                type='button'
+              <Button
+                type='text'
+                size='small'
                 data-testid='generated-artifact-use-in-composer'
                 className='eve-artifact-action flex items-center gap-6px px-10px text-12px'
                 onClick={handleUseInComposer}
               >
                 <EditOne size={14} />
                 <span>{t('messages.artifact.continueEditing', { defaultValue: 'Bearbeiten' })}</span>
-              </button>
+              </Button>
+            )}
+            {canDownload && (
+              <Button
+                type='text'
+                size='small'
+                data-testid='generated-artifact-download'
+                className='eve-artifact-action flex items-center gap-6px px-10px text-12px'
+                onClick={() => void handleDownload()}
+              >
+                <Download size={14} />
+                <span>{t('common.download')}</span>
+              </Button>
             )}
             {canOpen && (
-              <button
-                type='button'
+              <Button
+                type='text'
+                size='small'
                 data-testid='generated-artifact-open'
                 className='eve-artifact-action flex items-center gap-6px px-10px text-12px'
                 onClick={() => void handleOpen()}
               >
                 <PreviewOpen size={14} />
                 <span>{t('messages.artifact.open')}</span>
-              </button>
+              </Button>
             )}
             {openPath && (
-              <button
-                type='button'
+              <Button
+                type='text'
+                size='small'
                 data-testid='generated-artifact-reveal'
                 className='eve-artifact-action flex items-center gap-6px px-10px text-12px'
                 onClick={() => void handleReveal()}
               >
                 <FolderOpen size={14} />
                 <span>{t('messages.artifact.reveal')}</span>
-              </button>
+              </Button>
             )}
           </div>
         )}

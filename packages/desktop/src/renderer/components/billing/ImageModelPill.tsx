@@ -10,15 +10,16 @@
  * MAT-1773 (PACKAGE A): with a proven registry this is the SAME dropdown idiom
  * as the video pill — the shared `MediaModelDropdown` lists the registry's
  * tier-mapped models with provider chips, an 'Empfohlen' curated section (the
- * registry's own tiers in server order; nothing is ever invented client-side)
- * and per-row credit estimates from the registry's `generate_credits` quotes.
+ * tiers the SERVER ranked via `curated_rank`, in that order; nothing is ever
+ * invented client-side), everything else behind 'Weitere anzeigen', and
+ * per-row credit estimates from the registry's `generate_credits` quotes.
  * Image "resolutions" are the 1K/2K tiers: a second dropdown, filtered to the
  * SELECTED model's `resolutions` — an unsupported tier is unselectable, and a
  * stale selection is auto-picked to the model's first tier and reported
  * upward, never a late error.
  *
  * THE SERVER CONTRACT IS TIER-BASED. Picking a row fires `onChange` with the
- * TIER id the registry maps that model to (fast/quality/max) — exactly what
+ * TIER id the registry maps that model to (quality/max/seedream-pro/…) — exactly what
  * the per-seat preference write (`imageModelPreferenceSet`) carries. The
  * component never names a provider model to the send path.
  *
@@ -31,15 +32,23 @@
  * would be a lie at the exact moment of choosing. The only thing that may
  * REFUSE an image is the lane itself: generation fails closed when the
  * registry cannot be proven.
+ *
+ * WHAT THE FALLBACK MAY OFFER (2026-08-18). Tier ids are now MODEL IDENTITIES
+ * (`seedream-pro`, `grok-2`, …), not the old conceptual three. Enumerating all
+ * of them without a registry would mean naming vendor models the client has
+ * not proven the server offers — precisely the invention this component
+ * refuses for prices. So the unproven fallback lists only the tiers this
+ * client can name from its OWN approved copy ({@link FALLBACK_TIER_LABELS}:
+ * Qualität and MAX). Fewer honest options is the fail-closed direction; the
+ * full catalog appears the moment the registry is proven.
  */
 
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckSmall } from '@renderer/components/icons';
 import {
-  COMMAND_EVE_IMAGE_MODEL_TIER_IDS,
   commandEveImageModelProvider,
-  getCommandEveImageModelTierSpec,
+  effectiveImageReferenceCeiling,
   isCommandEveImageModelTierId,
   listImageModelsBeyondCurated,
   resolveImageModelCuratedTiers,
@@ -48,7 +57,10 @@ import {
   type CommandEveImageModelTierId,
   type CommandEveImageModelTierSpec,
 } from '@/common/config/eveImageModelRegistryCore';
-import { COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS } from '@/common/config/eveManagedImageGenerationCore';
+import {
+  COMMAND_EVE_MANAGED_IMAGE_MAX_REFERENCES,
+  COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS,
+} from '@/common/config/eveManagedImageGenerationCore';
 import {
   MediaModelDropdown,
   MediaPillDropdown,
@@ -77,13 +89,32 @@ export interface ImageModelPillProps {
    */
   resolution?: CommandEveImageModelResolution | null;
   onResolutionChange?: (resolution: CommandEveImageModelResolution) => void;
+  /**
+   * In edit mode, expose only models the server registry proves can accept
+   * reference images and quote only their edit prices.
+   */
+  operation?: 'generate' | 'edit';
+  /**
+   * How many reference images the composer currently carries. Used ONLY to
+   * surface the selected model's ceiling BEFORE sending — the pill never
+   * blocks; the lane still refuses authoritatively.
+   */
+  referenceCount?: number;
 }
 
-const TIER_LABELS: Record<CommandEveImageModelTierId, { key: string; defaultValue: string }> = {
-  fast: { key: 'credits.image.tierFast', defaultValue: 'Schnell' },
+/**
+ * The ONLY tiers this client can name on its own — the two that carry
+ * translated, approved copy in the locale bundles. Deliberately PARTIAL: a
+ * tier missing here has no client-side name, and a model the server did not
+ * prove is never announced from a hardcoded table.
+ */
+const FALLBACK_TIER_LABELS: Partial<Record<CommandEveImageModelTierId, { key: string; defaultValue: string }>> = {
   quality: { key: 'credits.image.tierQuality', defaultValue: 'Qualität' },
   max: { key: 'credits.image.tierMax', defaultValue: 'MAX' },
 };
+
+/** The fallback dropdown's rows, in a stable order. */
+const FALLBACK_TIER_IDS = Object.keys(FALLBACK_TIER_LABELS) as CommandEveImageModelTierId[];
 
 const ImageModelPill: React.FC<ImageModelPillProps> = ({
   value,
@@ -92,13 +123,20 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
   registry,
   resolution,
   onResolutionChange,
+  operation = 'generate',
+  referenceCount,
 }) => {
   const { t } = useTranslation();
   // One open dropdown at a time (model vs resolution), same rule as the video pill.
   const [openDropdown, setOpenDropdown] = useState<'model' | 'resolution' | null>(null);
   const [internalResolution, setInternalResolution] = useState<CommandEveImageModelResolution>('1K');
 
-  const selectedSpec = registry ? getCommandEveImageModelTierSpec(registry, value) : undefined;
+  const availableSpecs = registry
+    ? operation === 'edit'
+      ? registry.tiers.filter((tier) => tier.supports_references)
+      : registry.tiers
+    : [];
+  const selectedSpec = availableSpecs.find((tier) => tier.id === value);
   const requestedResolution = resolution ?? internalResolution;
   const effectiveResolution: CommandEveImageModelResolution =
     selectedSpec && !selectedSpec.resolutions.includes(requestedResolution)
@@ -124,11 +162,29 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
   // names and no prices to list — only generic tier names stay, in the same
   // compact dropdown idiom. The estimate is the honest unavailable line and
   // the preference itself stays selectable either way.
-  const tierLabelFor = (tierId: CommandEveImageModelTierId): string =>
-    t(TIER_LABELS[tierId].key, { defaultValue: TIER_LABELS[tierId].defaultValue });
+  // A tier with no approved client-side copy falls back to its raw id rather
+  // than to an invented German name.
+  const tierLabelFor = (tierId: CommandEveImageModelTierId): string => {
+    const label = FALLBACK_TIER_LABELS[tierId];
+    return label ? t(label.key, { defaultValue: label.defaultValue }) : tierId;
+  };
+
+  // THE CEILING THE OPERATOR ACTUALLY MEETS, not the model's advertised one.
+  // The lane caps every model at four references (bridge policy, artifact
+  // bridge, managed-image service, and the gateway's own parse before any
+  // reserve), so the binding limit is the LOWER of that cap and the model's
+  // number. Rendering the raw 16 of gpt-image-2 would promise a fifth
+  // reference this lane refuses — worse than silence, because the operator
+  // would act on it. `null` still means nothing was proven; the pill then
+  // claims nothing.
+  const referenceCeiling = registry
+    ? effectiveImageReferenceCeiling(registry, value, COMMAND_EVE_MANAGED_IMAGE_MAX_REFERENCES)
+    : null;
+  const referencesOverCeiling =
+    referenceCeiling !== null && referenceCount !== undefined && referenceCount > referenceCeiling.ceiling;
 
   // One registry tier -> one generic dropdown row. The row's estimate is the
-  // registry's OWN generate quote for the current resolution tier (the row's
+  // registry's OWN operation quote for the current resolution tier (the row's
   // first tier when it cannot serve the current one) — never a client number.
   const toModelRow = (spec: CommandEveImageModelTierSpec): MediaModelRow => {
     const provider = commandEveImageModelProvider(spec);
@@ -138,12 +194,43 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
       name: spec.display_name,
       providerKey: provider.key,
       providerLabel: provider.label,
-      estimateCredits: spec.quotes.generate_credits[rowResolution],
+      estimateCredits:
+        operation === 'edit' ? spec.quotes.edit_credits[rowResolution] : spec.quotes.generate_credits[rowResolution],
     };
   };
 
   const tierLabel = tierLabelFor(value);
-  const resolutionOptions = selectedSpec?.resolutions ?? COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS;
+  // A CONTROL THAT CANNOT CHANGE THE OUTCOME IS NOT A CHOICE. gpt-image-2's
+  // only endpoint advertises no `resolution` parameter at all — it sizes at
+  // its own discretion — so the server marks it `honors_resolution: false` and
+  // the switch goes away here.
+  //
+  // THIS REUSES THE SINGLE-OPTION SEAM BELOW rather than adding a second
+  // hiding rule: an empty option list takes the same `length > 1` branch a
+  // 2K-only model already takes. One rule, two reasons to trip it.
+  //
+  // What does NOT change: the request body. The lane still sends a resolution
+  // and the model still ignores it. Nothing here moves money either — the
+  // server pins that a non-honouring tier must price both steps identically,
+  // so a hidden switch can never silently choose the dearer one.
+  //
+  // Without a proven registry (`selectedSpec` undefined) the bounded 1K/2K
+  // vocabulary stays, exactly as before: an unknown model is not a model
+  // known to refuse.
+  //
+  // THE COMPARISON IS `!== false`, NOT A TRUTHINESS CHECK, and that is
+  // deliberate. The parser already reads an omitted flag as `true` — an older
+  // gateway must keep the control it has today, since this field can only ever
+  // TAKE one away. Repeating that direction here keeps the invariant LOCAL:
+  // a spec that reached this component without passing the parser (a test
+  // fixture, a future second producer) would otherwise lose the switch on
+  // `undefined` alone, which is the one failure this field must never have.
+  // Only a PROVEN `false` hides it.
+  const resolutionOptions = !selectedSpec
+    ? COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS
+    : selectedSpec.honors_resolution !== false
+      ? selectedSpec.resolutions
+      : [];
   const resolutionLabelFor = (candidate: CommandEveImageModelResolution): string =>
     candidate === '2K'
       ? t('conversation.workProduct.image.qualityHigh', { defaultValue: 'Hoch' })
@@ -155,6 +242,15 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
       data-testid='image-model-pill'
       data-selected-tier={value}
       data-resolution={effectiveResolution}
+      // The ceiling and the overflow flag ride as DATA, not as new copy: the
+      // composer owns the sentence a user reads, this control owns the fact.
+      // A number the registry did not prove is simply absent.
+      data-reference-ceiling={referenceCeiling?.ceiling ?? undefined}
+      // WHICH limit bound it — the model's own number, or this lane's cap of
+      // four. The composer needs the distinction to say WHY, and a reader of
+      // the DOM should not have to re-derive it from two constants.
+      data-reference-ceiling-bound-by={referenceCeiling?.boundBy ?? undefined}
+      data-references-over-ceiling={referencesOverCeiling ? 'true' : undefined}
     >
       <span className='image-model-pill__label'>{t('credits.image.modelLabel', { defaultValue: 'Bildmodell' })}</span>
 
@@ -168,8 +264,12 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
             testIdPrefix='image-model'
             triggerContent={selectedSpec?.display_name ?? tierLabel}
             triggerActive={value !== registry.default_tier}
-            recommended={resolveImageModelCuratedTiers(registry).map(toModelRow)}
-            rest={listImageModelsBeyondCurated(registry).map(toModelRow)}
+            recommended={resolveImageModelCuratedTiers(registry)
+              .filter((tier) => availableSpecs.includes(tier))
+              .map(toModelRow)}
+            rest={listImageModelsBeyondCurated(registry)
+              .filter((tier) => availableSpecs.includes(tier))
+              .map(toModelRow)}
             selectedId={value}
             onSelect={(id) => {
               // The rows ARE the registry tiers, so the pick maps back to
@@ -179,7 +279,7 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
             }}
           />
         </div>
-      ) : (
+      ) : operation === 'generate' ? (
         <div className='image-model-pill__group' data-testid='image-model-group'>
           <MediaPillDropdown
             open={openDropdown === 'model'}
@@ -189,9 +289,9 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
             triggerTestId='image-model-dropdown-trigger'
             listTestId='image-model-dropdown'
             triggerContent={tierLabel}
-            estimatedRows={COMMAND_EVE_IMAGE_MODEL_TIER_IDS.length}
+            estimatedRows={FALLBACK_TIER_IDS.length}
           >
-            {COMMAND_EVE_IMAGE_MODEL_TIER_IDS.map((tierId) => {
+            {FALLBACK_TIER_IDS.map((tierId) => {
               const selected = tierId === value;
               return (
                 <button
@@ -214,7 +314,7 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
             })}
           </MediaPillDropdown>
         </div>
-      )}
+      ) : null}
 
       {/* Resolution is an exact managed-lane contract value. With a proven
           registry the options are filtered to the selected model; without it,
@@ -255,7 +355,10 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
                     <span className='video-quality-pill__model-estimate'>
                       {t('credits.video.modelEstimate', {
                         defaultValue: '≈ {{credits}} Credits',
-                        credits: selectedSpec.quotes.generate_credits[option],
+                        credits:
+                          operation === 'edit'
+                            ? selectedSpec.quotes.edit_credits[option]
+                            : selectedSpec.quotes.generate_credits[option],
                       })}
                     </span>
                   ) : null}
@@ -274,17 +377,35 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
           className='image-model-pill__estimate'
           data-testid='image-model-pill-estimate'
           data-quote-state='available'
-          title={t('credits.image.editEstimateTitle', {
-            defaultValue: 'Bearbeiten: {{edit1k}} Credits (1K) · {{edit2k}} (2K) · +{{perReference}} pro Referenzbild',
-            edit1k: selectedSpec.quotes.edit_credits['1K'],
-            edit2k: selectedSpec.quotes.edit_credits['2K'],
-            perReference: selectedSpec.quotes.per_input_reference_credits,
-          })}
+          data-operation={operation}
+          data-credits-1k={
+            operation === 'edit' ? selectedSpec.quotes.edit_credits['1K'] : selectedSpec.quotes.generate_credits['1K']
+          }
+          data-credits-2k={
+            operation === 'edit' ? selectedSpec.quotes.edit_credits['2K'] : selectedSpec.quotes.generate_credits['2K']
+          }
+          title={
+            operation === 'edit'
+              ? t('credits.image.editEstimateTitle', {
+                  defaultValue:
+                    'Bearbeiten: {{edit1k}} Credits (1K) · {{edit2k}} (2K) · +{{perReference}} pro Referenzbild',
+                  edit1k: selectedSpec.quotes.edit_credits['1K'],
+                  edit2k: selectedSpec.quotes.edit_credits['2K'],
+                  perReference: selectedSpec.quotes.per_input_reference_credits,
+                })
+              : undefined
+          }
         >
           {t('credits.image.inlineEstimate', {
             defaultValue: 'ca. {{credits1k}} Credits (1K) · {{credits2k}} (2K)',
-            credits1k: selectedSpec.quotes.generate_credits['1K'],
-            credits2k: selectedSpec.quotes.generate_credits['2K'],
+            credits1k:
+              operation === 'edit'
+                ? selectedSpec.quotes.edit_credits['1K']
+                : selectedSpec.quotes.generate_credits['1K'],
+            credits2k:
+              operation === 'edit'
+                ? selectedSpec.quotes.edit_credits['2K']
+                : selectedSpec.quotes.generate_credits['2K'],
           })}
         </span>
       ) : (

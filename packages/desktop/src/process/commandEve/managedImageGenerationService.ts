@@ -198,6 +198,7 @@ export type CommandEveManagedImageGenerationOptions = {
     resolution: string;
     aspectRatio: string;
     promptSha256: string;
+    nameHint?: string;
     parentArtifactId?: string;
   }) => { artifactHandle: string } | undefined;
   /**
@@ -315,11 +316,12 @@ export async function executeCommandEveManagedImageGeneration(
     );
   }
   // REQUEST-SCOPED EDIT AUTHORITY (1.820.3, Founder blocker 2). A request
-  // carrying reference inputs is an EDIT, and an edit may only run on the
-  // registry's reference-capable tier — the edge parser refuses every other
-  // tier pre-debit. Rather than billing the seat's choice into a refusal
-  // that was knowable here, THIS request alone resolves to the
-  // reference-capable tier. Nothing is persisted and nothing about the
+  // carrying reference inputs is an EDIT, and an edit may only run on a
+  // registry-declared reference-capable tier — the edge parser refuses every
+  // other tier pre-debit. Rather than billing the seat's choice into a refusal
+  // that was knowable here, THIS request alone resolves to the first
+  // reference-capable tier when the seat did not name one explicitly. Nothing
+  // is persisted and nothing about the
   // seat's preference changes: the next plain generation still uses it;
   // only this edit rides the tier that can actually serve it.
   const referenceCount = built.body.input_references?.length ?? 0;
@@ -439,6 +441,7 @@ export async function executeCommandEveManagedImageGeneration(
         resolution: string;
         aspectRatio: string;
         promptSha256: string;
+        nameHint?: string;
         parentArtifactId?: string;
       }) => {
         const staged = stageGeneratedImageArtifact(originDataPath, stageInput);
@@ -453,6 +456,7 @@ export async function executeCommandEveManagedImageGeneration(
       resolution: built.body.resolution,
       aspectRatio: built.body.aspect_ratio,
       promptSha256: built.promptSha256,
+      nameHint: built.body.prompt,
       ...(options.stagedParentArtifactId === undefined ? {} : { parentArtifactId: options.stagedParentArtifactId }),
     });
     if (!staged) {

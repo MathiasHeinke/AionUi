@@ -367,6 +367,9 @@ export interface CommandEveVideoConversationArtifactPayload {
   title: string;
   description: string;
   path: string;
+  /** Canonical path relative to the conversation workspace, when available. */
+  relative_path?: string;
+  cleanup_notice?: string;
   mime_type: string;
   hash: string;
   size: number;
@@ -565,6 +568,8 @@ export const MAX_VIDEO_EDIT_SOURCE_SECONDS = 8.7;
 export function buildVideoConversationArtifact(input: {
   artifact: VideoGenerationArtifact;
   path: string;
+  relativePath?: string;
+  cleanupNotice?: string;
   id: string;
   conversationId: string;
   seatId?: string;
@@ -583,10 +588,14 @@ export function buildVideoConversationArtifact(input: {
     ...(input.seatId === undefined ? {} : { seat_id: input.seatId }),
     kind: 'video',
     status: 'active',
-    payload: buildVideoConversationArtifactPayload(input.artifact, input.path, {
-      originCapability: input.originCapability,
-      parentArtifactId: input.parentArtifactId,
-    }),
+    payload: {
+      ...buildVideoConversationArtifactPayload(input.artifact, input.path, {
+        originCapability: input.originCapability,
+        parentArtifactId: input.parentArtifactId,
+      }),
+      ...(input.relativePath === undefined ? {} : { relative_path: input.relativePath }),
+      ...(input.cleanupNotice === undefined ? {} : { cleanup_notice: input.cleanupNotice }),
+    },
     created_at: input.createdAtMs,
     updated_at: input.createdAtMs,
   };

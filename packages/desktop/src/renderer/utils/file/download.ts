@@ -18,6 +18,11 @@ function triggerBlobDownload(blob: Blob, file_name: string): void {
   URL.revokeObjectURL(url);
 }
 
+/** Download an already-validated base64 data URL without fetching it through CSP. */
+export function downloadDataUrl(dataUrl: string, file_name: string, mimeType: string): void {
+  triggerBlobDownload(base64ToBlob(dataUrl, mimeType), file_name);
+}
+
 /**
  * Download a file by reading its raw bytes from disk (works in both Electron and WebUI).
  * Uses getImageBase64 + in-memory atob decode to bypass CSP connect-src restrictions.

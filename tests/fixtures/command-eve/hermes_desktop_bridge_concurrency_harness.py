@@ -186,6 +186,7 @@ def load_patch() -> dict[str, Any]:
         "_COMMAND_EVE_DESKTOP_PANES",
         "_COMMAND_EVE_DESKTOP_CONNECTIONS_LOCK",
         "_COMMAND_EVE_DESKTOP_CONNECTIONS",
+        "_COMMAND_EVE_PROVIDER_TURN_BINDINGS_SENT",
         "_COMMAND_EVE_EXPECTED_PATCHES",
         "_COMMAND_EVE_INSTALLED_PATCHES",
         "_COMMAND_EVE_READ_PREVIEW_MAX_RESPONSE_BYTES",
@@ -208,6 +209,9 @@ def load_patch() -> dict[str, Any]:
         "threading": __import__("threading"),
         "urlparse": urlparse,
         "_command_eve_prompt_has_attachment": lambda _prompt: False,
+        "_command_eve_bind_claim_quarantine_db": lambda *_args, **_kwargs: None,
+        "_command_eve_enter_turn_memory_quarantine": lambda *_args, **_kwargs: None,
+        "_command_eve_exit_turn_memory_quarantine": lambda *_args, **_kwargs: None,
         "_command_eve_read_terminal_callback": lambda *_args, **_kwargs: None,
     }
     exec(compile(ast.fix_missing_locations(ast.Module(body=body, type_ignores=[])), str(PROVIDER_PATH), "exec"), namespace)

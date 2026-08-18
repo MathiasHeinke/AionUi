@@ -170,6 +170,20 @@ describe('Command EVE assistant bootstrap core', () => {
     expect(COMMAND_EVE_ASSISTANT_RULE_EN).toMatch(/rotat/i);
   });
 
+  it('turns missing web-provider errors into product guidance instead of customer key setup', () => {
+    for (const rule of [
+      COMMAND_EVE_ASSISTANT_RULE_DE,
+      COMMAND_EVE_ASSISTANT_RULE_EN,
+      COMMAND_EVE_ASSISTANT_RULE_FOUNDER_DE,
+      COMMAND_EVE_ASSISTANT_RULE_FOUNDER_EN,
+    ]) {
+      expect(rule).toContain('No web ... provider configured');
+      expect(rule).toMatch(/product update|Produktupdate/i);
+      expect(rule).toMatch(/cannot be activated by the user|nicht selbst aktiviert/i);
+      expect(rule).toMatch(/Browser-Workbench|Browser Workbench/);
+    }
+  });
+
   it('bootstraps EVE with the operator first-run skill + connector catalog', () => {
     // Operator skill: real product skills + honest connector status, no internal orchestration.
     expect(COMMAND_EVE_ASSISTANT_SKILL_DE).toContain('business-diagnostic');

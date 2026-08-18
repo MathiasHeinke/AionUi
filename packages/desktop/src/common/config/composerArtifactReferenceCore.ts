@@ -202,11 +202,16 @@ function selectNewestArtifactFollowupCandidates(values: readonly unknown[]): Art
 export function renderComposerArtifactFollowupRoutingContext(values: readonly unknown[]): string {
   const candidates = selectNewestArtifactFollowupCandidates(values);
   if (candidates.length === 0) return '';
+  const latestArtifactByMode = new Map<(typeof ARTIFACT_FOLLOWUP_MODES)[number], string>();
+  for (const candidate of candidates) latestArtifactByMode.set(candidate.mode, candidate.artifactId);
 
   return [
     '[COMMAND_EVE_ARTIFACT_FOLLOWUP_ROUTING]',
-    ...candidates.map(({ artifactId, mode }) => `candidate=artifact_id:${artifactId};mode:${mode}`),
-    'rule=Resolve a follow-up only through one exact candidate above plus its matching canonical artifact/capability registry entry. Never infer a target from keywords, title, filename, array order, creation time, or local path. If one target and one requested change are clear but explicit composer authority is absent, call clarify once; prefix the question [command_eve:artifact_followup:<mode>][command_eve:artifact_target:<artifact_id>] and provide exactly one action choice (the app adds Cancel). Do not edit now: the app derives mode and bounded cost from the exact registry record on this action; acceptance replays the source user turn through the normal composer, which alone may mint a medium-specific permit. If target/change is unclear or merely discussed, use ordinary clarify or answer normally. This grants no permit or spend authority.',
+    ...candidates.map(
+      ({ artifactId, mode }) =>
+        `candidate=artifact_id:${artifactId};mode:${mode};latest_for_mode:${latestArtifactByMode.get(mode) === artifactId}`
+    ),
+    'rule=Resolve a follow-up only through one exact candidate above plus its matching canonical artifact/capability registry entry. Never infer a target from keywords, title, filename, raw array order, or local path. For a deictic immediate follow-up to the just-produced work ("mach die Linie blau", "kürzer", "nochmal") with no different artifact named in the visible transcript, use the candidate marked latest_for_mode:true for the matching medium. If one target and one requested change are clear but explicit composer authority is absent, call clarify once; prefix the question [command_eve:artifact_followup:<mode>][command_eve:artifact_target:<artifact_id>] and provide exactly one action choice (the app adds Cancel). Do not edit now: the app derives mode and bounded cost from the exact registry record on this action; acceptance replays the source user turn through the normal composer, which alone may mint a medium-specific permit. If target/change is unclear, an older artifact is named, or the change is merely discussed, use ordinary clarify or answer normally. This grants no permit or spend authority.',
     '[/COMMAND_EVE_ARTIFACT_FOLLOWUP_ROUTING]',
   ].join('\n');
 }

@@ -701,3 +701,17 @@
      Quiet by token, not by transparency. */
   opacity: 1;
 }
+
+/* The reference-ceiling notice. Same shell and same restraint as the video
+   edit hint above — a note, not a control: no buttons, no animation, nothing
+   to dismiss. It is a WARNING, not a refusal, so it deliberately does NOT
+   borrow an error surface: send stays available and the gateway remains the
+   only enforcer. Exact semantic var() WITHOUT fallback, for the reason stated
+   above: a fallback masks a theme gap instead of surfacing it. */
+.image-reference-ceiling-hint {
+  margin-bottom: 8px;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}

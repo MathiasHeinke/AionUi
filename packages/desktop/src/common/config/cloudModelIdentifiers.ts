@@ -37,15 +37,12 @@
  * The model ids the eve-inference Edge Function actually routes to, mirrored from
  * its `MODEL_BY_TIER` (supabase/functions/_shared/eve-inference-core.ts).
  *
- * THE DATED PINS ARE THE POINT, and they were the gap. The server pins
- * `deepseek/deepseek-v4-flash-0731` — a dated catalog snapshot, chosen so a
- * floating alias cannot re-point price and reasoning behaviour under us. The
- * renderer's deny-list was derived from a context table that only ever knew the
- * FLOATING `deepseek/deepseek-v4-flash`, so the id the server really sends was
- * never an entry. Substring matching then produced a RESIDUE rather than a scrub:
- * `deepseek-v4-flash-0731` had its known prefix replaced and left `…-0731` in the
- * user's error message — a dangling fragment of exactly the thing that must not
- * appear.
+ * CURRENT AND HISTORICAL IDS BOTH MATTER. The paid Standard/High routes now use
+ * `openai/gpt-5.6-luna` and xhigh/max use `moonshotai/kimi-k3` (ladder switch
+ * 2026-08-18, frontier lane decided by the measured MAX evaluation); the retired
+ * Grok/Gemini/DeepSeek/GLM ids remain possible in older error bodies. Substring
+ * matching must know the most specific form first, otherwise a dated id can leave
+ * a residue such as `…-0731` in the user's error message.
  *
  * MIRRORING IS A HUMAN STEP, and it is stated rather than implied: this is a
  * separate repo from the Edge Function, so nothing mechanically links the two. A
@@ -53,6 +50,15 @@
  * id, not a broken lane — which is why the list is allowed to be a mirror at all.
  */
 export const EVE_SERVED_MODEL_IDS: readonly string[] = Object.freeze([
+  // wire tiers `standard` and `high` — current paid routes (effort-differentiated)
+  'openai/gpt-5.6-luna',
+  // wire tiers `xhigh` and `max` — current paid routes (effort-differentiated)
+  'moonshotai/kimi-k3',
+  // wire tiers `xhigh`/`max` — held the frontier lane for part of 2026-08-18 only,
+  // retired when the measured MAX evaluation put Kimi K3 ahead. Still scrubbed.
+  'x-ai/grok-4.6',
+  // wire tier `standard` — retired 2026-08-18, still scrubbed from old bodies
+  'google/gemini-3.7-flash',
   // wire tier `standard` — dated pin
   'deepseek/deepseek-v4-flash-0731',
   // the floating alias the pin was chosen over: still scrubbed, since an upstream
@@ -62,8 +68,6 @@ export const EVE_SERVED_MODEL_IDS: readonly string[] = Object.freeze([
   'deepseek/deepseek-v4-pro',
   // wire tier `xhigh`
   'z-ai/glm-5.2',
-  // wire tier `max`
-  'moonshotai/kimi-k3',
 ]);
 
 /**

@@ -73,6 +73,25 @@ const CURTAIN_CHECKOUT_PATH = '/account';
 const BROWSER_LOGIN_ENABLED = true;
 
 /**
+ * BACKSTOP FOR A BROWSER-LOGIN WAIT THAT CAN NEVER END BY ITSELF.
+ *
+ * This is NOT a UX timer — the Cancel control next to the spinner is the user's
+ * way out, available immediately. This is the guarantee that the wait cannot
+ * persist forever when the user does nothing and the main-process reply is lost
+ * (see common/adapter/bridgeInvocationRecovery.ts: the bridge's invoke promise
+ * has no rejection path, so a refused/failed provider call used to strand this
+ * screen with every control disabled).
+ *
+ * It therefore sits BEYOND the longest LEGITIMATE main-side path, so it can never
+ * cut off a login that is still working. Measured from the code it waits on:
+ *   5 min   loopback (desktopAuthLoopback DEFAULT_TIMEOUT_MS — the human typing
+ *           in the browser) + 20 s broker exchange + 2 x 20 s register-profile
+ *           + my-license backoff (4 tries x 20 s cap, 7.5 s of sleeps)
+ *   ≈ 7.5 min worst case that is still a HEALTHY login.
+ */
+const WEB_LOGIN_WAIT_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
  * True only for the day-14 TRIAL-EXPIRED state: the gate reports `expired` AND
  * the (now-mirrored) CEVE.v2 `trial_ends_at` field is a non-null string, which
  * the main-process core sets ONLY for a trial entitlement. A paid-license expiry
@@ -211,19 +230,73 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
   // Reveal toggle is OWNED here (not Arco-internal) so "suggest password" can force the
   // freshly generated value visible — the user must be able to see/save it.
   const [passwordRevealed, setPasswordRevealed] = useState(false);
+
+  // BROWSER-LOGIN WAIT OWNERSHIP.
+  //
+  // `authBusy` used to be cleared in exactly one place — the `finally` of the
+  // bridge call — which made the whole screen hostage to that promise settling.
+  // It cannot be assumed to settle (see WEB_LOGIN_WAIT_TIMEOUT_MS above), so the
+  // wait now has an explicit owner: a monotonic attempt id decides who may still
+  // touch the UI. Cancelling or timing out ABANDONS the current attempt by
+  // bumping the id, so a late reply from it can no longer clear a newer attempt's
+  // spinner or overwrite a newer error.
+  const webLoginAttemptRef = React.useRef(0);
+  const webLoginTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearWebLoginTimeout = useCallback(() => {
+    if (webLoginTimeoutRef.current !== null) {
+      clearTimeout(webLoginTimeoutRef.current);
+      webLoginTimeoutRef.current = null;
+    }
+  }, []);
+  // A pending timer must not outlive the screen (it would set state on an
+  // unmounted tree the moment the gate unlocks).
+  useEffect(() => clearWebLoginTimeout, [clearWebLoginTimeout]);
+
+  /**
+   * Give the screen back to the user. `errorKey` is an EXISTING localized key —
+   * cancelling shows no error at all (the user chose it), a timeout explains
+   * itself.
+   */
+  const releaseWebLoginWait = useCallback(
+    (errorKey: 'registrationGate.auth.errors.AUTH_TIMEOUT' | null) => {
+      webLoginAttemptRef.current += 1;
+      clearWebLoginTimeout();
+      setAuthBusy(false);
+      setPendingIntent(null);
+      setAuthError(errorKey ? t(errorKey) : null);
+    },
+    [clearWebLoginTimeout, t]
+  );
+  const handleCancelWebLogin = useCallback(() => releaseWebLoginWait(null), [releaseWebLoginWait]);
+
   const handleWebLogin = useCallback(
     async (intent: 'login' | 'register') => {
       setAuthError(null);
       setPendingIntent(null);
       setAuthBusy(true);
+      const attempt = webLoginAttemptRef.current + 1;
+      webLoginAttemptRef.current = attempt;
+      clearWebLoginTimeout();
+      webLoginTimeoutRef.current = setTimeout(() => {
+        if (webLoginAttemptRef.current !== attempt) return;
+        releaseWebLoginWait('registrationGate.auth.errors.AUTH_TIMEOUT');
+      }, WEB_LOGIN_WAIT_TIMEOUT_MS);
       try {
         const response = await commandEve.authWebLogin.invoke({ intent });
         const data = response.data;
         if (data?.ok && data.entitled) {
           // Gate host re-reads the main-process status and unmounts the gate.
+          // Deliberately NOT gated on `attempt`: a real entitlement landing late
+          // is still the outcome the user asked for, and the gate host owns the
+          // unmount either way. Suppressing it would strand a SUCCESSFUL login.
+          clearWebLoginTimeout();
           await notifyEntitled();
           return;
         }
+        // Anything below only writes an error/hint. If this attempt was cancelled
+        // or timed out, the user has already moved on — a stale reply must not
+        // repaint the screen underneath them.
+        if (webLoginAttemptRef.current !== attempt) return;
         // Login completed but no license yet (PENDING) OR the web page / broker
         // is not live yet ⇒ fall back to the manual code-paste flow. If we have a
         // local registration already, jump straight to the license step.
@@ -242,12 +315,18 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
         // that looks like the old offline flow. Stay on the auth step with an inline
         // error; the in-app email/password login on this same screen still works.
         console.error('Web login bridge call failed:', error);
+        if (webLoginAttemptRef.current !== attempt) return;
         setAuthError(t('registrationGate.auth.errors.unknown'));
       } finally {
-        setAuthBusy(false);
+        // Only the attempt that still OWNS the wait may end it. A reply arriving
+        // after cancel/timeout must not clear a newer attempt's spinner.
+        if (webLoginAttemptRef.current === attempt) {
+          clearWebLoginTimeout();
+          setAuthBusy(false);
+        }
       }
     },
-    [notifyEntitled, t]
+    [clearWebLoginTimeout, notifyEntitled, releaseWebLoginWait, t]
   );
 
   // Map a main-process reason_code to a localized, account-existence-safe message.
@@ -745,6 +824,24 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
 
             {BROWSER_LOGIN_ENABLED ? (
               <p className='registration-gate__browser-hint'>{t('registrationGate.auth.browserSessionHint')}</p>
+            ) : null}
+
+            {/* THE WAY OUT OF THE WAIT. While the browser round-trip is running,
+                every other control on this screen is disabled — that is correct
+                (a second attempt would mint a second PKCE state), but without
+                this control it also meant the user had NO action left at all if
+                the reply never came. It is rendered ONLY during the browser wait,
+                and it is the one control that stays enabled. Copy is the shared
+                `common.cancel` string, already in the approved-copy manifest. */}
+            {BROWSER_LOGIN_ENABLED && authBusy && pendingIntent === null ? (
+              <button
+                type='button'
+                className='registration-gate__browser-cancel'
+                onClick={handleCancelWebLogin}
+                data-testid='registration-gate-browser-cancel'
+              >
+                {t('common.cancel')}
+              </button>
             ) : null}
 
             {authError ? (

@@ -70,6 +70,19 @@ describe('the envelope body', () => {
     expect(envelope).toContain('eve_video_edit');
   });
 
+  it('combines sparse folder notices before Hermes sees the artifact registry', () => {
+    const notice = 'Hinweis: Im Ordner „videos“ wurden mindestens 100 Artefakte angelegt.';
+    const envelope = buildEveArtifactContextEnvelope({
+      entries: [entry({ cleanupNotice: notice })],
+      allowedCapabilities: [],
+      advisories: [notice, 'Hinweis: Im Ordner „dokumente“ wurden mindestens 100 Artefakte angelegt.'],
+    });
+
+    expect(envelope).toContain('Mention it once, plainly and without repeating it');
+    expect(envelope.match(/Im Ordner „videos“/g)).toHaveLength(1);
+    expect(envelope.match(/Im Ordner „dokumente“/g)).toHaveLength(1);
+  });
+
   it('carries no bytes, no data URL and no filesystem path', () => {
     const envelope = buildEveArtifactContextEnvelope({
       entries: [entry(), entry({ artifactId: 'video-2', parentArtifactId: 'video-1' })],

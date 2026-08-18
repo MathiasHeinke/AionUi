@@ -7,8 +7,8 @@
 /**
  * Command EVE PER-SEAT IMAGE MODEL PREFERENCE core (MAT-1769).
  *
- * The composer's three-way image model selector is a PREFERENCE, not a
- * purchase: it decides which server-resolved model the managed image
+ * The composer's image model selector is a PREFERENCE, not a purchase: it
+ * decides which server-resolved model the managed image
  * generation/edit lane uses for this seat. The value lives in the same
  * per-seat settings bag as the cloud visual policy, behind the same strict
  * exact-key discipline (seatConfigKeyCore / cloudVisualPolicyMain), for the
@@ -21,6 +21,13 @@
  * `unavailable` — and even those resolve to the default tier at the point of
  * use (the generation lane), because the default is defined precisely so a
  * read failure cannot invent a more expensive choice.
+ *
+ * THIS IS ALSO THE RETIRED-TIER PATH (2026-08-18). A seat that chose the old
+ * 'fast' (Schnell) tier still has that string on disk. It is now an unknown
+ * value, so it takes exactly the route above: back to the product default,
+ * reported as `product_default` rather than `stored_explicit` — the stored
+ * word is gone, and claiming the seat still "chose" something would be
+ * false. No migration write, no empty selection, no crash.
  */
 
 import {

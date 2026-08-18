@@ -209,21 +209,32 @@ export const WorkProductModeHeader: React.FC<WorkProductModeHeaderProps> = ({
   return (
     <div className={[styles.header, className].filter(Boolean).join(' ')} data-testid='work-product-mode-header'>
       <div className={styles.headerControls}>
-        <Tooltip content={actions.returnToChatLabel} position='top' mini>
-          <Button
-            type='text'
-            className={styles.activeMode}
-            disabled={disabled}
-            aria-label={actions.returnToChatLabel}
-            aria-pressed='true'
-            data-mode={value}
-            data-testid={`work-product-active-${value}`}
-            onClick={() => onChange('chat')}
-          >
-            <span aria-hidden='true'>{modeIcon(value)}</span>
-            <span>{active.label}</span>
-          </Button>
-        </Tooltip>
+        {/* The lane stays armed across turns, so the chip is a STATE readout
+            with its own exit — not a toggle. Splitting the two makes the label
+            safe to click (it does nothing but describe the mode) and gives the
+            operator one unambiguous target for leaving it. */}
+        <span
+          className={styles.activeMode}
+          role='status'
+          data-mode={value}
+          data-testid={`work-product-active-${value}`}
+        >
+          <span aria-hidden='true'>{modeIcon(value)}</span>
+          <span>{active.label}</span>
+          <Tooltip content={actions.returnToChatLabel} position='top' mini>
+            <Button
+              type='text'
+              className={styles.exitMode}
+              disabled={disabled}
+              aria-label={actions.returnToChatLabel}
+              data-mode={value}
+              data-testid={`work-product-exit-${value}`}
+              onClick={() => onChange('chat')}
+            >
+              <CloseSmall size={13} />
+            </Button>
+          </Tooltip>
+        </span>
         {controls ? <div className={styles.optionRail}>{controls}</div> : null}
       </div>
 

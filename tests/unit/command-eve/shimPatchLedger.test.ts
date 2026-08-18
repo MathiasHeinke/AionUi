@@ -32,6 +32,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -168,6 +169,171 @@ describe('G1 — the shim patch ledger is complete and consumed', () => {
       [...expected].filter((n) => !declared.has(n)),
       'EXPECTED entry with no installer'
     ).toEqual([]);
+  });
+
+  it('resolves relative Hermes media paths from the session cwd before the existing confinement gate', () => {
+    const root = makeUserData();
+    const shimPath = path.join(root, 'command-eve-provider-override.py');
+    fs.writeFileSync(shimPath, emittedShim(), 'utf8');
+    // The packaged runtime is the ONLY interpreter that proves anything here:
+    // the probe imports `agent.runtime_cwd` and `tools.image_source` out of the
+    // SHIPPED site-packages, so a fallback to the developer's `python3` does not
+    // test a weaker version of this — it tests a different program.
+    //
+    // Two build layouts produce that runtime and BOTH count. `out/mac-arm64` is
+    // what `build-mac:arm64:notarized` writes; `out/qa-signed-packaged` is the
+    // QA-signed variant from electron-builder.qa-signed.yml. Pinning only the
+    // latter is what made this test go red for an ENVIRONMENT reason on a tree
+    // whose bundle was sitting in the other directory — a red that says nothing
+    // about the code is worse than no test, because it trains people to ignore
+    // it.
+    const packagedRoots = [
+      'out/mac-arm64/Command EVE.app/Contents/Resources/python',
+      'out/qa-signed-packaged/mac-arm64/Command EVE.app/Contents/Resources/python',
+    ].map((candidate) => path.resolve(candidate));
+    const packagedRoot = packagedRoots.find(
+      (candidate) =>
+        fs.existsSync(path.join(candidate, 'bin/python3.12')) &&
+        fs.existsSync(path.join(candidate, 'artifact-site-packages'))
+    );
+    const packagedPython = packagedRoot ? path.join(packagedRoot, 'bin/python3.12') : '';
+    const packagedSite = packagedRoot ? path.join(packagedRoot, 'artifact-site-packages') : '';
+    const hasPackagedRuntime = packagedRoot !== undefined;
+    const python = hasPackagedRuntime ? packagedPython : 'python3';
+    const hermesSource = hasPackagedRuntime
+      ? packagedSite
+      : path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl');
+    const probe = String.raw`
+import ast
+import asyncio
+import inspect
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import types
+from typing import Any
+
+shim_path = Path(sys.argv[1])
+sys.path.insert(0, sys.argv[2])
+
+from agent.runtime_cwd import set_session_cwd
+from tools import image_source
+
+vision_tools = types.ModuleType("tools.vision_tools")
+vision_tools._detect_image_mime_type_from_bytes = lambda data: "image/png"
+sys.modules["tools.vision_tools"] = vision_tools
+
+tree = ast.parse(shim_path.read_text(encoding="utf-8"))
+installer = next(
+    node
+    for node in tree.body
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    and node.name == "_install_command_eve_media_runtime_cwd_patch"
+)
+module = ast.fix_missing_locations(ast.Module(body=[installer], type_ignores=[]))
+installed = set()
+namespace = {
+    "Any": Any,
+    "inspect": inspect,
+    "_command_eve_mark_patch": installed.add,
+}
+exec(compile(module, str(shim_path), "exec"), namespace)
+
+root = Path(tempfile.mkdtemp())
+project = root / "project"
+media = project / "bilder"
+media.mkdir(parents=True)
+image = media / "x.png"
+image.write_bytes(bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de"
+    "0000000c4944415408d763f8cfc000000301010018dd8db10000000049454e44ae426082"
+))
+process_cwd = root / "process"
+process_cwd.mkdir()
+os.chdir(process_cwd)
+os.environ["TERMINAL_ENV"] = "local"
+set_session_cwd(str(project))
+
+async def resolve(src):
+    return await image_source.resolve_image_source(src, image_source.ResolveContext())
+
+before_failed = False
+try:
+    asyncio.run(resolve("bilder/x.png"))
+except image_source.SourceNotFound:
+    before_failed = True
+
+namespace["_install_command_eve_media_runtime_cwd_patch"]()
+patched_once = image_source.resolve_image_source
+namespace["_install_command_eve_media_runtime_cwd_patch"]()
+idempotent_install = image_source.resolve_image_source is patched_once
+gate_paths = []
+original_gate = image_source._permitted_host_read_target
+def recording_gate(path, context):
+    gate_paths.append(str(path))
+    return original_gate(path, context)
+image_source._permitted_host_read_target = recording_gate
+bare = asyncio.run(resolve("bilder/x.png"))
+file_uri = asyncio.run(resolve("file://bilder/x.png"))
+sandbox_paths = []
+original_fallback = image_source._resolve_container_fallback
+async def recording_fallback(path, context, source, permitted=("image",)):
+    sandbox_paths.append(str(path))
+    return image_source.ResolvedImage(data=image.read_bytes(), mime="image/png", origin="container")
+image_source._resolve_container_fallback = recording_fallback
+os.environ["TERMINAL_ENV"] = "docker"
+sandbox = asyncio.run(resolve("bilder/x.png"))
+image_source._resolve_container_fallback = original_fallback
+file_path_preserved = None
+if sys.argv[3] == "packaged":
+    from tools.file_tools import _resolve_path_for_task
+    from tools.terminal_tool import register_task_env_overrides
+
+    register_task_env_overrides("media-cwd-probe", {"cwd": str(project)})
+    resolved_file_path = str(_resolve_path_for_task("bilder/x.png", "media-cwd-probe"))
+    file_path_preserved = (
+        resolved_file_path.endswith("/bilder/x.png")
+        and resolved_file_path != str(process_cwd / "bilder" / "x.png")
+    )
+
+print(json.dumps({
+    "before_failed": before_failed,
+    "patch_installed": "media_runtime_cwd" in installed,
+    "idempotent_install": idempotent_install,
+    "bare_origin": bare.origin,
+    "file_uri_origin": file_uri.origin,
+    "payload_matches": bare.data == image.read_bytes() == file_uri.data,
+    "confinement_gate_preserved": (
+        gate_paths == [str(image), str(image), str(image)]
+        and sandbox.origin == "container"
+        and sandbox_paths == [str(image)]
+    ),
+    "file_path_preserved": file_path_preserved,
+}))
+`;
+    const result = spawnSync(
+      python,
+      ['-I', '-S', '-B', '-c', probe, shimPath, hermesSource, hasPackagedRuntime ? 'packaged' : 'wheel'],
+      {
+        encoding: 'utf8',
+        timeout: 30_000,
+      }
+    );
+
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    const payload = JSON.parse(result.stdout) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      before_failed: true,
+      patch_installed: true,
+      idempotent_install: true,
+      bare_origin: 'file',
+      file_uri_origin: 'file',
+      payload_matches: true,
+      confinement_gate_preserved: true,
+    });
+    expect(payload.file_path_preserved).toBe(hasPackagedRuntime ? true : null);
   });
 
   /**

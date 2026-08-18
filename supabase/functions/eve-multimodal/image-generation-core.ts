@@ -116,7 +116,12 @@ export function extractEveImageGenerationInput(body: unknown): EveImageGeneratio
   if (!imageModel) return null;
 
   const rawReferences = body.input_references === undefined ? [] : body.input_references;
-  if (!Array.isArray(rawReferences) || rawReferences.length > EVE_IMAGE_GENERATION_MAX_REFERENCES) return null;
+  if (
+    !Array.isArray(rawReferences) ||
+    rawReferences.length > EVE_IMAGE_GENERATION_MAX_REFERENCES ||
+    rawReferences.length > imageModel.maxReferenceImages
+  )
+    return null;
 
   let totalBytes = 0;
   const references: EveImageGenerationReference[] = [];

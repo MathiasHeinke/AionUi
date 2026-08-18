@@ -37,9 +37,10 @@
 // keeps quote, reserve and settle on one rate.
 //
 // PRICE PROVENANCE, STATED HONESTLY PER ENTRY. `fast` is RESOLUTION-PRICED:
-// the official OpenRouter live page (rechecked 2026-08-03, CoS pricing proof)
-// lists USD 0.05/image at 1K, USD 0.07/image at 2K and +USD 0.01 per input
-// image — an earlier revision of this registry pinned a FLAT USD 0.05, which
+// the OpenRouter images-route endpoint record (rechecked 2026-08-17, CoS
+// pricing proof) lists USD 0.05/image at 1K, USD 0.07/image at 2K and +USD
+// 0.01 per input image — an earlier revision of this registry pinned a FLAT
+// USD 0.05, which
 // under-held the 2K case by 40%; an under-bound reserve is the one direction
 // that can under-charge, so the record is per-resolution now. `quality` and
 // `max` are TOKEN-priced upstream (no per-image list price exists): quality's
@@ -58,7 +59,7 @@ export type ImageModelTierId = 'fast' | 'quality' | 'max';
 export type ImageGenerationResolution = '1K' | '2K';
 
 /** The registry-wide date stamp, bumped like every other pricing record. */
-export const IMAGE_MODEL_REGISTRY_VERSION = '2026-08-03';
+export const IMAGE_MODEL_REGISTRY_VERSION = '2026-08-17';
 
 /**
  * The markup tier this lane's settlement applies. Pinned to the
@@ -84,8 +85,9 @@ export type ImageModelPriceRecord = {
   readonly providerUsdPerImage: Readonly<Record<ImageGenerationResolution, number>>;
   /**
    * The provider's USD price per INPUT (reference/edit) image, when upstream
-   * publishes one. Documentary on tiers that refuse references through this
-   * lane; it is NOT charged today (references ride the same per-image bound).
+   * publishes one. It is added once per accepted reference to the reserve,
+   * quote and registry fallback actual; absent means this registry has no
+   * separately published reference surcharge for that tier.
    */
   readonly providerUsdPerInputReference?: number;
   readonly providerPriceSource: string;
@@ -116,13 +118,29 @@ export type ImageModelRegistryEntry = {
    */
   readonly openRouterProviderOnly: readonly string[] | null;
   /**
+   * Provider-advertised reference ceiling from the authoritative images route.
+   * The request parser applies the lower of this value and its global payload
+   * ceiling, so a provider-specific limit is never discovered after debit.
+   */
+  readonly maxReferenceImages: number;
+  /**
    * Whether this model accepts edit/reference image inputs THROUGH THIS LANE.
    * Evidence-based, and fail-closed where there is none: the google image
    * family is proven by the lane's own production traffic (the previous
    * gemini-3-pro-image pin served `input_references` on the same endpoint);
-   * the x-ai and openai slugs have no such evidence in this repository, so
-   * they refuse references at the parse rather than discovering it after a
-   * debit.
+   * The authoritative capability source is the IMAGES-API endpoint record —
+   * `/api/v1/images/models/{slug}/endpoints` — NOT the chat record at
+   * `/api/v1/models/{slug}/endpoints`. The chat record's
+   * `supported_parameters` enumerates chat knobs (seed, max_tokens,
+   * temperature, ...) and names `input_references` for NO image model,
+   * including the google slug this lane already serves references to in
+   * production; reading it would fail-close every tier for the wrong reason.
+   *
+   * Live recheck 2026-08-17 against the images route, `supported_parameters
+   * .input_references`:
+   *   openai/gpt-image-2                -> {type: range, min: 0, max: 16}
+   *   google/gemini-3.1-flash-image     -> {type: range, min: 0, max: 14}
+   *   x-ai/grok-imagine-image-quality   -> {type: range, min: 0, max: 3}
    */
   readonly supportsReferenceImages: boolean;
   readonly isDefault: boolean;
@@ -138,12 +156,13 @@ export const IMAGE_MODEL_REGISTRY: readonly ImageModelRegistryEntry[] = Object.f
       providerUsdPerImage: Object.freeze({ '1K': 0.05, '2K': 0.07 }),
       providerUsdPerInputReference: 0.01,
       providerPriceSource:
-        'OpenRouter live page recheck 2026-08-03 (CoS pricing proof): USD 0.05/image 1K, USD 0.07/image 2K, +USD 0.01 per input image',
-      evidenceGrade: 'verified provider page recheck 2026-08-03; NOT invoice-validated',
+        'OpenRouter images-route endpoint recheck 2026-08-17 (CoS pricing proof): USD 0.05/image 1K, USD 0.07/image 2K, +USD 0.01 per input image',
+      evidenceGrade: 'verified images-route endpoint recheck 2026-08-17; NOT invoice-validated',
     }),
     supportedResolutions: Object.freeze(['1K', '2K'] as const),
     openRouterProviderOnly: null,
-    supportsReferenceImages: false,
+    maxReferenceImages: 3,
+    supportsReferenceImages: true,
     isDefault: false,
   },
   {
@@ -164,6 +183,7 @@ export const IMAGE_MODEL_REGISTRY: readonly ImageModelRegistryEntry[] = Object.f
     }),
     supportedResolutions: Object.freeze(['1K', '2K'] as const),
     openRouterProviderOnly: Object.freeze(['google-vertex/global'] as const),
+    maxReferenceImages: 14,
     supportsReferenceImages: true,
     isDefault: true,
   },
@@ -185,7 +205,8 @@ export const IMAGE_MODEL_REGISTRY: readonly ImageModelRegistryEntry[] = Object.f
     }),
     supportedResolutions: Object.freeze(['1K', '2K'] as const),
     openRouterProviderOnly: null,
-    supportsReferenceImages: false,
+    maxReferenceImages: 16,
+    supportsReferenceImages: true,
     isDefault: false,
   },
 ] as const);
@@ -221,26 +242,42 @@ export function deriveImageCreditsPerImage(providerUsdPerImage: number): number 
   return (usdCents * fxEurCentsPerUsdCent * markup * CREDITS_PER_EUR_CENT) / 100;
 }
 
+function imageModelProviderUsdCents(
+  entry: ImageModelRegistryEntry,
+  resolution: ImageGenerationResolution,
+  referenceCount: number
+): number {
+  if (!Number.isInteger(referenceCount) || referenceCount < 0) {
+    throw new RangeError('imageModelProviderUsdCents: referenceCount must be an integer >= 0');
+  }
+  const outputUsdCents = Math.round(entry.price.providerUsdPerImage[resolution] * 100);
+  const inputReferenceUsdCents = Math.round((entry.price.providerUsdPerInputReference ?? 0) * 100);
+  return outputUsdCents + referenceCount * inputReferenceUsdCents;
+}
+
 /** The quote/debit schedule for one entry at one resolution, in both denominations. */
 export function imageModelCreditsPerImage(
   entry: ImageModelRegistryEntry,
-  resolution: ImageGenerationResolution
+  resolution: ImageGenerationResolution,
+  referenceCount = 0
 ): number {
-  return deriveImageCreditsPerImage(entry.price.providerUsdPerImage[resolution]);
+  return deriveImageCreditsPerImage(imageModelProviderUsdCents(entry, resolution, referenceCount) / 100);
 }
 
 export function imageModelRetailEurCentsPerImage(
   entry: ImageModelRegistryEntry,
-  resolution: ImageGenerationResolution
+  resolution: ImageGenerationResolution,
+  referenceCount = 0
 ): number {
-  return imageModelCreditsPerImage(entry, resolution) / CREDITS_PER_EUR_CENT;
+  return imageModelCreditsPerImage(entry, resolution, referenceCount) / CREDITS_PER_EUR_CENT;
 }
 
 export function imageModelRawEurCentsPerImage(
   entry: ImageModelRegistryEntry,
-  resolution: ImageGenerationResolution
+  resolution: ImageGenerationResolution,
+  referenceCount = 0
 ): number {
-  const usdCents = Math.round(entry.price.providerUsdPerImage[resolution] * 100);
+  const usdCents = imageModelProviderUsdCents(entry, resolution, referenceCount);
   return (usdCents * Math.round(USD_TO_EUR_SEED * 100)) / 100;
 }
 
@@ -255,13 +292,14 @@ export function imageModelRawEurCentsPerImage(
  */
 export function imageRegistryFallbackActual(
   entry: ImageModelRegistryEntry,
-  resolution: ImageGenerationResolution
+  resolution: ImageGenerationResolution,
+  referenceCount = 0
 ): PricedAmount {
   return {
     ok: true,
-    rawEurCents: imageModelRawEurCentsPerImage(entry, resolution),
-    retailEurCents: imageModelRetailEurCentsPerImage(entry, resolution),
-    basis: `image-registry:${entry.price.version}:${entry.tierId}:${resolution}:${entry.providerSlug}:measured:1`,
+    rawEurCents: imageModelRawEurCentsPerImage(entry, resolution, referenceCount),
+    retailEurCents: imageModelRetailEurCentsPerImage(entry, resolution, referenceCount),
+    basis: `image-registry:${entry.price.version}:${entry.tierId}:${resolution}:${entry.providerSlug}:measured:1:references:${referenceCount}`,
   };
 }
 
@@ -288,10 +326,10 @@ export const IMAGE_MODEL_CAPABILITIES_VERSION = 'command-eve-image-model-registr
  * no separate price record: an edit through this lane is a generation with
  * reference inputs, priced from the same per-resolution record, and that is
  * what edit_credits derives from. REFERENCES: `fast` publishes +USD 0.01 per
- * input image upstream, but this lane refuses references on `fast` anyway
- * (`supports_references: false`), and no other tier has upstream per-reference
- * evidence — so `per_input_reference_credits` stays 0 on every tier rather
- * than quoting a price no lane can charge.
+ * input image upstream. That surcharge is quoted separately and the reserve
+ * multiplies it by the request's validated reference count. `edit_credits`
+ * remains the one-output base so the wire does not double-count the first
+ * reference; consumers add `per_input_reference_credits` once per reference.
  */
 export function publicImageModelCapabilities(args: { enabled: boolean }): {
   version: string;
@@ -321,6 +359,10 @@ export function publicImageModelCapabilities(args: { enabled: boolean }): {
         '1K': imageModelCreditsPerImage(entry, '1K'),
         '2K': imageModelCreditsPerImage(entry, '2K'),
       } as Record<ImageGenerationResolution, number>);
+      const perInputReferenceCredits =
+        entry.price.providerUsdPerInputReference === undefined
+          ? 0
+          : deriveImageCreditsPerImage(entry.price.providerUsdPerInputReference);
       return {
         id: entry.tierId,
         slug: entry.providerSlug,
@@ -331,7 +373,7 @@ export function publicImageModelCapabilities(args: { enabled: boolean }): {
         quotes: {
           generate_credits: perResolution,
           edit_credits: perResolution,
-          per_input_reference_credits: 0,
+          per_input_reference_credits: perInputReferenceCredits,
         },
       };
     }),

@@ -90,6 +90,16 @@ describe('the MCP tool list is gated on the SAME flag as the envelope', () => {
     }
   });
 
+  it('describes file paths as project-only and directs app-managed artifacts to their capability handle', () => {
+    const description = buildEveArtifactToolSurface({}).find(
+      (tool) => tool.name === EVE_ARTIFACT_TOOL_ARTIFACT_GET
+    )!.description;
+    expect(description).toContain('when the conversation has a project workspace');
+    expect(description).toContain(
+      'When no file path is present, the artifact is app-managed for this conversation: reference it by its capability handle, never by a file path.'
+    );
+  });
+
   it('1.820.3 — the IMAGE tool has its OWN carrier: each medium advertises independently', () => {
     // Neither flag: free surface only.
     expect(names({})).toEqual([

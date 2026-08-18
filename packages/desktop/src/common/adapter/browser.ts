@@ -7,6 +7,10 @@
 import { bridge, logger } from '@office-ai/platform';
 import { WEBUI_DEFAULT_PORT } from '@/common/config/constants';
 import type { ElectronBridgeAPI } from '@/common/types/platform/electron';
+import {
+  buildBridgeInvocationFailureResponse,
+  resolveProviderCallbackWireName,
+} from '@/common/adapter/bridgeInvocationRecovery';
 
 interface CustomWindow extends Window {
   electronAPI?: ElectronBridgeAPI;
@@ -59,12 +63,39 @@ if (win.electronAPI) {
   // the inconsistency, not the fix: if the bridge is installed at all, both are
   // there. Capturing the value states that, and cannot silently drop an emit.
   const electronAPI = win.electronAPI;
+  // The platform hands us ITS internal emitter in `on`, and that same emitter is
+  // what a pending `invoke` is listening on for its reply. Holding the reference
+  // is what lets a failed emit settle its own caller instead of stranding it —
+  // see bridgeInvocationRecovery.ts for why the platform cannot do this itself
+  // (its invoke promise has no rejection path at all). `adapter()` calls `on`
+  // synchronously during registration, so this is set before any emit can run.
+  let bridgeEmitter: { emit: (name: string, data: unknown) => void } | null = null;
   // Electron 环境 - 使用 IPC 通信
   bridge.adapter({
     emit(name, data) {
-      return electronAPI.emit(name, data);
+      const delivery = electronAPI.emit(name, data);
+      // A REJECTED emit means main never ran (or refused) the provider, so the
+      // reply the caller awaits will never be sent. Left alone that is an
+      // unhandled rejection on one side and an eternal `await` on the other —
+      // the caller's `finally` never runs, so any "busy" flag it set stays set
+      // and every control gated on it stays disabled. Answer the invocation
+      // ourselves with a typed failure so the caller takes its existing error
+      // branch. This does not retry and does not hide the cause: the throw is
+      // still logged by main and by the preload bridge.
+      return Promise.resolve(delivery).catch((error: unknown) => {
+        const callbackWireName = resolveProviderCallbackWireName(name, data);
+        if (!callbackWireName || !bridgeEmitter) {
+          // Not an identifiable provider invocation (emitter traffic, malformed
+          // envelope) — nothing is waiting on a reply we could synthesise.
+          console.error('Bridge emit failed:', name, error);
+          return;
+        }
+        console.error('Bridge emit failed; settling the stranded invocation:', name, error);
+        bridgeEmitter.emit(callbackWireName, buildBridgeInvocationFailureResponse(error));
+      });
     },
     on(emitter) {
+      bridgeEmitter = emitter;
       electronAPI.on((event) => {
         try {
           const { value } = event;

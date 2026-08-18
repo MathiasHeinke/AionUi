@@ -3,6 +3,7 @@ import {
   fileUrlToPath,
   isDirectoryMetadata,
   pathToFileUrl,
+  resolveArtifactDownloadFileName,
 } from '@/renderer/pages/conversation/Messages/components/MessageGeneratedArtifact';
 
 describe('generated artifact local path handling', () => {
@@ -25,5 +26,16 @@ describe('generated artifact local path handling', () => {
     expect(isDirectoryMetadata({ ...baseMetadata, isDirectory: true })).toBe(true);
     expect(isDirectoryMetadata({ ...baseMetadata, is_directory: true })).toBe(true);
     expect(isDirectoryMetadata(baseMetadata)).toBe(false);
+  });
+
+  it('keeps the visible filename and adds a trustworthy MIME extension when needed', () => {
+    expect(
+      resolveArtifactDownloadFileName({
+        title: 'Linienmotiv',
+        path: 'bilder/linienmotiv.png',
+        mimeType: 'image/png',
+      })
+    ).toBe('linienmotiv.png');
+    expect(resolveArtifactDownloadFileName({ title: 'Linienmotiv', mimeType: 'image/png' })).toBe('Linienmotiv.png');
   });
 });

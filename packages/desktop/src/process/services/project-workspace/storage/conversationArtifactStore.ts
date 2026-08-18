@@ -110,6 +110,7 @@ export function commandEveOfficeArtifactPayloadSha256(payload: CommandEveOfficeC
         payload.file_name,
         payload.mime_type,
         payload.path,
+        ...(payload.cleanup_notice === undefined ? [] : [payload.cleanup_notice]),
         payload.size,
         payload.hash,
         payload.managed_office,
@@ -355,17 +356,26 @@ function artifactMatchesOfficeStoreLocation(
         sourceTurnId: artifact.payload.source_turn_id,
         sourceDirectiveIndex: artifact.payload.source_directive_index,
       });
+  const legacyPath =
+    artifact.payload.path ===
+    commandEveOfficeArtifactRelativePath(
+      conversationId,
+      artifact.id,
+      artifact.payload.result_sha256,
+      artifact.payload.office_mode
+    );
+  const extension = commandEveOfficeExtension(artifact.payload.office_mode);
+  const canonicalPath =
+    artifact.payload.path.startsWith('dokumente/') &&
+    artifact.payload.path.endsWith(extension) &&
+    !artifact.payload.path.includes('..') &&
+    !artifact.payload.path.includes('\\') &&
+    /^dokumente\/[a-z0-9][a-z0-9-]*-\d{4}-\d{2}-\d{2}(?:-\d+)?\.[a-z0-9]+$/.test(artifact.payload.path);
   return (
     artifact.conversation_id === conversationId &&
     artifact.payload.seat_id === seatId &&
     fileName === artifact.id + '.json' &&
-    artifact.payload.path ===
-      commandEveOfficeArtifactRelativePath(
-        conversationId,
-        artifact.id,
-        artifact.payload.result_sha256,
-        artifact.payload.office_mode
-      ) &&
+    (legacyPath || canonicalPath) &&
     sourceOperationMatches
   );
 }

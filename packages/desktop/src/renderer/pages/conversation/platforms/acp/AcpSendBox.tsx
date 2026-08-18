@@ -161,7 +161,9 @@ import {
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
 import ImageAspectRatioPill from '@/renderer/components/billing/ImageAspectRatioPill';
 import ImageModelPill from '@/renderer/components/billing/ImageModelPill';
+import ImageReferenceCeilingHint from '@/renderer/components/billing/ImageReferenceCeilingHint';
 import { useImageComposerSelection } from '@/renderer/components/billing/useImageComposerSelection';
+import { resolveReferenceCapableImageModelTier } from '@/common/config/eveImageModelRegistryCore';
 import { isImageFile } from '@/renderer/pages/conversation/Preview/fileUtils';
 import { configService } from '@/common/config/configService';
 import { estimateVideoEditCredits } from '@/common/config/videoEditRequestCore';
@@ -1261,6 +1263,8 @@ Please check your local CLI tool authentication status`,
   );
   const [selectedArtifactReference, setSelectedArtifactReference] = useState<ComposerArtifactReference | null>(null);
   const imageGenerateRequestRef = useRef<{ requestKey: string; requestId: string } | null>(null);
+  const showImageEditControls =
+    composerSelection.mode === 'image' && selectedArtifactReference?.referenceKind === 'image';
 
   useEffect(() => {
     setComposerSelection(DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION);
@@ -1290,10 +1294,32 @@ Please check your local CLI tool authentication status`,
       }
       setSelectedArtifactReference(reference);
       setComposerSelection(
-        selectExplicitComposerWorkProductMode(reference.mode, { selected: true, kind: reference.referenceKind })
+        selectExplicitComposerWorkProductMode(
+          reference.mode,
+          { selected: true, kind: reference.referenceKind },
+          reference.mode === 'image'
+            ? {
+                tierId:
+                  (imageModelRegistry
+                    ? resolveReferenceCapableImageModelTier(imageModelRegistry, imageModelTier)
+                    : null) ?? imageModelTier,
+                aspectRatio: imageAspectRatio,
+                resolution: imageResolution,
+              }
+            : undefined
+        )
       );
     },
-    [conversationArtifacts, conversation_id, isEveConversation, t]
+    [
+      conversationArtifacts,
+      conversation_id,
+      imageAspectRatio,
+      imageModelRegistry,
+      imageModelTier,
+      imageResolution,
+      isEveConversation,
+      t,
+    ]
   );
 
   const handleComposerModeChange = useCallback(
@@ -1308,17 +1334,21 @@ Please check your local CLI tool authentication status`,
         (selectedArtifactReference.mode === mode ||
           (mode === 'video' && selectedArtifactReference.referenceKind === 'image'));
       if (!keepReference) setSelectedArtifactReference(null);
+      const imageTier =
+        keepReference && selectedArtifactReference.referenceKind === 'image' && imageModelRegistry
+          ? (resolveReferenceCapableImageModelTier(imageModelRegistry, imageModelTier) ?? imageModelTier)
+          : imageModelTier;
       setComposerSelection(
         selectExplicitComposerWorkProductMode(
           mode,
           keepReference ? { selected: true, kind: selectedArtifactReference.referenceKind } : undefined,
           mode === 'image'
-            ? { tierId: imageModelTier, aspectRatio: imageAspectRatio, resolution: imageResolution }
+            ? { tierId: imageTier, aspectRatio: imageAspectRatio, resolution: imageResolution }
             : undefined
         )
       );
     },
-    [imageAspectRatio, imageModelTier, imageResolution, selectedArtifactReference]
+    [imageAspectRatio, imageModelRegistry, imageModelTier, imageResolution, selectedArtifactReference]
   );
 
   const clearComposerReference = useCallback(() => {
@@ -1336,7 +1366,7 @@ Please check your local CLI tool authentication status`,
 
   const handleImageModelTierChange = useCallback(
     (tierId: typeof imageModelTier) => {
-      setImageModelTier(tierId);
+      setImageModelTier(tierId, { persist: !showImageEditControls });
       setComposerSelection((selection) =>
         selection.mode === 'image'
           ? selectExplicitComposerWorkProductMode(
@@ -1347,7 +1377,7 @@ Please check your local CLI tool authentication status`,
           : selection
       );
     },
-    [imageAspectRatio, imageResolution, setImageModelTier]
+    [imageAspectRatio, imageResolution, setImageModelTier, showImageEditControls]
   );
 
   const handleImageResolutionChange = useCallback(
@@ -1383,9 +1413,36 @@ Please check your local CLI tool authentication status`,
   );
 
   const consumeComposerSelection = useCallback(() => {
-    setSelectedArtifactReference(null);
-    setComposerSelection(DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION);
+    // Sticky lane (founder ruling 2026-08-18): a send consumes neither the mode
+    // nor — on an EDIT — the bound artifact. The core owns that decision; this
+    // call site only applies it.
+    //
+    // An EDIT keeps its target, because "und jetzt die Linie blau" is the same
+    // edit continued, not a new picture described in three words. It keeps
+    // pointing at the SOURCE until a successor actually exists; the lineage
+    // effect below is what moves it. A CREATE drops it: an attached reference
+    // image was an input to the render that just happened, never a target for
+    // the next one.
+    //
+    // THE UPDATER FORM IS LOAD-BEARING, and a test found that the hard way. An
+    // earlier revision read the selection from a `useLatestRef` so it could also
+    // clear the artifact chip here. That ref is written in a layout effect, so a
+    // send whose result lands before React commits — the start-screen handoff,
+    // where the mode is set and the send resolves in the same tick — consumed a
+    // STALE chat selection and silently dropped the lane the operator had just
+    // chosen. The updater always sees the current state; the chip is kept in
+    // step by the mirror effect below instead.
+    setComposerSelection((selection) => consumeComposerWorkProductSelection(selection).nextSelection);
   }, []);
+
+  // ONE INVARIANT, ONE PLACE: the visible reference chip mirrors the authority.
+  // A selection that carries no reference cannot leave a chip standing, whoever
+  // cleared it — a consumed create, a mode switch, an exit. Deriving this rather
+  // than clearing at each call site is what stops the two from disagreeing about
+  // whether a lane is still an edit lane.
+  useEffect(() => {
+    if (!composerSelection.hasSelectedReference) setSelectedArtifactReference(null);
+  }, [composerSelection.hasSelectedReference]);
 
   // 1.820.4 (MAT-1772) — the durable project chip truth: the newest COMPLETED
   // project workspace artifact's title, path-free, ahead of hermes-temp-*.
@@ -1397,8 +1454,64 @@ Please check your local CLI tool authentication status`,
         : null,
     [conversationArtifacts, selectedArtifactReference]
   );
-  const showImageCreateControls = composerSelection.mode === 'image' && selectedArtifactReference === null;
-  const showImageEditHint = composerSelection.mode === 'image' && selectedArtifactReference?.referenceKind === 'image';
+
+  // THE EDIT CHAIN (founder ruling 2026-08-18, second pass). A successful image,
+  // video or Office edit writes a NEW artifact that NAMES its source in
+  // `parent_artifact_id`. When that successor appears, the armed reference moves
+  // onto it — so "orange, nein grün, warte blau" each build on the step the
+  // operator is looking at, instead of silently re-editing the first version
+  // three times.
+  //
+  // LINEAGE, NOT RECENCY, and that is the entire safety argument. Only an
+  // artifact that names the current reference as its parent qualifies; there is
+  // no wall-clock guess and no "newest image wins". A refused, failed or
+  // still-running edit produces no such artifact, so NOTHING MOVES and a retry
+  // hits exactly the same source the operator chose. The same rule keeps a
+  // parallel unrelated generation from hijacking the lane.
+  //
+  // Moving the reference spends nothing: it restates WHICH artifact is targeted.
+  // Every paid edit still mints its own single-use permit at send time, bound to
+  // that turn's own text.
+  //
+  // IT WALKS TO THE END OF THE CHAIN IN ONE PASS, and that is deliberate rather
+  // than incidental. Re-pointing one hop per render would make this effect feed
+  // itself, and a malformed cycle (A names B, B names A) would spin forever —
+  // found by sabotage, not by reasoning: removing the lineage test below made
+  // every artifact a candidate and the suite HUNG instead of failing. So the
+  // walk carries a visited set, ends at the artifact with no further
+  // descendant, and writes state only when that differs from what is armed.
+  // The next run then finds the same terminal artifact and writes nothing.
+  useEffect(() => {
+    const reference = selectedArtifactReference;
+    if (!reference) return;
+    // Every artifact this walk has already stood on. An id enters exactly once,
+    // so a self-naming record or a cycle ends the walk instead of driving it.
+    const visited = new Set<string>([reference.artifactId]);
+    let current = reference;
+    for (;;) {
+      let successor: { reference: ComposerArtifactReference; createdAt: number } | null = null;
+      for (const artifact of conversationArtifacts) {
+        const payload = artifact.payload as { parent_artifact_id?: unknown };
+        if (payload.parent_artifact_id !== current.artifactId || visited.has(artifact.id)) continue;
+        if (!isVisibleConversationArtifact(artifact)) continue;
+        const candidate = resolveComposerArtifactReference(artifact);
+        // Same medium only, and it must satisfy the SAME edit-source predicate
+        // the manual "Bearbeiten" action uses. A successor the app would refuse
+        // to edit must not become the armed target, or the next send would be a
+        // refusal the operator never asked for.
+        if (!candidate || candidate.mode !== reference.mode) continue;
+        if ((candidate.mode === 'image' || candidate.mode === 'video') && !isUsableMediaEditSource(artifact)) continue;
+        if (!successor || artifact.created_at > successor.createdAt) {
+          successor = { reference: candidate, createdAt: artifact.created_at };
+        }
+      }
+      if (!successor) break;
+      visited.add(successor.reference.artifactId);
+      current = successor.reference;
+    }
+    if (current.artifactId !== reference.artifactId) setSelectedArtifactReference(current);
+  }, [conversationArtifacts, selectedArtifactReference]);
+  const showImageControls = composerSelection.mode === 'image';
   const showVideoCreateControls =
     composerSelection.mode === 'video' &&
     (selectedArtifactReference === null || selectedArtifactReference.referenceKind === 'image');
@@ -1423,19 +1536,26 @@ Please check your local CLI tool authentication status`,
   // an absent or failed answer stays fail-closed (both flags false), and the
   // catalog falls back to the bundled snapshot marked approximate.
 
-  // IMAGE EDIT MODEL TRUTH (Founder blocker 2): only the registry's
-  // reference-capable tier may edit (today exactly `quality` = Nano Banana 2;
-  // fast/max are supports_references=false and the edge parser refuses them
-  // pre-debit). The affordance presents THAT tier and its edit_credits quote
-  // — never the full selector, never a deterministic failure. The actual
-  // request's tier is pinned request-scoped in managedImageGenerationService
-  // (references force the reference-capable tier for THAT request only; the
-  // seat's persistent preference is untouched).
-  const imageEditSpec = useMemo(() => {
-    if (!showImageEditHint || !imageModelRegistry) return null;
-    const spec = imageModelRegistry.tiers.find((tier) => tier.supports_references === true);
-    return spec ?? null;
-  }, [showImageEditHint, imageModelRegistry]);
+  const selectedImageTier = showImageEditControls
+    ? (composerSelection.imageOptions?.tierId ?? imageModelTier)
+    : imageModelTier;
+
+  // A reference edit retains the user's previous model where the live registry
+  // proves it can accept references. If it cannot, select the registry default
+  // (or its declared reference-capable fallback) for THIS request only; do not
+  // overwrite the seat's create preference.
+  useEffect(() => {
+    if (!showImageEditControls || !imageModelRegistry) return;
+    const resolvedTier = resolveReferenceCapableImageModelTier(imageModelRegistry, selectedImageTier);
+    if (!resolvedTier || resolvedTier === selectedImageTier) return;
+    setComposerSelection((selection) =>
+      selectExplicitComposerWorkProductMode(
+        'image',
+        selection.hasSelectedReference ? { selected: true, kind: selection.selectedReferenceKind } : undefined,
+        { tierId: resolvedTier, aspectRatio: imageAspectRatio, resolution: imageResolution }
+      )
+    );
+  }, [imageAspectRatio, imageModelRegistry, imageResolution, selectedImageTier, showImageEditControls]);
 
   // WHICH OF THE FOUR MODES this send is. Derived from the attachments the user
   // can already see, which is the whole of item C: reference images ARE the files
@@ -1451,6 +1571,20 @@ Please check your local CLI tool authentication status`,
   // An earlier comment on this binding said 1080p "exists only as image->video".
   // It was wrong about the provider, and it is gone.
   const videoImagePaths = useMemo(() => uploadFile.filter((path) => isImageFile(path)), [uploadFile]);
+  // THE REFERENCE IMAGES AN IMAGE SEND WOULD CARRY — counted from exactly the
+  // sources the send path uses, so the warning and the request can never
+  // disagree. `submitMessage` builds `allFiles` as uploads PLUS @-mentioned
+  // paths and then filters it with the same `isImageFile`; counting only the
+  // uploads here would under-report an @-referenced image and warn one too
+  // late. The video binding above deliberately reads only `uploadFile`,
+  // because its own send does.
+  const imageReferenceCount = useMemo(
+    () =>
+      [...uploadFile, ...atPath.map((item) => (typeof item === 'string' ? item : item.path))].filter((path) =>
+        isImageFile(path)
+      ).length,
+    [atPath, uploadFile]
+  );
   const videoModeKind: VideoModeKind = useMemo(
     () =>
       selectedArtifactReference?.referenceKind === 'image'
@@ -3241,15 +3375,17 @@ Please check your local CLI tool authentication status`,
   const workProductOptionControls = (
     <>
       <ImageModelPill
-        visible={showImageCreateControls}
-        value={imageModelTier}
+        visible={showImageControls && (!showImageEditControls || imageModelRegistry !== null)}
+        value={selectedImageTier}
         onChange={handleImageModelTierChange}
         registry={imageModelRegistry}
         resolution={imageResolution}
         onResolutionChange={handleImageResolutionChange}
+        operation={showImageEditControls ? 'edit' : 'generate'}
+        referenceCount={imageReferenceCount}
       />
       <ImageAspectRatioPill
-        visible={showImageCreateControls}
+        visible={showImageControls && (!showImageEditControls || imageModelRegistry !== null)}
         value={imageAspectRatio}
         onChange={handleImageAspectRatioChange}
       />
@@ -3474,53 +3610,6 @@ Please check your local CLI tool authentication status`,
                 onDecline={handleVisionEnablementDecline}
               />
             ) : null}
-            {/* Image model picker (MAT-1769, contextual since 1.820.3).
-                Shows ONLY for an explicit image CREATE intent — the full
-                three-tier selector with generation quotes. An image EDIT
-                gets the compact truthful affordance below instead. Renders
-                in the draft band — never an overlay. */}
-            {/* Compact IMAGE-EDIT affordance (1.820.3, Founder blocker 2).
-                Only the registry's reference-capable tier may edit (today:
-                Nano Banana 2). Shows that tier and its edit_credits quote —
-                never the full selector, never an unsupported tier, never a
-                deterministic failure. */}
-            {showImageEditHint ? (
-              <div
-                className='video-edit-hint'
-                role='note'
-                aria-live='polite'
-                data-testid='image-edit-hint'
-                // Observability, not copy: the EDIT-mode truth in inspectable
-                // form — the effective reference-capable tier and the
-                // edit_credits figures it bills at. The visible text stays
-                // localized; these attributes let tests (and audits) verify
-                // edit mode never quotes generate_credits.
-                {...(imageEditSpec
-                  ? {
-                      'data-effective-tier': imageEditSpec.id,
-                      'data-edit-credits-1k': String(imageEditSpec.quotes.edit_credits['1K']),
-                      'data-edit-credits-2k': String(imageEditSpec.quotes.edit_credits['2K']),
-                    }
-                  : { 'data-quote-state': 'unavailable' })}
-              >
-                <span className='video-edit-hint__label'>
-                  {t('credits.image.editHintLabel', { defaultValue: 'Bild bearbeiten' })}
-                </span>
-                {imageEditSpec ? (
-                  <span className='video-edit-hint__estimate'>
-                    {`${imageEditSpec.display_name} · ${t('credits.image.inlineEstimate', {
-                      defaultValue: 'ca. {{credits1k}} Credits (1K) · {{credits2k}} (2K)',
-                      credits1k: imageEditSpec.quotes.edit_credits['1K'],
-                      credits2k: imageEditSpec.quotes.edit_credits['2K'],
-                    })}`}
-                  </span>
-                ) : (
-                  <span className='video-edit-hint__estimate'>
-                    {t('credits.image.estimateUnavailable', { defaultValue: 'Preis aktuell nicht verfügbar' })}
-                  </span>
-                )}
-              </div>
-            ) : null}
             {/* Compact video-EDIT affordance (1.820.3). A mutation intent
                 over the visible source clip shows this — no resolution,
                 duration or voice selector, because the edit tool inherits
@@ -3542,6 +3631,16 @@ Please check your local CLI tool authentication status`,
                 ) : null}
               </div>
             ) : null}
+            {/* The reference ceiling, BEFORE sending. A warning, never a gate:
+                send stays enabled and the gateway remains the only enforcer.
+                It sits beside the attachments it is about, so the number and
+                the thumbnails are read together. */}
+            <ImageReferenceCeilingHint
+              visible={showImageControls}
+              registry={imageModelRegistry}
+              tierId={selectedImageTier}
+              referenceCount={imageReferenceCount}
+            />
             {visibleUploadFiles.length > 0 && (
               <HorizontalFileList>
                 {visibleUploadFiles.map((path) => (

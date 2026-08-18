@@ -53,15 +53,15 @@ describe('explicit composer work-product mode', () => {
     expect(productDescriptors.every(({ supportsReference }) => supportsReference)).toBe(true);
   });
 
-  it('marks create and edit as one-shot actions while ordinary chat stays neutral', () => {
+  it('keeps create and edit armed across turns while ordinary chat stays neutral', () => {
     expect(COMPOSER_WORK_PRODUCT_ACTION_DESCRIPTORS).toEqual([
       { action: 'chat', requiresExplicitUserSelection: false, oneShot: false },
-      { action: 'create', requiresExplicitUserSelection: true, oneShot: true },
-      { action: 'edit', requiresExplicitUserSelection: true, oneShot: true },
+      { action: 'create', requiresExplicitUserSelection: true, oneShot: false },
+      { action: 'edit', requiresExplicitUserSelection: true, oneShot: false },
     ]);
   });
 
-  it('consumes a create selection for one send and returns the next turn to chat', () => {
+  it('keeps the image lane and its output options armed for the next turn', () => {
     const selected = selectExplicitComposerWorkProductMode('image', undefined, {
       tierId: 'max',
       aspectRatio: '1:1',
@@ -79,8 +79,64 @@ describe('explicit composer work-product mode', () => {
     expect(firstSend.request?.preparedContext).toContain('image_tier_id=max');
     expect(firstSend.request?.preparedContext).toContain('image_resolution=2K');
     expect(firstSend.request?.preparedContext).toContain('image_aspect_ratio=1:1');
-    expect(firstSend.nextSelection.mode).toBe('chat');
-    expect(secondSend.request).toBeNull();
+
+    // Sticky lane: the operator stays in image mode until they leave it, and the
+    // chosen tier/ratio/resolution travel with it — re-picking them every turn
+    // was the friction this replaces.
+    expect(firstSend.nextSelection.mode).toBe('image');
+    expect(firstSend.nextSelection.authority).toBe('explicit_user_selection');
+    expect(firstSend.nextSelection.imageOptions).toEqual({
+      tierId: 'max',
+      aspectRatio: '1:1',
+      resolution: '2K',
+    });
+
+    // Hermes must see the SAME prepared context on the second turn; a lane that
+    // is visible to the operator but invisible to the agent is worse than none.
+    expect(secondSend.request).toMatchObject({ mode: 'image', action: 'create' });
+    expect(secondSend.request?.preparedContext).toContain('image_tier_id=max');
+  });
+
+  it('keeps an EDIT lane armed across turns so "and now make it blue" stays an edit', () => {
+    const selected = selectExplicitComposerWorkProductMode('image', { selected: true, kind: 'image' }, undefined);
+    expect(selected.hasSelectedReference).toBe(true);
+
+    const firstSend = consumeComposerWorkProductSelection(selected);
+
+    // The turn that was sent carries the edit intent...
+    expect(firstSend.request).toMatchObject({ mode: 'image', action: 'edit', hasSelectedReference: true });
+    // ...and so does the next one. Dropping the reference here would turn the
+    // follow-up sentence into a brand new image built from the words "make it
+    // blue"; WHICH artifact it points at is re-pointed by the renderer once a
+    // successor exists (founder ruling 2026-08-18, second pass).
+    expect(firstSend.nextSelection.mode).toBe('image');
+    expect(firstSend.nextSelection.hasSelectedReference).toBe(true);
+    expect(firstSend.nextSelection.selectedReferenceKind).toBe('image');
+
+    const secondSend = consumeComposerWorkProductSelection(firstSend.nextSelection);
+    expect(secondSend.request).toMatchObject({ mode: 'image', action: 'edit', hasSelectedReference: true });
+    // Authority is re-minted through the one constructor on every hop, so a
+    // carried reference is still a clicked reference — never text-derived.
+    expect(secondSend.nextSelection.authority).toBe('explicit_user_selection');
+  });
+
+  it('drops a CREATE reference on send so a second image is never a silent re-edit', () => {
+    // The create lane is the one where carrying the artifact forward WOULD be
+    // the surprise: an attached reference image is an input to this render, not
+    // a target for the next one.
+    const created = consumeComposerWorkProductSelection(selectExplicitComposerWorkProductMode('image'));
+    expect(created.request).toMatchObject({ mode: 'image', action: 'create', hasSelectedReference: false });
+    expect(created.nextSelection.mode).toBe('image');
+    expect(created.nextSelection.hasSelectedReference).toBe(false);
+
+    // Image-to-video is a CREATE source too: the still was consumed by the
+    // render that used it, so it must not re-render the same clip next turn.
+    const imageToVideo = consumeComposerWorkProductSelection(
+      selectExplicitComposerWorkProductMode('video', { selected: true, kind: 'image' })
+    );
+    expect(imageToVideo.request).toMatchObject({ mode: 'video', action: 'create' });
+    expect(imageToVideo.nextSelection.hasSelectedReference).toBe(false);
+    expect(imageToVideo.nextSelection.selectedReferenceKind).toBeNull();
   });
 
   it('normalizes malformed image output options to bounded safe defaults', () => {

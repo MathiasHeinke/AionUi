@@ -94,6 +94,10 @@ import {
   recordVideoEditSpendCompletion,
   releaseVideoEditInflightLock,
 } from '@process/commandEve/videoEditSpendPermitStore';
+import {
+  resolveCommandEveOfficeConversationAuthority,
+  type CommandEveOfficeConversationAuthority,
+} from '@process/commandEve/officeArtifactAttachmentCore';
 
 // ---------------------------------------------------------------------------
 // BIND — display authority, granted at the end of the turn that produced it
@@ -109,6 +113,7 @@ export interface CommandEveImageArtifactBindDeps {
   getDataPath: typeof getDataPath;
   getActiveSeatId?: typeof getActiveSeatId;
   bind?: typeof bindStagedImageArtifact;
+  resolveWorkspace?: (conversationId: string) => Promise<CommandEveOfficeConversationAuthority>;
   /**
    * 1.820.3 same-turn insertion: invoked with the canonical conversation id
    * after a FRESH bind (never on alreadyBound/refusal) so Main can notify the
@@ -123,6 +128,7 @@ const productionBindDeps: CommandEveImageArtifactBindDeps = {
   getDataPath,
   getActiveSeatId,
   bind: bindStagedImageArtifact,
+  resolveWorkspace: (conversationId) => resolveCommandEveOfficeConversationAuthority(conversationId),
 };
 
 /**
@@ -140,11 +146,14 @@ export async function handleCommandEveImageArtifactBind(
   if (typeof toolCallId !== 'string' || toolCallId.length === 0) return { ok: false, reason: 'handle-malformed' };
   try {
     const expectedSeatId = (deps.getActiveSeatId ?? getActiveSeatId)();
+    const authority = await deps.resolveWorkspace?.(conversationId);
+    if (authority?.status === 'refused') return { ok: false, reason: 'artifact-missing' };
     const result = (deps.bind ?? bindStagedImageArtifact)(deps.getDataPath(), {
       conversationId,
       handle: request?.handle,
       toolCallId,
       expectedSeatId,
+      ...(authority?.status === 'ready' ? { workspaceRoot: authority.workspace } : {}),
     });
     if (result.ok && !result.alreadyBound) {
       // Best-effort, isolated: a throwing notifier must NEVER turn a
@@ -483,6 +492,7 @@ export interface CommandEveImageGenerateDeps {
     options: CommandEveManagedImageGenerationOptions
   ) => Promise<CommandEveManagedImageLocalResult>;
   bind?: typeof bindStagedImageArtifact;
+  resolveWorkspace?: (conversationId: string) => Promise<CommandEveOfficeConversationAuthority>;
   acquireInflightLock?: typeof acquireVideoEditInflightLock;
   releaseInflightLock?: typeof releaseVideoEditInflightLock;
   coordinator?: CommandEveImageGenerateCoordinator;
@@ -499,6 +509,7 @@ const productionImageGenerateDeps: CommandEveImageGenerateDeps = {
   readImageSource: readBoundedImageSource,
   runManagedGeneration: executeCommandEveManagedImageGeneration,
   bind: bindStagedImageArtifact,
+  resolveWorkspace: (conversationId) => resolveCommandEveOfficeConversationAuthority(conversationId),
   acquireInflightLock: acquireVideoEditInflightLock,
   releaseInflightLock: releaseVideoEditInflightLock,
   coordinator: productionImageGenerateCoordinator,
@@ -529,6 +540,28 @@ function managedImageFailureResult(
     retryable: artifactState === 'creation_unverified' || localResult.status === 429,
     artifactState,
   });
+}
+
+function imageBindFailureResult(bindResult: Extract<ImageArtifactBindResult, { ok: false }>, requestId: string) {
+  if (bindResult.reason === 'artifact-placement-collision-limit') {
+    return refuseImageGenerate(
+      'image-generate-name-collision-limit',
+      'Das Bild ist sicher gespeichert, aber dieser Dateiname ist im Projektordner zu oft vergeben. Wähle einen anderen Namen.',
+      { requestId, artifactState: 'stored_not_bound' }
+    );
+  }
+  if (bindResult.reason === 'artifact-placement-no-space') {
+    return refuseImageGenerate(
+      'image-generate-storage-full',
+      'Das Bild ist sicher gespeichert, aber auf dem Laufwerk ist kein Speicherplatz für die Projektkopie frei. Schaffe Speicherplatz und versuche es dann erneut.',
+      { requestId, artifactState: 'stored_not_bound' }
+    );
+  }
+  return refuseImageGenerate(
+    'image-generate-bind-failed',
+    'Das Bild wurde lokal gespeichert, konnte aber nicht in die Unterhaltung eingefügt werden.',
+    { requestId, artifactState: 'stored_not_bound' }
+  );
 }
 
 /**
@@ -662,6 +695,15 @@ export async function handleCommandEveImageGenerate(
             }
           );
         }
+        const authority = await deps.resolveWorkspace?.(request.conversationId);
+        if (authority?.status === 'refused') {
+          return refuseImageGenerate(
+            'image-generate-workspace-unavailable',
+            'Diese Unterhaltung ist nicht verfügbar. Öffne sie erneut oder wähle ein Projekt.',
+            { requestId: request.requestId }
+          );
+        }
+
         const localResult = await (deps.runManagedGeneration ?? executeCommandEveManagedImageGeneration)(
           {
             model: COMMAND_EVE_MANAGED_IMAGE_MODEL,
@@ -713,16 +755,13 @@ export async function handleCommandEveImageGenerate(
             handle: artifactHandle,
             toolCallId: `image-generate:${request.requestId}`,
             expectedSeatId: capturedSeatId,
+            ...(authority?.status === 'ready' ? { workspaceRoot: authority.workspace } : {}),
           });
         } catch {
           bindResult = { ok: false, reason: 'artifact-missing' };
         }
-        if (!bindResult.ok) {
-          return refuseImageGenerate(
-            'image-generate-bind-failed',
-            'Das Bild wurde lokal gespeichert, konnte aber nicht in die Unterhaltung eingefügt werden.',
-            { requestId: request.requestId, artifactState: 'stored_not_bound' }
-          );
+        if (bindResult.ok === false) {
+          return imageBindFailureResult(bindResult, request.requestId);
         }
         if (!bindResult.alreadyBound) {
           try {
@@ -1249,7 +1288,10 @@ export async function handleCommandEveImageEdit(
 
   const sourceBytes = readBytes(dataPath, source.id, capturedSeatId);
   if (!sourceBytes) {
-    return refuseEdit('image-edit-source-unreadable', 'Die Bilddatei konnte nicht gelesen werden.');
+    return refuseEdit(
+      'image-edit-artifact-changed',
+      'Die Bilddatei hat sich seit dem Erstellen geändert — die Bearbeitung wurde abgebrochen.'
+    );
   }
 
   // Hash what we ACTUALLY read, then judge the handle against that — the same

@@ -29,6 +29,7 @@ import {
   commandEveOfficeSourceOperationId,
   ProjectWorkspaceConversationArtifactStore,
 } from '@/process/services/project-workspace/storage/conversationArtifactStore';
+import { publishCanonicalArtifact } from '@/process/services/project-workspace/storage/canonicalArtifactPlacement';
 
 const WORD_PACKAGE = Buffer.from(
   'UEsDBBQAAAAAAPZjD13HHBc8CAAAAAgAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbDxUeXBlcy8+UEsDBBQAAAAAAPZjD10RXudMBwAAAAcAAAARAAAAd29yZC9kb2N1bWVudC54bWw8cm9vdC8+UEsBAhQDFAAAAAAA9mMPXcccFzwIAAAACAAAABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAMUAAAAAAD2Yw9dEV7nTAcAAAAHAAAAEQAAAAAAAAAAAAAAgAE5AAAAd29yZC9kb2N1bWVudC54bWxQSwUGAAAAAAIAAgCAAAAAbwAAAAAA',
@@ -665,17 +666,12 @@ describe('Office artifact lineage Main', () => {
       ...items[1],
       content: { content: 'MEDIA: ' + firstPath + '\nMEDIA: ' + secondPath },
     };
-    const failedArtifactKey = crypto
-      .createHash('sha256')
-      .update('hermes-media-msg-result-1')
-      .digest('hex')
-      .slice(0, 24);
     const first = await reconcileConversationOfficeArtifacts(fixture.dataPath, 'conv-1', {
       ...fixture.runtimeDeps,
       fetchTranscript: async () => items,
-      writeImmutable: (root, target, contents) => {
-        if (target.includes(failedArtifactKey)) throw new Error('injected second-result failure');
-        writePrivateDocumentImmutable(root, target, contents);
+      publishCanonical: (input) => {
+        if (input.nameHint.includes('partial-second')) throw new Error('injected second-result failure');
+        return publishCanonicalArtifact(input);
       },
     });
     expect(first).toMatchObject({ persisted: 1 });

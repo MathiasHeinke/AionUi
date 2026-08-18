@@ -37,6 +37,8 @@ export type CommandEveOfficeConversationArtifactPayload = {
   mime_type: string;
   /** Main-authored, workspace-relative immutable copy. Never an absolute renderer path. */
   path: string;
+  /** Advisory surfaced once at 100 files and then only at each doubling. */
+  cleanup_notice?: string;
   size: number;
   hash: string;
   managed_office: true;
@@ -165,6 +167,7 @@ const OFFICE_PAYLOAD_KEYS = [
   'source_directive_index',
   'source_tool',
 ] as const;
+const OFFICE_PAYLOAD_KEYS_WITH_NOTICE = [...OFFICE_PAYLOAD_KEYS, 'cleanup_notice'] as const;
 const OPERATION_KEYS = [
   'version',
   'operation_id',
@@ -422,7 +425,7 @@ function isSafeRelativeArtifactPath(value: unknown, mode: CommandEveOfficeArtifa
     value.includes('\\') ||
     value.startsWith('/') ||
     /^[A-Za-z]:/.test(value) ||
-    !value.startsWith('.command-eve/conversation-artifacts/') ||
+    (!value.startsWith('.command-eve/conversation-artifacts/') && !value.startsWith('dokumente/')) ||
     !value.toLowerCase().endsWith(commandEveOfficeExtension(mode))
   ) {
     return false;
@@ -443,7 +446,10 @@ function isSafeLabel(value: unknown): value is string {
 export function parseCommandEveOfficeConversationArtifact(value: unknown): CommandEveOfficeConversationArtifact {
   if (!isRecord(value) || !hasExactKeys(value, ARTIFACT_KEYS)) throw new Error('invalid Office artifact');
   const payload = value.payload;
-  if (!isRecord(payload) || !hasExactKeys(payload, OFFICE_PAYLOAD_KEYS)) {
+  if (
+    !isRecord(payload) ||
+    (!hasExactKeys(payload, OFFICE_PAYLOAD_KEYS) && !hasExactKeys(payload, OFFICE_PAYLOAD_KEYS_WITH_NOTICE))
+  ) {
     throw new Error('invalid Office artifact payload');
   }
   const mode = payload.office_mode;
@@ -469,6 +475,10 @@ export function parseCommandEveOfficeConversationArtifact(value: unknown): Comma
     !isSafeLabel(payload.file_name) ||
     payload.mime_type !== commandEveOfficeMimeType(mode) ||
     !isSafeRelativeArtifactPath(payload.path, mode) ||
+    (payload.cleanup_notice !== undefined &&
+      (typeof payload.cleanup_notice !== 'string' ||
+        payload.cleanup_notice.length === 0 ||
+        payload.cleanup_notice.length > 512)) ||
     !Number.isSafeInteger(payload.size) ||
     Number(payload.size) <= 0 ||
     !SHA256.test(String(payload.hash)) ||

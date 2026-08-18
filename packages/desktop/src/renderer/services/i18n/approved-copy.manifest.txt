@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7854
+# entries: 7858
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -1469,6 +1469,7 @@ copy	1	de-DE/conversation.json	PDF wird mit freigegebener Cloud-OCR gelesen
 copy	1	de-DE/conversation.json	PII-Schutz aus
 copy	1	de-DE/conversation.json	PII-Schutz für diesen Seat ausschalten? Sensible Daten (Adresse, IBAN, Gesundheit, Finanzen) gehen dann unredigiert ans Modell.
 copy	1	de-DE/conversation.json	PPTX
+copy	1	de-DE/conversation.json	Pro Bild sind höchstens {{ceiling}} Referenzbilder möglich. Du hast {{count}} angehängt — entferne {{excess}}, sonst kann das Bild nicht erstellt werden.
 copy	1	de-DE/conversation.json	Problem melden
 copy	2	de-DE/conversation.json	Projekt
 copy	3	de-DE/conversation.json	Projekt entfernen
@@ -1654,6 +1655,7 @@ copy	1	de-DE/conversation.json	{{goal}} fortsetzen
 copy	1	de-DE/conversation.json	{{goal}} pausieren
 copy	1	de-DE/conversation.json	{{goal}} stoppen
 copy	1	de-DE/conversation.json	{{goal}} öffnen
+copy	1	de-DE/conversation.json	{{model}} nimmt höchstens {{ceiling}} Referenzbilder. Du hast {{count}} angehängt — entferne {{excess}}, sonst kann das Bild nicht erstellt werden.
 copy	1	de-DE/conversation.json	{{name}} im Chat bearbeiten
 copy	1	de-DE/conversation.json	{{name}} öffnen
 copy	1	de-DE/conversation.json	{{percent}} %
@@ -4942,6 +4944,7 @@ copy	1	en-US/conversation.json	Arrange workbench
 copy	1	en-US/conversation.json	Artifacts
 copy	1	en-US/conversation.json	Ask
 copy	1	en-US/conversation.json	Ask a quick question about the current conversation
+copy	1	en-US/conversation.json	At most {{ceiling}} reference images are possible per image. You attached {{count}} — remove {{excess}}, otherwise the image cannot be created.
 copy	1	en-US/conversation.json	Audio
 copy	1	en-US/conversation.json	Audio file is too large
 copy	1	en-US/conversation.json	Audio transcription failed
@@ -5581,6 +5584,7 @@ copy	1	en-US/conversation.json	{{count}} turns
 copy	1	en-US/conversation.json	{{count}}h ago
 copy	1	en-US/conversation.json	{{count}}m ago
 copy	1	en-US/conversation.json	{{count}}s ago
+copy	1	en-US/conversation.json	{{model}} accepts at most {{ceiling}} reference images. You attached {{count}} — remove {{excess}}, otherwise the image cannot be created.
 copy	1	en-US/conversation.json	{{percent}}%
 copy	1	en-US/conversation.json	{{percent}}% Context
 copy	1	en-US/conversation.json	{{title}}, unsaved changes

@@ -60,7 +60,7 @@ export interface EveArtifactToolDescriptor {
 const ARTIFACT_GET: EveArtifactToolDescriptor = {
   name: EVE_ARTIFACT_TOOL_ARTIFACT_GET,
   description:
-    'Read what Command EVE knows about ONE artifact the user already has, by its capability handle. Returns its kind, length and whether it can be edited. Costs nothing and changes nothing.',
+    'Read what Command EVE knows about ONE artifact the user already has, by its capability handle. Returns its kind, whether it can be edited, and — when the conversation has a project workspace — its project-relative file path. Use that relative path directly from the current workspace. When no file path is present, the artifact is app-managed for this conversation: reference it by its capability handle, never by a file path. Costs nothing and changes nothing.',
   spends: false,
 };
 

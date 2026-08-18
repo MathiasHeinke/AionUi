@@ -108,6 +108,10 @@ export type CommandEveManagedImageArtifactPayload = {
   resolution: string;
   aspect_ratio: string;
   prompt_sha256: string;
+  /** Present after bind: canonical path relative to the conversation workspace. */
+  path?: string;
+  /** Project cleanup advisory or temporary-storage guidance for projectless conversations. */
+  cleanup_notice?: string;
   /** Set only on derived images — the artifact this one was edited FROM. */
   parent_artifact_id?: string;
 };
@@ -283,6 +287,9 @@ export function parseManagedImageArtifactRecord(value: unknown): CommandEveManag
     !isBoundedText(p.resolution, 32) ||
     !isBoundedText(p.aspect_ratio, 32) ||
     !isSha256Hex(p.prompt_sha256) ||
+    (p.path !== undefined &&
+      (!isBoundedText(p.path, 512) || p.path.startsWith('/') || p.path.includes('\\') || p.path.includes('..'))) ||
+    (p.cleanup_notice !== undefined && !isBoundedText(p.cleanup_notice, 512)) ||
     (p.parent_artifact_id !== undefined && !isSafeRecordId(p.parent_artifact_id))
   ) {
     return undefined;
@@ -291,5 +298,6 @@ export function parseManagedImageArtifactRecord(value: unknown): CommandEveManag
   // is a state this lane never writes, so it is refused rather than repaired.
   if (record.status === 'staged' && record.conversation_id !== null) return undefined;
   if (record.status === 'active' && typeof record.conversation_id !== 'string') return undefined;
+  if (record.status === 'staged' && (p.path !== undefined || p.cleanup_notice !== undefined)) return undefined;
   return { ...record, seat_id: seatId } as unknown as CommandEveManagedImageArtifact;
 }

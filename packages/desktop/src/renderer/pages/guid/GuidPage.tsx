@@ -13,9 +13,12 @@ import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
 import ComposerReferencePreview from '@/renderer/components/chat/ComposerReferencePreview';
 import { WorkProductModeHeader } from '@/renderer/components/chat/WorkProductModeSelector';
 import { resolveComposerAttachmentPresentation } from '@/renderer/components/chat/composerAttachmentPresentation';
+import { isImageFile } from '@/renderer/pages/conversation/Preview/fileUtils';
 import ImageAspectRatioPill from '@/renderer/components/billing/ImageAspectRatioPill';
 import ImageModelPill from '@/renderer/components/billing/ImageModelPill';
+import ImageReferenceCeilingHint from '@/renderer/components/billing/ImageReferenceCeilingHint';
 import { useImageComposerSelection } from '@/renderer/components/billing/useImageComposerSelection';
+import { resolveReferenceCapableImageModelTier } from '@/common/config/eveImageModelRegistryCore';
 import {
   DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION,
   selectExplicitComposerWorkProductMode,
@@ -209,6 +212,17 @@ const GuidPage: React.FC = () => {
   const [composerSelection, setComposerSelection] = useState<ComposerWorkProductSelection>(
     DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION
   );
+  const { referenceImagePath: localImageReferencePath, visibleFiles: visibleAttachmentFiles } =
+    resolveComposerAttachmentPresentation(composerSelection.mode, guidInput.files);
+  const isImageEdit = composerSelection.mode === 'image' && localImageReferencePath !== null;
+  // The reference images an image send from THIS surface would carry. The
+  // start-chat composer has one attachment list and no @-mention path, so the
+  // count is that list filtered by the same predicate the send uses — no
+  // second source that could disagree with what the user sees.
+  const imageReferenceCount = useMemo(
+    () => guidInput.files.filter((path) => isImageFile(path)).length,
+    [guidInput.files]
+  );
   const handleComposerModeChange = useCallback(
     (mode: ComposerWorkProductMode) => {
       setComposerSelection(
@@ -231,7 +245,7 @@ const GuidPage: React.FC = () => {
   );
   const handleImageModelTierChange = useCallback(
     (tierId: typeof imageComposerSelection.tierId) => {
-      imageComposerSelection.setTierId(tierId);
+      imageComposerSelection.setTierId(tierId, { persist: !isImageEdit });
       setComposerSelection((selection) =>
         selection.mode === 'image'
           ? selectExplicitComposerWorkProductMode('image', undefined, {
@@ -242,7 +256,12 @@ const GuidPage: React.FC = () => {
           : selection
       );
     },
-    [imageComposerSelection.aspectRatio, imageComposerSelection.resolution, imageComposerSelection.setTierId]
+    [
+      imageComposerSelection.aspectRatio,
+      imageComposerSelection.resolution,
+      imageComposerSelection.setTierId,
+      isImageEdit,
+    ]
   );
   const handleImageResolutionChange = useCallback(
     (resolution: '1K' | '2K') => {
@@ -805,20 +824,47 @@ const GuidPage: React.FC = () => {
     selectedReferenceLabel: t('conversation.workProduct.selectedReference'),
     removeReferenceLabel: t('conversation.workProduct.removeReference'),
   };
-  const { referenceImagePath: localImageReferencePath, visibleFiles: visibleAttachmentFiles } =
-    resolveComposerAttachmentPresentation(composerSelection.mode, guidInput.files);
+  const selectedImageTier = isImageEdit
+    ? (composerSelection.imageOptions?.tierId ?? imageComposerSelection.tierId)
+    : imageComposerSelection.tierId;
+
+  // Match the in-session composer: a local reference retains an edit-capable
+  // prior choice or snaps this one-shot request to the registry
+  // default/fallback.
+  useEffect(() => {
+    if (!isImageEdit || !imageComposerSelection.registry) return;
+    const resolvedTier = resolveReferenceCapableImageModelTier(imageComposerSelection.registry, selectedImageTier);
+    if (!resolvedTier || resolvedTier === composerSelection.imageOptions?.tierId) return;
+    setComposerSelection(() =>
+      selectExplicitComposerWorkProductMode('image', undefined, {
+        tierId: resolvedTier,
+        aspectRatio: imageComposerSelection.aspectRatio,
+        resolution: imageComposerSelection.resolution,
+      })
+    );
+  }, [
+    imageComposerSelection.aspectRatio,
+    imageComposerSelection.registry,
+    imageComposerSelection.resolution,
+    isImageEdit,
+    selectedImageTier,
+    composerSelection.imageOptions?.tierId,
+  ]);
+
   const workProductControls = (
     <>
       <ImageModelPill
-        visible={composerSelection.mode === 'image'}
-        value={imageComposerSelection.tierId}
+        visible={composerSelection.mode === 'image' && (!isImageEdit || imageComposerSelection.registry !== null)}
+        value={selectedImageTier}
         onChange={handleImageModelTierChange}
         registry={imageComposerSelection.registry}
         resolution={imageComposerSelection.resolution}
         onResolutionChange={handleImageResolutionChange}
+        operation={isImageEdit ? 'edit' : 'generate'}
+        referenceCount={imageReferenceCount}
       />
       <ImageAspectRatioPill
-        visible={composerSelection.mode === 'image'}
+        visible={composerSelection.mode === 'image' && (!isImageEdit || imageComposerSelection.registry !== null)}
         value={imageComposerSelection.aspectRatio}
         onChange={handleImageAspectRatioChange}
       />
@@ -826,6 +872,14 @@ const GuidPage: React.FC = () => {
         files={guidInput.files}
         selection={videoComposerSelection}
         visible={composerSelection.mode === 'video'}
+      />
+      {/* The reference ceiling, BEFORE sending. A warning, never a gate: send
+          stays enabled and the gateway remains the only enforcer. */}
+      <ImageReferenceCeilingHint
+        visible={composerSelection.mode === 'image'}
+        registry={imageComposerSelection.registry}
+        tierId={selectedImageTier}
+        referenceCount={imageReferenceCount}
       />
     </>
   );

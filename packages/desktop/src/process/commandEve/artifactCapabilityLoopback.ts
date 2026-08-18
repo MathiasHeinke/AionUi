@@ -60,6 +60,12 @@ import { productionAgentVideoGenerateGate } from './agentVideoGenerateGateMain';
 import { readArtifactCapabilityGrant } from './artifactCapabilityHandleStore';
 import { getActiveSeatId } from './seatContextCore';
 import { listVideoArtifactRecords } from './videoArtifactStore';
+import { readImageArtifactRecordById } from './imageArtifactStore';
+import {
+  resolveCommandEveOfficeConversationAuthority,
+  type CommandEveOfficeConversationAuthority,
+} from './officeArtifactAttachmentCore';
+import { verifyCanonicalArtifact } from '@process/services/project-workspace/storage/canonicalArtifactPlacement';
 
 export {
   COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG,
@@ -107,6 +113,8 @@ export function provisionArtifactCapabilityBearerFile(dataPath: string): string 
 export interface ArtifactCapabilityLoopbackDeps {
   getDataPath: typeof getDataPath;
   listArtifactRecords: typeof listVideoArtifactRecords;
+  readImageRecord?: typeof readImageArtifactRecordById;
+  resolveWorkspace?: (conversationId: string) => Promise<CommandEveOfficeConversationAuthority>;
   readGrant: typeof readArtifactCapabilityGrant;
   /**
    * The seat a capability call is answered as. The loopback route is reached by
@@ -142,6 +150,8 @@ export interface ArtifactCapabilityLoopbackDeps {
 const productionDeps: ArtifactCapabilityLoopbackDeps = {
   getDataPath,
   listArtifactRecords: listVideoArtifactRecords,
+  readImageRecord: readImageArtifactRecordById,
+  resolveWorkspace: (conversationId) => resolveCommandEveOfficeConversationAuthority(conversationId),
   readGrant: readArtifactCapabilityGrant,
   getActiveSeatId,
   videoEdit: handleCommandEveVideoEdit,
@@ -195,11 +205,62 @@ export async function artifactCapabilityCallHandler(
     const dataPath = deps.getDataPath();
     const grant = deps.readGrant(dataPath, handle, Date.now(), (deps.getActiveSeatId ?? getActiveSeatId)());
     if (!grant) return { status: 404, payload: { ok: false, reason: 'handle-unknown' } };
+    const authority = await deps.resolveWorkspace?.(grant.conversation_id);
+    const workspace =
+      authority?.status === 'ready'
+        ? authority.workspace
+        : path.join(dataPath, 'command-eve-temp-artifacts', grant.conversation_id);
+    if (grant.operation === 'image_edit') {
+      const image = (deps.readImageRecord ?? readImageArtifactRecordById)(dataPath, grant.artifact_id, grant.seat_id);
+      if (!image || image.status !== 'active' || !image.payload.path) {
+        return { status: 404, payload: { ok: false, reason: 'artifact-missing' } };
+      }
+      const verified = verifyCanonicalArtifact({
+        workspaceRoot: workspace,
+        relativePath: image.payload.path,
+        sha256: image.payload.sha256,
+        size: image.payload.size,
+      });
+      if (verified.ok === false) {
+        return {
+          status: 409,
+          payload: { ok: false, reason: 'artifact-changed', message: verified.message },
+        };
+      }
+      return {
+        status: 200,
+        payload: {
+          ok: true,
+          artifact: {
+            artifact_id: image.id,
+            kind: 'image',
+            mime_type: image.payload.mime_type,
+            editable: true,
+            ...(authority?.status === 'ready' ? { file_path: image.payload.path } : {}),
+            ...(image.payload.cleanup_notice === undefined ? {} : { notice: image.payload.cleanup_notice }),
+          },
+        },
+      };
+    }
     const artifact = deps
-      .listArtifactRecords(dataPath, grant.conversation_id)
+      .listArtifactRecords(dataPath, grant.conversation_id, grant.seat_id)
       .find((record) => record.id === grant.artifact_id);
     if (!artifact) return { status: 404, payload: { ok: false, reason: 'artifact-missing' } };
     const payload = hydrateVideoArtifactPayload(artifact.payload);
+    if (payload.relative_path) {
+      const verified = verifyCanonicalArtifact({
+        workspaceRoot: workspace,
+        relativePath: payload.relative_path,
+        sha256: payload.hash,
+        size: payload.size,
+      });
+      if (verified.ok === false) {
+        return {
+          status: 409,
+          payload: { ok: false, reason: 'artifact-changed', message: verified.message },
+        };
+      }
+    }
     return {
       status: 200,
       payload: {
@@ -211,7 +272,10 @@ export async function artifactCapabilityCallHandler(
           duration_seconds: payload.duration_seconds,
           capability: payload.origin_capability,
           editable: isVideoArtifactEditable(payload),
-          // No path and no bytes. A model that can name a path can ask for one.
+          ...(authority?.status === 'ready' && payload.relative_path !== undefined
+            ? { file_path: payload.relative_path }
+            : {}),
+          ...(payload.cleanup_notice === undefined ? {} : { notice: payload.cleanup_notice }),
           ...(payload.parent_artifact_id === undefined ? {} : { parent_artifact_id: payload.parent_artifact_id }),
         },
       },

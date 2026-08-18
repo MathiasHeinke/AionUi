@@ -134,6 +134,8 @@ export interface EveArtifactEnvelopeEntry {
   parentArtifactId?: string;
   /** True when this artifact is part of the user's active selection. */
   selected?: boolean;
+  /** A sparse, persisted folder-maintenance note for this newly created artifact. */
+  cleanupNotice?: string;
 }
 
 export interface EveArtifactContextEnvelopeInput {
@@ -155,6 +157,8 @@ export interface EveArtifactContextEnvelopeInput {
    * spending credential at all.
    */
   spendPermit?: string;
+  /** Sparse maintenance notes carried by current Office artifact records. */
+  advisories?: readonly string[];
 }
 
 function scalar(value: string): string {
@@ -194,7 +198,16 @@ function renderEntry(entry: EveArtifactEnvelopeEntry): string {
  */
 export function buildEveArtifactContextEnvelope(input: EveArtifactContextEnvelopeInput): string {
   const entries = input.entries.slice(0, ARTIFACT_ENVELOPE_MAX_ARTIFACTS);
-  if (entries.length === 0) return '';
+  const advisorySet = new Set<string>();
+  for (const entry of entries) {
+    if (entry.cleanupNotice) advisorySet.add(scalar(entry.cleanupNotice));
+  }
+  for (const advisory of input.advisories ?? []) {
+    const value = scalar(advisory);
+    if (value) advisorySet.add(value);
+  }
+  const advisories = [...advisorySet].slice(0, 3);
+  if (entries.length === 0 && advisories.length === 0) return '';
 
   const capabilities = input.allowedCapabilities.map(scalar).filter(Boolean);
   // The permit is emitted only when a capability that can spend it is actually
@@ -234,6 +247,12 @@ export function buildEveArtifactContextEnvelope(input: EveArtifactContextEnvelop
           'from them.',
         ]
       : []),
+    ...(advisories.length > 0
+      ? [
+          'A sparse artifact-folder maintenance note is current. Mention it once, plainly and without repeating it:',
+          advisories.join(' '),
+        ]
+      : []),
     '',
   ];
 
@@ -252,7 +271,7 @@ export function buildEveArtifactContextEnvelope(input: EveArtifactContextEnvelop
 
   // Nothing fit. Emitting a header that promises a registry and then lists
   // nothing would be worse than staying silent.
-  if (lines.length === 0) return '';
+  if (lines.length === 0) return advisories.length > 0 ? header.join('\n') : '';
   if (truncated) lines.push('- (older artifacts omitted; ask the user to name the clip if it is not listed)');
   return [...header, ...lines].join('\n');
 }

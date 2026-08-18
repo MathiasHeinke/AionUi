@@ -47,6 +47,11 @@ import {
 } from '@process/commandEve/officeArtifactAttachmentCore';
 import { writePrivateDocumentImmutable } from './privateDocumentCache';
 import { isSafeOpaqueRecordId } from '@/common/config/eveOpaqueTokenCore';
+import {
+  publishCanonicalArtifact,
+  recordCanonicalArtifactWrite,
+  resolveCanonicalArtifactPlacement,
+} from '@process/services/project-workspace/storage/canonicalArtifactPlacement';
 
 type ReadyOfficeParent = Extract<CommandEveOfficeArtifactResolution, { status: 'ready' }>;
 
@@ -125,6 +130,7 @@ export async function beginCommandEveOfficeArtifactOperation(
   }
 
   const authority = await deps.resolveAuthority(request.conversationId);
+  if (authority.status === 'temporary') return { status: 'refused', reasonCode: 'conversation-unavailable' };
   if (authority.status !== 'ready') return authority;
   const capturedSeatId = authority.seatId;
   const capturedSeatRevision = authority.seatContextRevision;
@@ -255,6 +261,7 @@ export interface CommandEveOfficeArtifactRuntimeDeps {
   resolveAuthority?: (conversationId: string) => Promise<CommandEveOfficeConversationAuthority>;
   readOfficeSource?: typeof readBoundedOfficeSource;
   writeImmutable?: typeof writePrivateDocumentImmutable;
+  publishCanonical?: typeof publishCanonicalArtifact;
   /** Records withheld artifacts. A listing never throws, so this is the only trace. */
   log?: (line: string) => void;
 }
@@ -271,6 +278,7 @@ const MAX_OFFICE_RESULTS_PER_OPERATION = 32;
 const MAX_OFFICE_RESULT_CONCURRENCY = 2;
 
 function runtimeDeps(deps: CommandEveOfficeArtifactRuntimeDeps) {
+  const writeImmutable = deps.writeImmutable ?? writePrivateDocumentImmutable;
   return {
     getSeatId: deps.getActiveSeatId ?? getActiveSeatId,
     getSeatRevision: deps.getActiveSeatContextRevision ?? getActiveSeatContextRevision,
@@ -281,7 +289,17 @@ function runtimeDeps(deps: CommandEveOfficeArtifactRuntimeDeps) {
       deps.resolveAuthority ??
       ((conversationId: string) => resolveCommandEveOfficeConversationAuthority(conversationId)),
     readSource: deps.readOfficeSource ?? readBoundedOfficeSource,
-    writeImmutable: deps.writeImmutable ?? writePrivateDocumentImmutable,
+    writeImmutable,
+    publishCanonical:
+      deps.publishCanonical ??
+      (deps.writeImmutable
+        ? (input: Parameters<typeof publishCanonicalArtifact>[0]) => {
+            const placement = resolveCanonicalArtifactPlacement(input);
+            writeImmutable(input.workspaceRoot, placement.absolutePath, input.bytes!);
+            const cleanupNotice = recordCanonicalArtifactWrite(input.dataPath, input.workspaceRoot, input.folder);
+            return { ...placement, ...(cleanupNotice === undefined ? {} : { cleanupNotice }) };
+          }
+        : publishCanonicalArtifact),
   };
 }
 
@@ -418,10 +436,11 @@ function buildOfficeResultPayload(input: {
   candidate: CommandEveOfficeResultCandidate;
   operation: CommandEveOfficeOperationRecord;
   relativePath: string;
+  cleanupNotice?: string;
   result: { buffer: Buffer; sha256: string };
   seatId: string;
 }): CommandEveOfficeConversationArtifactPayload {
-  const { artifactId, candidate, operation, relativePath, result, seatId } = input;
+  const { artifactId, candidate, operation, relativePath, cleanupNotice, result, seatId } = input;
   const fileName = safeOfficeFileName(candidate.title, operation.mode);
   const sourceSha256 = operation.source_sha256 ?? result.sha256;
   const sourceSize = operation.source_size ?? result.buffer.length;
@@ -432,6 +451,7 @@ function buildOfficeResultPayload(input: {
     file_name: fileName,
     mime_type: commandEveOfficeMimeType(operation.mode),
     path: relativePath,
+    ...(cleanupNotice === undefined ? {} : { cleanup_notice: cleanupNotice }),
     size: result.buffer.length,
     hash: result.sha256,
     managed_office: true,
@@ -539,6 +559,7 @@ async function mapWithinOfficeReadBudget<Input, Output>(
 }
 
 async function reconcileOfficeResultCandidate(input: {
+  dataPath: string;
   prepared: PreparedOfficeResultCandidate;
   conversationId: string;
   existingById: Map<string, CommandEveOfficeConversationArtifact>;
@@ -599,17 +620,16 @@ async function reconcileOfficeResultCandidate(input: {
       failedOperationIds.add(operation.operation_id);
       return;
     }
-    const relativePath = commandEveOfficeArtifactRelativePath(
-      input.conversationId,
-      artifactId,
-      result.sha256,
-      operation.mode
-    );
-    input.runtime.writeImmutable(
-      input.workspace,
-      path.resolve(input.workspace, ...relativePath.split('/')),
-      result.buffer
-    );
+    const placement = input.runtime.publishCanonical({
+      dataPath: input.dataPath,
+      workspaceRoot: input.workspace,
+      folder: 'dokumente',
+      nameHint: candidate.title,
+      fallbackName: operation.mode === 'word' ? 'dokument' : 'tabelle',
+      extension: commandEveOfficeExtension(operation.mode),
+      bytes: result.buffer,
+    });
+    const relativePath = placement.relativePath;
     if (!input.seatStillMatches()) {
       summary.refused.push({ operationId: operation.operation_id, reason: 'seat-changed' });
       failedOperationIds.add(operation.operation_id);
@@ -624,6 +644,7 @@ async function reconcileOfficeResultCandidate(input: {
         candidate,
         operation,
         relativePath,
+        ...(placement.cleanupNotice === undefined ? {} : { cleanupNotice: placement.cleanupNotice }),
         result,
         seatId: input.seatId,
       }),
@@ -675,7 +696,7 @@ export async function reconcileConversationOfficeArtifacts(
   if (authority.status !== 'ready' || authority.seatId !== seatId || authority.seatContextRevision !== seatRevision) {
     summary.refused.push({
       operationId: 'office-authority',
-      reason: authority.status === 'ready' ? 'seat-changed' : authority.reasonCode,
+      reason: authority.status === 'ready' ? 'seat-changed' : 'conversation-unavailable',
     });
     return summary;
   }
@@ -837,6 +858,7 @@ export async function reconcileConversationOfficeArtifacts(
 
   await mapWithinOfficeReadBudget(preparedCandidates, (prepared) =>
     reconcileOfficeResultCandidate({
+      dataPath,
       prepared,
       conversationId,
       existingById,

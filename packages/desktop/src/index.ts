@@ -1355,7 +1355,21 @@ function ensureCommandEveAssistantReadiness(): Promise<CommandEveAssistantEnsure
     const bootBackendPort = await waitForCommandEveBackendPort();
     const { getDataPath } = await import('./process/utils/utils');
     const { ensureCommandEveAssistant } = await import('./process/commandEve/assistantBootstrap');
-    return ensureCommandEveAssistant(bootBackendPort, app.getVersion(), { userDataPath: getDataPath() });
+    return ensureCommandEveAssistant(bootBackendPort, app.getVersion(), {
+      userDataPath: getDataPath(),
+      // FIRST-RUN COLD-START RACE. On a fresh install the Hermes shim does not
+      // exist yet when AionCore boots — it is written by the DEFERRED runtime
+      // bootstrap (runtimeBootstrapCore.ts:12713 ff.), measured 11s later on a
+      // warm machine and minutes on a real cold install. A turn sent inside that
+      // window spawns the BARE name `hermes` from the builtin seed and dies with
+      // "command 'hermes' not found in PATH" on any machine without a foreign
+      // hermes. Every EVE turn passes through this readiness call first, so this
+      // is where the turn waits instead of failing. Bounded: it returns the
+      // instant the shim appears, and a runtime that never finishes falls
+      // through fail-open rather than hanging. Same budget as the deferred
+      // runtime restart reservation, so first-run patience is one number.
+      hermesShimWaitMs: COMMAND_EVE_DEFERRED_RUNTIME_RESTART_QUEUE_WAIT_MS,
+    });
   })().finally(() => {
     commandEveAssistantBootstrapInFlight = undefined;
   });

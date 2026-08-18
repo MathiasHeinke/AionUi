@@ -37,6 +37,7 @@ import { hydrateVideoArtifactPayload } from '@/common/config/videoGenerationRequ
 import { LEGACY_SEAT_ID, sanitizeSeatId } from '@/common/config/seatConfigKeyCore';
 import { ensurePrivateDirectory, writeJsonAtomic } from '@process/services/project-workspace/storage/atomicJson';
 import { writePrivateDocumentImmutable } from './document/privateDocumentCache';
+import { publishCanonicalArtifact } from '@process/services/project-workspace/storage/canonicalArtifactPlacement';
 
 const VIDEO_ARTIFACT_MANIFEST_DIR = 'command-eve-video-artifacts';
 const VIDEO_DOWNLOADS_SUBDIR = 'Command EVE Videos';
@@ -59,10 +60,30 @@ export function saveGeneratedVideoFile(input: {
   artifactId: string;
   dataBase64: string;
   mimeType: string;
+  dataPath?: string;
+  workspaceRoot?: string;
+  nameHint?: string;
+  nowMs?: number;
   /** Test-only override for the Downloads root; production always uses `~/Downloads`. */
   downloadsRoot?: string;
-}): string {
+}): { path: string; cleanupNotice?: string } {
   const extension = MIME_TO_EXTENSION[input.mimeType] ?? 'mp4';
+  if (input.dataPath && input.workspaceRoot) {
+    const placement = publishCanonicalArtifact({
+      dataPath: input.dataPath,
+      workspaceRoot: input.workspaceRoot,
+      folder: 'videos',
+      nameHint: input.nameHint ?? 'video',
+      fallbackName: 'video',
+      extension,
+      nowMs: input.nowMs,
+      bytes: Buffer.from(input.dataBase64, 'base64'),
+    });
+    return {
+      path: placement.absolutePath,
+      ...(placement.cleanupNotice === undefined ? {} : { cleanupNotice: placement.cleanupNotice }),
+    };
+  }
   const safeConversationId = SAFE_ID.test(input.conversationId) ? input.conversationId : FALLBACK_DIR_NAME;
   const videoRoot = path.join(input.downloadsRoot ?? path.join(os.homedir(), 'Downloads'), VIDEO_DOWNLOADS_SUBDIR);
   const filePath = path.join(videoRoot, safeConversationId, `${input.artifactId}.${extension}`);
@@ -73,7 +94,7 @@ export function saveGeneratedVideoFile(input: {
   // replacing a clip the user already has.
   ensurePrivateDirectory(videoRoot);
   writePrivateDocumentImmutable(videoRoot, filePath, Buffer.from(input.dataBase64, 'base64'));
-  return filePath;
+  return { path: filePath };
 }
 
 /** Persist the artifact record so it survives a reload of this conversation. */

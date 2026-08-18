@@ -1702,8 +1702,19 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain('command-eve-compression-receipt.json');
       expect(providerOverride).toContain('"context_compression"');
       expect(providerOverride).toContain('AIAgent._compress_context = command_eve_compress_context');
+      expect(configYaml).toContain('  api_max_retries: 1');
+      expect(configYaml).not.toContain('  api_max_retries: 3');
       expect(configYaml).toContain(
-        'compression:\n  threshold: 0.75\n  target_ratio: 0.50\n  abort_on_summary_failure: true'
+        [
+          'compression:',
+          '  threshold: 0.75',
+          '  threshold_tokens: 48000',
+          '  target_ratio: 0.50',
+          '  proactive_prune_tokens: 32000',
+          '  proactive_prune_min_result_chars: 2000',
+          '  proactive_prune_min_reclaim_tokens: 4096',
+          '  abort_on_summary_failure: true',
+        ].join('\n')
       );
       expect(configYaml).toContain('auxiliary:\n  compression:\n    timeout: 14\n    fallback_chain: []');
       const compressionHarness = spawnSync(

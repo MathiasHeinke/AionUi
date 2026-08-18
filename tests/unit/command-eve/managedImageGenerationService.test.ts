@@ -52,7 +52,7 @@ const REGISTRY: CommandEveImageModelRegistry = {
       slug: 'openai/gpt-image-2',
       display_name: 'GPT Image 2',
       premium: true,
-      supports_references: false,
+      supports_references: true,
       resolutions: ['1K', '2K'],
       quotes: {
         generate_credits: { '1K': 2300, '2K': 2300 },
@@ -345,7 +345,7 @@ describe('managed image generation main-process service', () => {
     expect(readPreference).not.toHaveBeenCalled();
   });
 
-  it('an explicit composer tier that cannot edit refuses before provider instead of silently switching tiers', async () => {
+  it('forwards an explicit GPT Image 2 composer edit without silently switching tiers or dropping references', async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
     const readPreference = vi.fn();
 
@@ -357,9 +357,18 @@ describe('managed image generation main-process service', () => {
         requestedTier: 'max',
         requestId: 'image-request-0002',
       })
-    ).resolves.toMatchObject({ status: 400, body: { error: { code: 'image_edit_tier_unsupported' } } });
+    ).resolves.toMatchObject({ status: 200 });
     expect(readPreference).not.toHaveBeenCalled();
-    expect(fetchFn).not.toHaveBeenCalled();
+    expect(fetchFn).toHaveBeenCalledOnce();
+    const body = JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body));
+    expect(body.image_model).toBe('max');
+    expect(body.input_references).toEqual([
+      {
+        mime_type: 'image/png',
+        sha256: crypto.createHash('sha256').update(referenceBytes).digest('hex'),
+        data_base64: referenceBase64,
+      },
+    ]);
   });
 
   it('an explicit tier-resolution combination not offered by the live registry refuses before provider', async () => {
@@ -395,9 +404,8 @@ describe('managed image generation main-process service', () => {
       physicalKey: 'commandEve.imageModelPreference',
     }));
 
-    // request() carries one reference — an EDIT. `max` is
-    // supports_references=false and the edge would refuse it pre-debit, so
-    // the service pins THIS request to the reference-capable tier (quality).
+    // request() carries one reference — an EDIT. `max` supports references,
+    // so the service keeps the selected tier instead of rerouting it.
     await executeCommandEveManagedImageGeneration(request(), {
       fetchFn: fetchFn as typeof fetch,
       dataPath: '/tmp/test',
@@ -405,7 +413,7 @@ describe('managed image generation main-process service', () => {
     });
 
     const body = JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body));
-    expect(body.image_model).toBe('quality');
+    expect(body.image_model).toBe('max');
     // The preference was READ, never WRITTEN: no persistence path was driven
     // — the next plain generation still bills the seat's own choice.
     expect(maxPreference).toHaveBeenCalledTimes(1);

@@ -627,6 +627,8 @@
       "qualityStandard": "Standard",
       "qualityHigh": "High",
       "referencesOnly": "Image mode accepts image references only.",
+      "referenceCeilingModel": "{{model}} accepts at most {{ceiling}} reference images. You attached {{count}} — remove {{excess}}, otherwise the image cannot be created.",
+      "referenceCeilingLane": "At most {{ceiling}} reference images are possible per image. You attached {{count}} — remove {{excess}}, otherwise the image cannot be created.",
       "generateFailed": "The image could not be created. Your draft and selection were preserved."
     },
     "video": { "label": "Create video", "tooltip": "Create or edit a video" },

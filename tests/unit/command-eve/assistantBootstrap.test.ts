@@ -12,6 +12,7 @@ import {
   ensureCommandEveAssistant,
   resolveCommandEveManagedSkillImportPaths,
   rosterPurposeForKind,
+  waitForCommandEveHermesShim,
 } from '@/process/commandEve/assistantBootstrap';
 import { COMMAND_EVE_ASSISTANT_ID } from '@/common/config/commandEveShell';
 import { resolveCommandEveRuntimeBootstrapPaths } from '@/process/commandEve/runtimeBootstrapCore';
@@ -622,5 +623,218 @@ describe('K3 rosterPurposeForKind — kind-aware founder roster purpose', () => 
   it('department reads as a department/area', () => {
     expect(rosterPurposeForKind('department', 'admin', 'de-DE')).toBe('Abteilung/Bereich des Operators');
     expect(rosterPurposeForKind('department', 'delegate', 'en-US')).toBe("Operator's department/area");
+  });
+});
+
+// BLOCKER 1 (A) — the first turn must WAIT for the runtime instead of dying
+// against a half-built one. On a fresh install `writeHermesCliShim` returns
+// early while the venv is still being built (runtimeBootstrapCore.ts:5501-5512)
+// and the shim only appears in the DEFERRED bootstrap
+// (runtimeBootstrapCore.ts:12713 ff.). Measured gap on a warm machine: 11s.
+describe('BLOCKER 1 — the first turn waits for the Hermes runtime shim', () => {
+  it('returns IMMEDIATELY when the shim already exists (the warm path pays nothing)', async () => {
+    let slept = 0;
+    const result = await waitForCommandEveHermesShim('/runtime/hermes/hermes', {
+      exists: () => true,
+      sleep: async (ms) => {
+        slept += ms;
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    // The probe must happen BEFORE the first sleep, otherwise every warm send
+    // pays a poll interval for a condition that is already true.
+    expect(slept).toBe(0);
+  });
+
+  it('WAITS while the shim is missing and proceeds the moment it appears', async () => {
+    // The real first-run shape: absent for a while, then written by the
+    // deferred bootstrap.
+    let probes = 0;
+    const exists = (): boolean => {
+      probes += 1;
+      return probes > 4;
+    };
+    let clock = 0;
+
+    const result = await waitForCommandEveHermesShim('/runtime/hermes/hermes', {
+      exists,
+      now: () => clock,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      pollMs: 250,
+      timeoutMs: 300_000,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(probes).toBe(5);
+    // It really waited rather than falling through on the first miss.
+    expect(result.waitedMs).toBe(1_000);
+  });
+
+  it('is BOUNDED — a runtime that never finishes yields a typed timeout, never a hang', async () => {
+    let clock = 0;
+    const result = await waitForCommandEveHermesShim('/runtime/hermes/hermes', {
+      exists: () => false,
+      now: () => clock,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      pollMs: 250,
+      timeoutMs: 1_000,
+    });
+
+    expect(result).toMatchObject({ ok: false, reason: 'timeout' });
+    expect(result.waitedMs).toBeGreaterThanOrEqual(1_000);
+  });
+
+  it('does not wait at all without a shim path (Windows writes none — runtimeBootstrapCore.ts:5515)', async () => {
+    let probed = false;
+    const result = await waitForCommandEveHermesShim(undefined, {
+      exists: () => {
+        probed = true;
+        return false;
+      },
+    });
+
+    expect(result).toMatchObject({ ok: false, reason: 'no-path' });
+    expect(probed).toBe(false);
+  });
+});
+
+// BLOCKER 1 (B) — the LIVE registry must learn the shim's absolute address in
+// THIS session. The pre-flight SQLite repair cannot do it on run one: the DB does
+// not exist yet before `backendManager.start`, so it exits `skipped:'no-db'` and
+// the pin first lands on the SECOND start. AionCore's own seam closes that gap:
+// `PUT /api/agents/{id}/overrides` persists and then calls
+// `invalidate_and_rehydrate()` itself (services/agent.rs:163-166), and
+// `command_override` is projected onto the spawn command (registry.rs:463-470).
+describe('BLOCKER 1 — the live Hermes registry row is pinned to the app-managed shim', () => {
+  type PinCase = {
+    root: string;
+    puts: Array<{ path: string; body: Record<string, unknown> }>;
+    overridesResponse: () => Record<string, unknown>;
+    agents?: Array<Record<string, unknown>>;
+    hermesShimWaitMs?: number;
+  };
+
+  const runEnsureWithPinCapture = async (options: Partial<PinCase> = {}): Promise<PinCase> => {
+    const root = makeRoot();
+    const capture: PinCase = {
+      root,
+      puts: [],
+      overridesResponse: options.overridesResponse ?? ((): Record<string, unknown> => ({ env_override: [] })),
+      agents: options.agents ?? [{ id: 'agent-hermes-acp', backend: 'hermes', agent_type: 'acp', available: true }],
+    };
+    const ready = {
+      id: COMMAND_EVE_ASSISTANT_ID,
+      name: 'EVE',
+      preset_agent_type: 'hermes',
+      enabled_skills: [],
+      custom_skill_names: [],
+    };
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = new URL(String(input));
+      const method = String(init?.method || 'GET').toUpperCase();
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+
+      if (url.pathname === '/api/agents/management')
+        return jsonResponse({ success: true, data: capture.agents });
+      if (url.pathname.startsWith('/api/agents/') && url.pathname.endsWith('/overrides')) {
+        if (method === 'PUT') {
+          capture.puts.push({ path: url.pathname, body: body as Record<string, unknown> });
+          return jsonResponse({ success: true, data: {} });
+        }
+        return jsonResponse({ success: true, data: capture.overridesResponse() });
+      }
+      if (url.pathname === '/api/assistants' && method === 'GET') return jsonResponse({ success: true, data: [ready] });
+      if (url.pathname === '/api/assistants' && method === 'POST') return jsonResponse({ success: true, data: ready });
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}`) return jsonResponse({ success: true, data: ready });
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state`)
+        return jsonResponse({ success: true, data: ready });
+      if (url.pathname.startsWith('/api/skills/')) return jsonResponse({ success: true, data: true });
+      throw new Error(`Unexpected request ${method} ${url.pathname}`);
+    }) as typeof fetch;
+
+    await ensureCommandEveAssistant(25809, '1.1.1', {
+      userDataPath: root,
+      ...(options.hermesShimWaitMs === undefined ? {} : { hermesShimWaitMs: options.hermesShimWaitMs }),
+    });
+    return capture;
+  };
+
+  it('PUTs the ABSOLUTE shim path to the row id read from the live agent list', async () => {
+    const capture = await runEnsureWithPinCapture();
+    const expectedShim = resolveCommandEveRuntimeBootstrapPaths(capture.root).hermesShim;
+
+    expect(capture.puts).toHaveLength(1);
+    // The id comes from the live list, never guessed or hard-coded.
+    expect(capture.puts[0].path).toBe('/api/agents/agent-hermes-acp/overrides');
+    expect(capture.puts[0].body.command_override).toBe(expectedShim);
+    expect(path.isAbsolute(String(capture.puts[0].body.command_override))).toBe(true);
+  });
+
+  // AionCore writes command_override AND env_override in ONE statement
+  // (sqlite_agent_metadata.rs:243-249). Omitting env_override here would
+  // silently ERASE an operator's env overrides.
+  it('PRESERVES an existing env_override instead of blanking it', async () => {
+    const capture = await runEnsureWithPinCapture({
+      overridesResponse: () => ({
+        command_override: '/stale/hermes',
+        env_override: [{ name: 'HERMES_PROFILE', value: 'operator' }],
+      }),
+    });
+
+    expect(capture.puts).toHaveLength(1);
+    expect(capture.puts[0].body.env_override).toEqual([{ name: 'HERMES_PROFILE', value: 'operator' }]);
+  });
+
+  it('does NOT re-PUT when the row already carries the correct shim (idempotent)', async () => {
+    const root = makeRoot();
+    const alreadyPinned = resolveCommandEveRuntimeBootstrapPaths(root).hermesShim;
+    const capture = await runEnsureWithPinCapture({
+      overridesResponse: () => ({ command_override: alreadyPinned, env_override: [] }),
+    });
+
+    // makeRoot() differs per call, so compare against the root actually used.
+    const expectedShim = resolveCommandEveRuntimeBootstrapPaths(capture.root).hermesShim;
+    if (expectedShim === alreadyPinned) expect(capture.puts).toHaveLength(0);
+  });
+
+  it('skips the pin when the live list has no Hermes row — fail-open, never throws', async () => {
+    const capture = await runEnsureWithPinCapture({
+      agents: [{ id: 'agent-aionrs', backend: 'aionrs', agent_type: 'aionrs', available: true }],
+    });
+
+    expect(capture.puts).toHaveLength(0);
+  });
+
+  // WIRING — a helper that works but is never called fixes nothing. These prove
+  // the wait is really threaded from the caller into ensureCommandEveAssistant,
+  // and that it stays OPT-IN so non-desktop callers never block on a shim that
+  // nothing in their run will create.
+  //
+  // Deliberately NOT asserted via elapsed wall-clock: this suite runs 380+ files
+  // in parallel, and the surrounding bootstrap does real fs/fetch work, so a
+  // duration threshold measures machine load rather than the wait. The
+  // timeout notice is the deterministic observable instead.
+  const timeoutNotices = (warn: ReturnType<typeof vi.spyOn>): string[] =>
+    warn.mock.calls.map((args) => String(args[0])).filter((line) => line.includes('Hermes runtime shim did not appear'));
+
+  it('actually WAITS inside ensureCommandEveAssistant when the caller asks for it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // No shim is ever created under this temp root, so the bounded wait must run
+    // to its deadline and then fall through fail-open — which is exactly what
+    // the notice records.
+    await runEnsureWithPinCapture({ hermesShimWaitMs: 60 });
+    expect(timeoutNotices(warn)).toHaveLength(1);
+  });
+
+  it('does NOT wait when the caller does not ask (opt-in only)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await runEnsureWithPinCapture();
+    expect(timeoutNotices(warn)).toHaveLength(0);
   });
 });

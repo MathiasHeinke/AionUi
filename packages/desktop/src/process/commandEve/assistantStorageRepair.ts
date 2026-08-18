@@ -130,6 +130,28 @@ function normalizeNativeSkillsDirs(value: string[] | undefined): string[] | unde
 }
 
 /**
+ * A registry `command` is a SPAWN instruction, and a bare name like `hermes` is
+ * a bet on the end user's PATH — the exact bet that produced
+ * "Agent 'Hermes' CLI unavailable: command 'hermes' not found in PATH" on a
+ * machine that has no foreign `hermes` installed. A developer Mac hides this
+ * because some unrelated `hermes` happens to sit on PATH.
+ *
+ * So the pin is fail-closed, exactly like `normalizeNativeSkillsDirs` above:
+ * only an ABSOLUTE, NUL-free path may be written. Anything relative or bare is
+ * refused and the row is left ALONE — the existing value is never replaced by a
+ * worse guess. Deliberately NOT checked here: whether the file exists. The
+ * caller pins the app-managed shim at a known location the runtime bootstrap
+ * creates moments later, and an existence probe would reintroduce the very race
+ * this repair closes.
+ */
+export function normalizeHermesCommandPath(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.includes('\0') || !path.isAbsolute(trimmed)) return undefined;
+  return trimmed;
+}
+
+/**
  * Heal the active-assistant ↔ soft-deleted-definition inconsistency in the
  * aioncore conversation DB at `<backendDataDir>/aionui-backend.db`. Safe to call
  * unconditionally before every backend spawn (boot + seat-switch respawn).
@@ -249,8 +271,7 @@ export async function repairCommandEveAssistantStorage(
           // registry row to that absolute shim and clear stale health errors.
           // Schema-aware on purpose: older DBs/tests lack these richer columns,
           // and repair must stay fail-open/idempotent.
-          const hermesCommandPath =
-            typeof options.hermesCommandPath === 'string' ? options.hermesCommandPath.trim() : '';
+          const hermesCommandPath = normalizeHermesCommandPath(options.hermesCommandPath) ?? '';
           if (hermesCommandPath) {
             const hasColumn = (column: string): boolean => {
               const row = db

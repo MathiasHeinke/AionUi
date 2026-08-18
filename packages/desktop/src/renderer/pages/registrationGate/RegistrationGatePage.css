@@ -384,6 +384,32 @@
     color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
     background var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
 }
+/* Shown ONLY while the browser round-trip is pending — the single control that
+   stays enabled during the wait. Quiet by design: it is an escape hatch, not a
+   competing action, so it borrows the fallback toggle's restrained treatment. */
+.registration-gate__browser-cancel {
+  align-self: center;
+  padding: 5px 9px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--registration-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  cursor: pointer;
+  transition:
+    color var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
+    background var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease);
+}
+.registration-gate__browser-cancel:hover {
+  color: var(--registration-text);
+  background: var(--registration-control-bg-hover);
+}
+.registration-gate__browser-cancel:focus-visible {
+  outline: 2px solid var(--eve-focus-ring);
+  outline-offset: 2px;
+}
 .registration-gate__password-fallback-toggle:hover:not(:disabled) {
   color: var(--registration-text);
   background: var(--registration-control-bg-hover);

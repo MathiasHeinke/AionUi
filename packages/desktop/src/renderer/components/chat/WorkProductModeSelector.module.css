@@ -27,6 +27,7 @@
 
 .trigger:global(.arco-btn):focus-visible,
 .activeMode:global(.arco-btn):focus-visible,
+.exitMode:global(.arco-btn):focus-visible,
 .removeReference:global(.arco-btn):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--eve-focus-ring) 42%, transparent);
   outline-offset: 1px;
@@ -260,12 +261,12 @@
   display: none;
 }
 
-.activeMode:global(.arco-btn) {
+.activeMode {
   display: inline-flex;
   width: auto;
   min-width: max-content;
   height: 28px;
-  padding: 0 9px;
+  padding: 0 4px 0 9px;
   align-items: center;
   gap: 7px;
   border: 1px solid color-mix(in srgb, var(--work-product-accent, var(--eve-accent)) 30%, transparent) !important;
@@ -281,6 +282,57 @@
     0 3px 10px color-mix(in srgb, var(--work-product-accent, var(--eve-accent)) 9%, transparent);
   font-size: 12px;
   font-weight: 650;
+}
+
+/* The exit affordance rides INSIDE the state chip so the lane reads as one
+   object with a way out, not as two competing controls. It inherits the lane
+   accent at reduced weight: present enough to find, quiet enough that the mode
+   label stays the thing you read first. */
+.exitMode:global(.arco-btn) {
+  display: inline-flex;
+  position: relative;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: none !important;
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--work-product-accent, var(--eve-accent)) 68%, transparent) !important;
+  background: transparent !important;
+  box-shadow: none;
+  /* Same hover token as the menu rows above: the composer has one motion
+     vocabulary, and the 100-250ms band is off-limits app-wide. */
+  transition:
+    color var(--eve-composer-menu-hover-duration, 300ms) ease,
+    background-color var(--eve-composer-menu-hover-duration, 300ms) ease;
+}
+
+/* THE TARGET IS BIGGER THAN THE GLYPH (founder note 2026-08-18). An 18px mark
+   inside a 28px chip reads well and clicks badly, and this is the one control
+   that must never be fiddly: it is the whole reason a lane may stay armed
+   across turns. The hit area grows to the FULL HEIGHT of the chip and a little
+   past it horizontally, while the visible × does not move by a pixel — the
+   overlay is transparent, has no layout box of its own, and cannot push the
+   option rail beside it. Vertical inset 0 keeps it inside the chip's own 28px,
+   so it never overlaps the rail or the composer edge. */
+.exitMode:global(.arco-btn)::after {
+  position: absolute;
+  inset: -5px -4px;
+  border-radius: 8px;
+  content: '';
+}
+
+.exitMode:global(.arco-btn):hover {
+  color: var(--work-product-accent, var(--eve-accent)) !important;
+  background: color-mix(in srgb, var(--work-product-accent, var(--eve-accent)) 14%, transparent) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exitMode:global(.arco-btn) {
+    transition: none;
+  }
 }
 
 /* One semantic palette feeds the menu, active tool pill and the composer's

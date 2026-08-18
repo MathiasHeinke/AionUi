@@ -75,15 +75,15 @@ describe('renderComposerArtifactFollowupRoutingContext', () => {
       resolveComposerArtifactReference(artifact({ id: 'artifact-3', payload: { path: '/private/model.xlsx' } })),
     ]);
 
-    expect(context).toContain('candidate=artifact_id:artifact-1;mode:word');
-    expect(context).toContain('candidate=artifact_id:artifact-2;mode:image');
-    expect(context).toContain('candidate=artifact_id:artifact-3;mode:excel');
+    expect(context).toContain('candidate=artifact_id:artifact-1;mode:word;latest_for_mode:true');
+    expect(context).toContain('candidate=artifact_id:artifact-2;mode:image;latest_for_mode:true');
+    expect(context).toContain('candidate=artifact_id:artifact-3;mode:excel;latest_for_mode:true');
     expect(context).toContain('[command_eve:artifact_followup:<mode>][command_eve:artifact_target:<artifact_id>]');
     expect(context).toContain('call clarify once');
     expect(context).toContain('exactly one action choice');
     expect(context).toContain('Never infer a target from keywords');
+    expect(context).toContain('use the candidate marked latest_for_mode:true');
     expect(context).toContain('grants no permit or spend authority');
-    expect(context).not.toContain('latest matching');
     expect(context).not.toContain('/private/');
     expect(context).not.toContain('Secret title');
   });
@@ -98,8 +98,8 @@ describe('renderComposerArtifactFollowupRoutingContext', () => {
 
     expect(candidates).toHaveLength(12);
     // Thirteen of the twenty carry a follow-up mode; the oldest one falls out.
-    expect(candidates.at(0)).toBe('candidate=artifact_id:artifact-2;mode:image');
-    expect(candidates.at(-1)).toBe('candidate=artifact_id:artifact-18;mode:excel');
+    expect(candidates.at(0)).toBe('candidate=artifact_id:artifact-2;mode:image;latest_for_mode:false');
+    expect(candidates.at(-1)).toBe('candidate=artifact_id:artifact-18;mode:excel;latest_for_mode:true');
     expect(context).not.toContain('candidate=artifact_id:artifact-0;');
     expect(context.length).toBeLessThan(5000);
   });
@@ -112,8 +112,8 @@ describe('renderComposerArtifactFollowupRoutingContext', () => {
     ]);
 
     expect(context.match(/^candidate=\S+$/gm)).toEqual([
-      'candidate=artifact_id:artifact-2;mode:video',
-      'candidate=artifact_id:artifact-1;mode:word',
+      'candidate=artifact_id:artifact-2;mode:video;latest_for_mode:true',
+      'candidate=artifact_id:artifact-1;mode:word;latest_for_mode:true',
     ]);
   });
 
@@ -131,7 +131,7 @@ describe('renderComposerArtifactFollowupRoutingContext', () => {
 
     const context = renderComposerArtifactFollowupRoutingContext(values);
 
-    expect(context).toContain('candidate=artifact_id:artifact-12;mode:video');
+    expect(context).toContain('candidate=artifact_id:artifact-12;mode:video;latest_for_mode:true');
     expect(context).not.toContain('candidate=artifact_id:artifact-0;');
     expect(context.match(/^candidate=\S+$/gm)).toHaveLength(12);
   });

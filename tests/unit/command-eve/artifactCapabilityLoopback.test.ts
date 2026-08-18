@@ -21,6 +21,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   artifactCapabilityBearerFilePath,
@@ -147,10 +148,134 @@ describe('the read half works', () => {
     expect(payload.artifact.artifact_id).toBe('video-1');
     expect(payload.artifact.duration_seconds).toBe(5);
     expect(payload.artifact.editable).toBe(true);
-    // No path and no bytes cross the loopback: a model that can name a path can
-    // ask for one, and the handle already IS the reference.
+    // Legacy records still expose no absolute path or bytes.
     expect(JSON.stringify(payload)).not.toContain('/tmp/videos');
     expect(JSON.stringify(payload)).not.toContain('data:');
+  });
+
+  it('returns the verified workspace-relative path and reports external mutation in German', async () => {
+    const workspace = path.join(tmpRoot, 'workspace');
+    const relativePath = 'videos/launch-film-2026-08-17.mp4';
+    const absolutePath = path.join(workspace, ...relativePath.split('/'));
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    const bytes = Buffer.from('video bytes');
+    fs.writeFileSync(absolutePath, bytes);
+    const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    const stored = buildVideoConversationArtifact({
+      id: 'video-1',
+      conversationId: 'conv-1',
+      createdAtMs: 1_754_000_000_000,
+      path: absolutePath,
+      relativePath,
+      artifact: {
+        mimeType: 'video/mp4',
+        sha256,
+        bytes: bytes.length,
+        durationSeconds: 5,
+        resolution: '480p',
+        estimatedCredits: 500,
+        model: 'grok-imagine-video',
+        dataBase64: '',
+        tierId: 'sd',
+      } as never,
+    });
+    const canonicalGrant = { ...GRANT, artifact_sha256: sha256 };
+    const d = deps({
+      resolveWorkspace: async () => ({ status: 'ready', workspace }),
+      readGrant: () => canonicalGrant,
+      listArtifactRecords: () => [stored],
+    });
+
+    const present = await artifactCapabilityCallHandler({ operation: 'artifact_get', handle: HANDLE }, d);
+    expect(present).toMatchObject({
+      status: 200,
+      payload: { artifact: { file_path: relativePath } },
+    });
+    expect(JSON.stringify(present.payload)).not.toContain(workspace);
+
+    fs.writeFileSync(absolutePath, 'changed');
+    const changed = await artifactCapabilityCallHandler({ operation: 'artifact_get', handle: HANDLE }, d);
+    expect(changed).toEqual({
+      status: 409,
+      payload: {
+        ok: false,
+        reason: 'artifact-changed',
+        message:
+          'Die Datei wurde außerhalb von EVE verändert oder verschoben. Lege sie wieder am ursprünglichen Ort ab oder wähle sie erneut aus.',
+      },
+    });
+  });
+
+  it.each([
+    ['image', true],
+    ['image', false],
+    ['video', true],
+    ['video', false],
+  ] as const)('returns a file path only for a project %s artifact (project=%s)', async (kind, hasProject) => {
+    const relativePath = `${kind}s/asset.${kind === 'image' ? 'png' : 'mp4'}`;
+    const workspace = hasProject
+      ? path.join(tmpRoot, 'workspace')
+      : path.join(tmpRoot, 'command-eve-temp-artifacts', 'conv-1');
+    const absolutePath = path.join(workspace, ...relativePath.split('/'));
+    const bytes = Buffer.from(`${kind} bytes`);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(absolutePath, bytes);
+    const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    const grant = {
+      ...GRANT,
+      artifact_id: `${kind}-1`,
+      artifact_sha256: sha256,
+      operation: kind === 'image' ? 'image_edit' : 'video_edit',
+    };
+    const d = deps({
+      ...(hasProject ? { resolveWorkspace: async () => ({ status: 'ready' as const, workspace }) } : {}),
+      readGrant: () => grant,
+      ...(kind === 'image'
+        ? {
+            readImageRecord: () =>
+              ({
+                id: 'image-1',
+                status: 'active',
+                payload: {
+                  path: relativePath,
+                  sha256,
+                  size: bytes.length,
+                  mime_type: 'image/png',
+                },
+              }) as never,
+          }
+        : {
+            listArtifactRecords: () => [
+              buildVideoConversationArtifact({
+                id: 'video-1',
+                conversationId: 'conv-1',
+                createdAtMs: 1_754_000_000_000,
+                path: absolutePath,
+                relativePath,
+                artifact: {
+                  mimeType: 'video/mp4',
+                  sha256,
+                  bytes: bytes.length,
+                  durationSeconds: 5,
+                  resolution: '480p',
+                  estimatedCredits: 500,
+                  model: 'grok-imagine-video',
+                  dataBase64: '',
+                  tierId: 'sd',
+                } as never,
+              }),
+            ],
+          }),
+    });
+
+    const result = await artifactCapabilityCallHandler({ operation: 'artifact_get', handle: HANDLE }, d);
+    expect(result.status).toBe(200);
+    const artifact = (result.payload as { artifact: Record<string, unknown> }).artifact;
+    if (hasProject) {
+      expect(artifact.file_path).toBe(relativePath);
+    } else {
+      expect(Object.hasOwn(artifact, 'file_path')).toBe(false);
+    }
   });
 
   it('refuses a handle it did not mint', async () => {

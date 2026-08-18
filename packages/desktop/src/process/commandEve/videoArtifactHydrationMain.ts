@@ -302,7 +302,7 @@ export async function reconcileConversationRemoteVideos(
       }
       const mimeType = (response.headers.get('content-type') ?? 'video/mp4').split(';')[0].trim() || 'video/mp4';
       const artifactId = newArtifactId(plan.url);
-      const filePath = saveFile({
+      const saved = saveFile({
         conversationId,
         artifactId,
         dataBase64: Buffer.from(bytes).toString('base64'),
@@ -312,7 +312,7 @@ export async function reconcileConversationRemoteVideos(
         conversationId,
         artifactId,
         directive,
-        filePath,
+        filePath: typeof saved === 'string' ? saved : saved.path,
         bytes,
         mimeType,
         nowMs: nowMs(),

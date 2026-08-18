@@ -83,9 +83,28 @@ function makeArtifact(
 }
 
 describe('saveGeneratedVideoFile', () => {
+  it('writes a canonical visible project file with a prompt-derived name', () => {
+    const workspace = path.join(tmpRoot, 'workspace');
+    const dataPath = path.join(tmpRoot, 'data');
+    fs.mkdirSync(workspace);
+    fs.mkdirSync(dataPath);
+    const saved = saveGeneratedVideoFile({
+      conversationId: 'conv-1',
+      artifactId: 'artifact-visible',
+      dataBase64: Buffer.from('video').toString('base64'),
+      mimeType: 'video/mp4',
+      dataPath,
+      workspaceRoot: workspace,
+      nameHint: 'Launch Film',
+      nowMs: new Date(2026, 7, 17, 12).getTime(),
+    });
+    expect(path.relative(workspace, saved.path)).toBe(path.join('videos', 'launch-film-2026-08-17.mp4'));
+    expect(fs.readFileSync(saved.path, 'utf8')).toBe('video');
+  });
+
   it('writes the exact decoded bytes to a stable, conversation-scoped path', () => {
     const dataBase64 = Buffer.from('hello video').toString('base64');
-    const savedPath = saveGeneratedVideoFile({
+    const saved = saveGeneratedVideoFile({
       conversationId: 'conv-1',
       artifactId: 'artifact-1',
       dataBase64,
@@ -93,31 +112,31 @@ describe('saveGeneratedVideoFile', () => {
       downloadsRoot: tmpRoot,
     });
 
-    expect(savedPath.endsWith('artifact-1.mp4')).toBe(true);
-    expect(fs.readFileSync(savedPath, 'utf8')).toBe('hello video');
+    expect(saved.path.endsWith('artifact-1.mp4')).toBe(true);
+    expect(fs.readFileSync(saved.path, 'utf8')).toBe('hello video');
   });
 
   it('picks the extension from the mime type', () => {
-    const savedPath = saveGeneratedVideoFile({
+    const saved = saveGeneratedVideoFile({
       conversationId: 'conv-1',
       artifactId: 'artifact-2',
       dataBase64: 'AAAA',
       mimeType: 'video/webm',
       downloadsRoot: tmpRoot,
     });
-    expect(savedPath.endsWith('.webm')).toBe(true);
+    expect(saved.path.endsWith('.webm')).toBe(true);
   });
 
   it('falls back to a safe directory name for an unsafe conversation id', () => {
-    const savedPath = saveGeneratedVideoFile({
+    const saved = saveGeneratedVideoFile({
       conversationId: '../../etc',
       artifactId: 'artifact-3',
       dataBase64: 'AAAA',
       mimeType: 'video/mp4',
       downloadsRoot: tmpRoot,
     });
-    expect(path.resolve(savedPath).startsWith(path.resolve(tmpRoot))).toBe(true);
-    expect(savedPath).not.toContain('../../etc');
+    expect(path.resolve(saved.path).startsWith(path.resolve(tmpRoot))).toBe(true);
+    expect(saved.path).not.toContain('../../etc');
   });
 });
 
@@ -209,7 +228,7 @@ describe('DURABILITY — a paid video survives a power cut, not just a remount',
   it('fsyncs the generated video bytes and their directory', () => {
     const fsynced = recordFsyncedPaths();
 
-    const savedPath = saveGeneratedVideoFile({
+    const saved = saveGeneratedVideoFile({
       conversationId: 'conv-1',
       artifactId: 'artifact-durable',
       dataBase64: Buffer.from('hello video').toString('base64'),
@@ -217,8 +236,8 @@ describe('DURABILITY — a paid video survives a power cut, not just a remount',
       downloadsRoot: tmpRoot,
     });
 
-    expect(fsynced.some((file) => path.basename(file).includes(path.basename(savedPath)))).toBe(true);
-    expect(fsynced).toContain(path.dirname(savedPath));
-    expect(fs.readFileSync(savedPath, 'utf8')).toBe('hello video');
+    expect(fsynced.some((file) => path.basename(file).includes(path.basename(saved.path)))).toBe(true);
+    expect(fsynced).toContain(path.dirname(saved.path));
+    expect(fs.readFileSync(saved.path, 'utf8')).toBe('hello video');
   });
 });

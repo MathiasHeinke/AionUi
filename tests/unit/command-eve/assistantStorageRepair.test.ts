@@ -557,3 +557,71 @@ describe('repairCommandEveAssistantStorage — clears the no-live-definition orp
     expect(eveExists(dir, EVE)).toBe(false);
   });
 });
+
+// BLOCKER 1 / fail-closed — a registry `command` is a SPAWN instruction, and a
+// bare or relative value is a bet on the END USER's PATH. That bet is exactly
+// what produced "Agent 'Hermes' CLI unavailable: command 'hermes' not found in
+// PATH" on a machine without a foreign `hermes` installed. The repair must
+// refuse to write such a value at all, rather than pin a worse guess over the
+// existing row.
+describe('repairCommandEveAssistantStorage — refuses a non-absolute Hermes command (fail-closed)', () => {
+  const seedBareHermesRow = (dir: string): void => {
+    seedDbWithRichAgentRegistry(dir, (db) => {
+      db.prepare(
+        'INSERT INTO agent_metadata (id, name, agent_type, backend, command, args, command_override, last_check_status, last_check_error_message, last_failure_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+      ).run('hermes-1', 'Hermes', 'acp', 'hermes', 'hermes', '[]', null, 'offline', 'not found in PATH', 999, 111);
+    });
+  };
+
+  // The exact shape that reaches an end user: a BARE name. Before the guard this
+  // passed the `.trim()` check and was pinned verbatim.
+  it('never pins a BARE command name', async () => {
+    const dir = makeDataDir();
+    seedBareHermesRow(dir);
+
+    const result = await repairCommandEveAssistantStorage(dir, { hermesCommandPath: 'hermes' });
+    const row = hermesRegistryOf(dir);
+
+    expect(result.registryRebound).toBe(0);
+    expect(row?.command_override).toBeNull();
+    // The pre-existing row is left EXACTLY as it was — no half-repair.
+    expect(row?.command).toBe('hermes');
+    expect(row?.updated_at).toBe(111);
+  });
+
+  it('never pins a RELATIVE path', async () => {
+    const dir = makeDataDir();
+    seedBareHermesRow(dir);
+
+    const result = await repairCommandEveAssistantStorage(dir, {
+      hermesCommandPath: './command-eve-runtime/hermes/hermes',
+    });
+
+    expect(result.registryRebound).toBe(0);
+    expect(hermesRegistryOf(dir)?.command_override).toBeNull();
+  });
+
+  it('never pins a path carrying a NUL byte', async () => {
+    const dir = makeDataDir();
+    seedBareHermesRow(dir);
+
+    const result = await repairCommandEveAssistantStorage(dir, { hermesCommandPath: '/tmp/hermes\0/evil' });
+
+    expect(result.registryRebound).toBe(0);
+    expect(hermesRegistryOf(dir)?.command_override).toBeNull();
+  });
+
+  // Negative control: the guard must not break the legitimate pin.
+  it('still pins a well-formed ABSOLUTE path', async () => {
+    const dir = makeDataDir();
+    seedBareHermesRow(dir);
+    const shim = path.join(dir, 'command-eve-runtime', 'hermes', 'hermes');
+
+    const result = await repairCommandEveAssistantStorage(dir, { hermesCommandPath: shim });
+    const row = hermesRegistryOf(dir);
+
+    expect(result.registryRebound).toBe(1);
+    expect(row?.command_override).toBe(shim);
+    expect(row?.command).toBe(shim);
+  });
+});

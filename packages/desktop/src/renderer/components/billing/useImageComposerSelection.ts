@@ -19,7 +19,11 @@ export type ImageComposerSelection = Readonly<{
   registry: CommandEveImageModelRegistry | null;
   resolution: CommandEveImageModelResolution;
   aspectRatio: CommandEveManagedImageAspectRatio;
-  setTierId: (tierId: CommandEveImageModelTierId) => void;
+  /**
+   * Updates the durable create preference unless the caller is carrying a
+   * request-scoped edit selection in its composer state.
+   */
+  setTierId: (tierId: CommandEveImageModelTierId, options?: Readonly<{ persist?: boolean }>) => void;
   setResolution: (resolution: CommandEveImageModelResolution) => void;
   setAspectRatio: (aspectRatio: CommandEveManagedImageAspectRatio) => void;
 }>;
@@ -53,7 +57,11 @@ export function useImageComposerSelection(): ImageComposerSelection {
     };
   }, []);
 
-  const setTierId = useCallback((nextTierId: CommandEveImageModelTierId) => {
+  const setTierId = useCallback((nextTierId: CommandEveImageModelTierId, options?: Readonly<{ persist?: boolean }>) => {
+    // An image edit keeps its model on the explicit one-shot composer request.
+    // Do not mutate the shared create state or write the per-seat preference:
+    // leaving edit must still reveal the exact create tier Main will bill.
+    if (options?.persist === false) return;
     setTierIdState(nextTierId);
     const expectedSeatId = preferenceSeatRef.current;
     if (!expectedSeatId) return;

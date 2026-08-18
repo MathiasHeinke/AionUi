@@ -2334,7 +2334,11 @@ export async function handleEveMultimodal(req: Request, deps: EveMultimodalHandl
       externalRef: `image:${requestFingerprint}`,
       model,
       boundUnits: 1,
-      explicitBoundRetailEurCents: imageModelRetailEurCentsPerImage(input.imageModel, input.resolution),
+      explicitBoundRetailEurCents: imageModelRetailEurCentsPerImage(
+        input.imageModel,
+        input.resolution,
+        input.references.length
+      ),
     });
     const refusal = reserveRefusal(req, now, reserved, 'openrouter', 'image');
     if (refusal) return refusal;
@@ -2408,7 +2412,7 @@ export async function handleEveMultimodal(req: Request, deps: EveMultimodalHandl
       receipt,
       actual:
         generated.image.costUsd === undefined
-          ? imageRegistryFallbackActual(input.imageModel, input.resolution)
+          ? imageRegistryFallbackActual(input.imageModel, input.resolution, input.references.length)
           : actualEurCentsFor(imageOperation, {
               providerReportedRawEurCents: usdToEurCents(generated.image.costUsd),
               measuredUnits: 1,
@@ -2448,7 +2452,7 @@ export async function handleEveMultimodal(req: Request, deps: EveMultimodalHandl
       image_generation: {
         model,
         tier: input.imageModel.tierId,
-        credits_quoted: imageModelCreditsPerImage(input.imageModel, input.resolution),
+        credits_quoted: imageModelCreditsPerImage(input.imageModel, input.resolution, input.references.length),
         prompt_sha256: promptSha256,
         aspect_ratio: input.aspectRatio,
         resolution: input.resolution,

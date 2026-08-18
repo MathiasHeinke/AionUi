@@ -108,6 +108,33 @@ describe('WorkProductModeSelector', () => {
     expect(onChange).toHaveBeenCalledWith('chat');
   });
 
+  it('carries its own exit control so an armed lane is always cancellable', () => {
+    // The lane now survives a send, so leaving it must be a visible, dedicated
+    // affordance rather than a second meaning of the label. This is the control
+    // that keeps sticky authority honest: held intent, never stale intent.
+    const onChange = vi.fn();
+    render(<WorkProductModeHeader value='image' onChange={onChange} modes={modes} actions={actions} />);
+
+    const exit = screen.getByTestId('work-product-exit-image');
+    expect(exit).toHaveAttribute('aria-label', actions.returnToChatLabel);
+    expect(exit).toHaveAttribute('data-mode', 'image');
+
+    // The chip itself only reports state; clicking its text must not silently
+    // drop the lane the operator is working in.
+    fireEvent.click(screen.getByText('Bild erstellen'));
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.click(exit);
+    expect(onChange).toHaveBeenCalledWith('chat');
+  });
+
+  it('disables the exit control together with the rest of the lane', () => {
+    const onChange = vi.fn();
+    render(<WorkProductModeHeader value='pdf' onChange={onChange} modes={modes} actions={actions} disabled />);
+    fireEvent.click(screen.getByTestId('work-product-exit-pdf'));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('shows the selected reference at the far edge and removes it explicitly', () => {
     const onRemoveReference = vi.fn();
     render(
@@ -197,7 +224,11 @@ describe('WorkProductModeSelector', () => {
     for (const anchor of [
       ".trigger:global(.arco-btn)[data-active='true'] {",
       '.menuIcon {',
-      '.activeMode:global(.arco-btn) {',
+      // The active lane is a state chip (a span), not a button: it stays armed
+      // across turns and carries its own exit control, so it no longer needs to
+      // be clickable itself.
+      '.activeMode {',
+      '.exitMode:global(.arco-btn) {',
     ]) {
       expect(readCssBlock(css, anchor), `${anchor} must stay flat`).not.toMatch(/gradient\(/i);
     }
@@ -220,6 +251,34 @@ describe('WorkProductModeSelector', () => {
 
     expect(accents.every(Boolean)).toBe(true);
     expect(new Set(accents)).toHaveLength(modes.length);
+  });
+
+  it('gives the exit control a target larger than its glyph without growing the chip', () => {
+    // Founder note 2026-08-18: an 18px mark inside a 28px chip reads well and
+    // clicks badly, and this is the one control that must never be fiddly —
+    // it is the whole reason a lane may stay armed across turns.
+    //
+    // WHAT THIS TEST CAN AND CANNOT DO. jsdom computes no layout, so no unit
+    // test here can prove the target is actually bigger on screen; that stays a
+    // sight check. What it CAN pin is the mechanism: the glyph box is unchanged
+    // and the extra area comes from a transparent overlay that owns no layout
+    // box, so it cannot push the option rail beside it or repaint the chip.
+    const css = readSelectorCss();
+    const glyph = readCssBlock(css, '.exitMode:global(.arco-btn) {');
+    const target = readCssBlock(css, '.exitMode:global(.arco-btn)::after {');
+
+    // The visible control did not grow.
+    expect(glyph).toContain('width: 18px;');
+    expect(glyph).toContain('height: 18px;');
+    // The target did, and it is out of flow, so nothing around it moves.
+    expect(target).toContain('position: absolute;');
+    expect(target).toMatch(/inset:\s*-\d+px\s+-\d+px;/);
+    // Transparent by omission: an overlay that painted would be a second
+    // visible control, which is exactly what the chip must not become.
+    expect(target).not.toMatch(/background|border-color|box-shadow/);
+    // The chip must establish the positioning context, or the overlay would
+    // escape to the nearest positioned ancestor and land somewhere else.
+    expect(glyph).toContain('position: relative;');
   });
 
   it('gives every tool mode a distinct accent in dark mode, retuned away from light', () => {

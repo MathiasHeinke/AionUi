@@ -120,10 +120,26 @@ describe('strict exact-key image model preference read', () => {
 describe('image model preference mutation', () => {
   it('stores the exact tier under the seat-physical key and proves it by re-read', async () => {
     const state = harness();
-    const result = await setCommandEveImageModelPreference({ expectedSeatId: SEAT_A, tier: 'fast' }, state.deps);
+    // A non-default tier, so the write is a real stored choice rather than the
+    // key-removal path the next test pins. ('fast' was this tier until the
+    // 2026-08-18 catalog retired it.)
+    const result = await setCommandEveImageModelPreference({ expectedSeatId: SEAT_A, tier: 'seedream-pro' }, state.deps);
     expect(result.ok).toBe(true);
-    expect(result.preference).toMatchObject({ status: 'resolved', tier: 'fast', source: 'stored_explicit' });
-    expect(state.bag[KEY_A]).toBe('fast');
+    expect(result.preference).toMatchObject({ status: 'resolved', tier: 'seedream-pro', source: 'stored_explicit' });
+    expect(state.bag[KEY_A]).toBe('seedream-pro');
+  });
+
+  it('lands a seat that still stores the RETIRED ‘fast’ on the product default', async () => {
+    // THE UPGRADE PATH, at the Main boundary: the string is on disk from a
+    // build where Schnell existed. It must read back as a real, priceable
+    // tier — never an empty selection — and it is NOT reported as an explicit
+    // choice, because the word the seat chose no longer exists.
+    const state = harness({ [KEY_A]: 'fast' });
+    await expect(readCommandEveImageModelPreference(state.deps)).resolves.toMatchObject({
+      status: 'resolved',
+      tier: 'quality',
+      source: 'product_default',
+    });
   });
 
   it('choosing the product default REMOVES the key instead of freezing a copy', async () => {

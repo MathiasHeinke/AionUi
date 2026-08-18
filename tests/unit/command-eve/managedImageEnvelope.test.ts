@@ -72,6 +72,45 @@ describe('managed image envelope entries', () => {
     }
   });
 
+  it('forwards persisted image, video and Office cleanup notes through the same Hermes context', async () => {
+    const { envelope } = await handleCommandEveArtifactContextEnvelope(
+      { conversationId: 'conv-1', userTurnText: 'weiter' },
+      deps({
+        buildEntries: () => [
+          {
+            artifactId: 'video-1',
+            kind: 'video',
+            mimeType: 'video/mp4',
+            durationSeconds: 5,
+            editable: false,
+            cleanupNotice: 'Hinweis: Im Ordner „videos“ wurden mindestens 100 Artefakte angelegt.',
+          },
+        ],
+        listManagedImageRecords: () => [
+          {
+            ...managedImageRecord(),
+            payload: {
+              ...managedImageRecord().payload,
+              cleanup_notice: 'Hinweis: Im Ordner „bilder“ wurden mindestens 100 Artefakte angelegt.',
+            },
+          },
+        ],
+        listOfficeArtifactRecords: async () =>
+          [
+            {
+              payload: {
+                cleanup_notice: 'Hinweis: Im Ordner „dokumente“ wurden mindestens 100 Artefakte angelegt.',
+              },
+            },
+          ] as never,
+      })
+    );
+
+    expect(envelope).toContain('Im Ordner „bilder“');
+    expect(envelope).toContain('Im Ordner „videos“');
+    expect(envelope).toContain('Im Ordner „dokumente“');
+  });
+
   it('a record whose handle cannot be minted rides with editable=false and NO handle', async () => {
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
       { conversationId: 'conv-1', userTurnText: 'bearbeite das bild' },

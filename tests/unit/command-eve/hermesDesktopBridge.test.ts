@@ -64,6 +64,9 @@ describe('Hermes desktop bridge', () => {
     expect(shim).toContain('"version": "command-eve-desktop-event/v1"');
     expect(shim).toContain('asyncio.run_coroutine_threadsafe');
     expect(shim).toContain('_COMMAND_EVE_DESKTOP_PANES = {"chat", "files", "terminal", "review", "sessions"}');
+    expect(shim).toContain('_COMMAND_EVE_PROVIDER_TURN_BINDINGS_SENT: set[tuple[str, str]] = set()');
+    expect(shim).toContain('def _command_eve_bind_claim_quarantine_db(');
+    expect(shim).toContain('def _command_eve_exit_turn_memory_quarantine(');
     expect(shim).toContain('pane not in _COMMAND_EVE_DESKTOP_PANES');
     expect(shim).toContain('focus_pane_tool.PANES = ("chat", "files", "terminal", "review", "sessions")');
     expect(shim).not.toContain('get_session_env("HERMES_UI_SESSION_ID"');
@@ -154,6 +157,66 @@ describe('Hermes desktop bridge', () => {
       terminal_callbacks_restored: true,
       unknown_context_fails_closed: true,
     });
+  });
+
+  it('keeps the app-owned tools eager while the bridge stays armed for third-party MCP', () => {
+    const userData = root();
+    setActiveSeatId(SEAT_ID);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(userData, SEAT_ID);
+    expect(provisionSeatRuntimeFiles({ userDataPath: userData, seatId: SEAT_ID }).ok).toBe(true);
+    const providerOverridePath = path.join(paths.hermesHome, 'plugins', 'model-providers', 'custom', '__init__.py');
+    const bundledWheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
+
+    const harness = spawnSync(
+      'python3',
+      [
+        path.resolve('tests/fixtures/command-eve/hermes_product_tool_disclosure_harness.py'),
+        providerOverridePath,
+        bundledWheelPath,
+      ],
+      { encoding: 'utf8', timeout: 30_000 }
+    );
+
+    expect(harness.status, harness.stderr || harness.stdout).toBe(0);
+    const result = JSON.parse(harness.stdout);
+
+    // 1. Command EVE's own surface must never sit behind tool_search. Every one
+    //    of these was deferrable before the always-visible seam existed, which
+    //    is what made a trivial artifact request cost extra model rounds — each
+    //    one a fully buffered wait on the metered lane.
+    expect(result.product_tools_deferrable).toEqual([]);
+    expect(result.product_tools_in_assembled_array).toEqual([
+      'aionui_image_generation',
+      'eve_artifact_get',
+      'eve_artifact_list',
+      'eve_image_edit',
+      'eve_typed_ui_publish',
+      'eve_video_edit',
+      'eve_video_generate',
+      'focus_pane',
+      'open_preview',
+      'read_preview',
+      'read_terminal',
+    ]);
+
+    // 2. The mechanism is aimed, not disabled: a real third-party MCP server
+    //    still defers, and the three bridge tools are still in the array.
+    expect(result.foreign_mcp_deferrable).toEqual([
+      'supabase_insert',
+      'supabase_logs',
+      'supabase_migrate',
+      'supabase_query',
+    ]);
+    expect(result.assembly_activated).toBe(true);
+    expect(result.bridge_still_armed).toEqual(['tool_call', 'tool_describe', 'tool_search']);
+
+    // 3. THE REASON IT IS A REBIND. 17 wheel toolsets — hermes-cli, hermes-cron
+    //    and the messaging lanes — share ONE list object with the core names. An
+    //    in-place append would hand Telegram and Signal read_terminal and the
+    //    video tools. A new binding leaves every one of them untouched.
+    expect(result.core_object_rebound).toBe(true);
+    expect(result.messaging_lane_leaked_tools).toEqual([]);
+    expect(result.shared_core_toolset_count).toBeGreaterThanOrEqual(10);
   });
 
   it('binds Hermes 0.20 clarify to exact visible ACP choices without widening authority', () => {

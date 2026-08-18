@@ -18,6 +18,7 @@
 
 import crypto, { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
 import { commandEveMediaSeedAttribution, EVE_MULTIMODAL_FUNCTION_URL } from '@/common/config/eveMultimodalGatewayCore';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
@@ -112,11 +113,13 @@ import {
 import type { VideoCatalogEntry } from '@/common/config/videoCatalogCore';
 import { readVideoCatalogWire } from '@process/commandEve/videoCatalogWireMain';
 import {
+  resolveCommandEveOfficeConversationAuthority,
   resolveCommandEveOfficeArtifactAttachment,
   type CommandEveOfficeArtifactAttachment,
   type CommandEveOfficeArtifactRefusalReason,
   type CommandEveOfficeArtifactResolution,
   type CommandEveOfficeArtifactMode,
+  type CommandEveOfficeConversationAuthority,
 } from '@process/commandEve/officeArtifactAttachmentCore';
 import {
   beginCommandEveOfficeArtifactOperation,
@@ -143,8 +146,11 @@ export interface CommandEveVideoBridgeDeps {
   /** Resolve a pathless managed image inside Main's active Seat-scoped store. */
   readManagedImageRecord?: typeof readImageArtifactRecordById;
   readManagedImageBytes?: typeof readImageArtifactBytes;
-  saveVideoFile: typeof saveGeneratedVideoFile;
+  saveVideoFile: (
+    ...args: Parameters<typeof saveGeneratedVideoFile>
+  ) => ReturnType<typeof saveGeneratedVideoFile> | string;
   saveArtifactRecord: typeof saveVideoArtifactRecord;
+  resolveWorkspace?: (conversationId: string) => Promise<CommandEveOfficeConversationAuthority>;
   /**
    * The seat's video model capabilities (MAT-1753). Optional for the same reason
    * every MAT-1747 member is: an existing test literal must stay valid. Absent
@@ -229,6 +235,7 @@ const productionDeps: CommandEveVideoBridgeDeps = {
   readManagedImageBytes: readImageArtifactBytes,
   saveVideoFile: saveGeneratedVideoFile,
   saveArtifactRecord: saveVideoArtifactRecord,
+  resolveWorkspace: (conversationId) => resolveCommandEveOfficeConversationAuthority(conversationId),
   getVideoSeatCapabilities: () => readVideoSeatCapabilities(),
   ensureCapabilityHandle: ensureVideoEditCapabilityHandle,
   emitArtifactsChanged: emitCommandEveArtifactsChanged,
@@ -495,6 +502,23 @@ export async function handleCommandEveVideoGenerate(
     };
   }
 
+  let workspaceRoot: string | undefined;
+  if (request.conversationId) {
+    const authority = await deps.resolveWorkspace?.(request.conversationId);
+    if (authority?.status === 'refused') {
+      return {
+        ok: false,
+        reasonCode: 'video-workspace-unavailable',
+        message: 'Diese Unterhaltung ist nicht verfügbar. Öffne sie erneut oder wähle ein Projekt.',
+        retryable: false,
+      };
+    }
+    workspaceRoot =
+      authority?.status === 'ready'
+        ? authority.workspace
+        : path.join(originDataPath, 'command-eve-temp-artifacts', request.conversationId);
+  }
+
   // The mode is re-expressed over the BYTES, never rebuilt from the loose fields:
   // the branch is carried across, so the exclusivity decided above is the
   // exclusivity that reaches the wire.
@@ -570,15 +594,24 @@ export async function handleCommandEveVideoGenerate(
 
     try {
       const artifactId = deps.newArtifactId();
-      const path = deps.saveVideoFile({
+      const saved = deps.saveVideoFile({
         conversationId: request.conversationId,
         artifactId,
         dataBase64: outcome.artifact.dataBase64,
         mimeType: outcome.artifact.mimeType,
+        dataPath: originDataPath,
+        workspaceRoot: workspaceRoot!,
+        nameHint: request.prompt,
       });
+      const savedPath = typeof saved === 'string' ? saved : saved.path;
+      const relativePath = path.relative(workspaceRoot!, savedPath).split(path.sep).join('/');
       const conversationArtifact = buildVideoConversationArtifact({
         artifact: outcome.artifact,
-        path,
+        path: savedPath,
+        relativePath,
+        ...(typeof saved === 'string' || saved.cleanupNotice === undefined
+          ? {}
+          : { cleanupNotice: saved.cleanupNotice }),
         id: artifactId,
         conversationId: request.conversationId,
         seatId: capturedSeatId,
@@ -782,6 +815,8 @@ export interface CommandEveArtifactContextEnvelopeDeps {
    * retained only for legacy-Seat records and grants.
    */
   listManagedImageRecords?: typeof listActiveImageArtifacts;
+  /** Office records, read through their existing lineage verifier. */
+  listOfficeArtifactRecords?: typeof listCommandEveOfficeArtifactRecords;
   ensureImageEditHandle?: typeof ensureImageEditCapabilityHandle;
   /**
    * Whether the paid IMAGE edit is advertised for this seat. One resolver
@@ -807,6 +842,7 @@ const productionEnvelopeDeps: CommandEveArtifactContextEnvelopeDeps = {
   listImageRecords: listImageArtifactRecords,
   saveImageRecord: saveImageArtifactRecord,
   listManagedImageRecords: listActiveImageArtifacts,
+  listOfficeArtifactRecords: listCommandEveOfficeArtifactRecords,
   ensureImageEditHandle: ensureImageEditCapabilityHandle,
   isImageEditEnabled: () => isAgentImageEditAdvertisingEnabled(getDataPath()),
 };
@@ -1066,6 +1102,18 @@ export async function handleCommandEveArtifactContextEnvelope(
       deps
     );
     const entries = [...referenceEntries, ...imageEntries, ...managedImageEntries, ...storedEntries];
+    const officeAdvisories: string[] = [];
+    try {
+      const officeRecords = await (deps.listOfficeArtifactRecords ?? listCommandEveOfficeArtifactRecords)(
+        dataPath,
+        conversationId
+      );
+      for (const record of officeRecords) {
+        if (record.payload.cleanup_notice !== undefined) officeAdvisories.push(record.payload.cleanup_notice);
+      }
+    } catch {
+      /* An unavailable Office listing must not suppress the established artifact context. */
+    }
     // And THIS turn's attached images become next turns' durable records. The
     // write happens after the listing so the current envelope never shows the
     // same image twice (once pending, once stored), and first-write-wins makes
@@ -1163,6 +1211,7 @@ export async function handleCommandEveArtifactContextEnvelope(
       entries,
       allowedCapabilities,
       ...(spendPermit === undefined ? {} : { spendPermit }),
+      ...(officeAdvisories.length === 0 ? {} : { advisories: officeAdvisories }),
     });
     return {
       envelope: [officeOperationMarker, artifactEnvelope].filter(Boolean).join('\n'),
@@ -1422,6 +1471,7 @@ function buildManagedImageEnvelopeEntries(
       if (editHandle !== undefined) entry.editHandle = editHandle;
       if (record.payload.parent_artifact_id !== undefined) entry.parentArtifactId = record.payload.parent_artifact_id;
       if (selectedArtifactIds.has(record.id)) entry.selected = true;
+      if (record.payload.cleanup_notice !== undefined) entry.cleanupNotice = record.payload.cleanup_notice;
       return entry;
     });
   } catch {
@@ -1988,15 +2038,35 @@ export async function handleCommandEveVideoEdit(
 
     try {
       const artifactId = deps.newArtifactId();
-      const savedPath = deps.saveVideoFile({
+      const authority = await deps.resolveWorkspace?.(grant.conversation_id);
+      if (authority && authority.status !== 'ready') {
+        return refuseEdit(
+          'video-edit-workspace-unavailable',
+          'Das Video wurde bearbeitet, aber der Projektordner ist nicht mehr verfügbar.'
+        );
+      }
+      const workspaceRoot =
+        authority?.status === 'ready'
+          ? authority.workspace
+          : path.join(dataPath, 'command-eve-temp-artifacts', grant.conversation_id);
+      const saved = deps.saveVideoFile({
         conversationId: grant.conversation_id,
         artifactId,
         dataBase64: outcome.artifact.dataBase64,
         mimeType: outcome.artifact.mimeType,
+        dataPath,
+        workspaceRoot,
+        nameHint: instruction,
       });
+      const savedPath = typeof saved === 'string' ? saved : saved.path;
+      const relativePath = path.relative(workspaceRoot, savedPath).split(path.sep).join('/');
       const conversationArtifact = buildVideoConversationArtifact({
         artifact: outcome.artifact,
         path: savedPath,
+        relativePath,
+        ...(typeof saved === 'string' || saved.cleanupNotice === undefined
+          ? {}
+          : { cleanupNotice: saved.cleanupNotice }),
         id: artifactId,
         conversationId: grant.conversation_id,
         seatId: capturedSeatId,

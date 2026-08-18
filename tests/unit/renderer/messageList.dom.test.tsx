@@ -84,7 +84,11 @@ vi.mock('@arco-design/web-react', () => ({
     PreviewGroup: ({ children }: PropsWithChildren) => <>{children}</>,
   },
   Alert: ({ title, content }: { title?: React.ReactNode; content?: React.ReactNode }) => <div>{title || content}</div>,
-  Button: ({ children }: PropsWithChildren) => <button type='button'>{children}</button>,
+  Button: ({ children, type: _type, size: _size, ...props }: PropsWithChildren<Record<string, unknown>>) => (
+    <button type='button' {...props}>
+      {children}
+    </button>
+  ),
   Progress: () => <span>progress</span>,
   Spin: () => <span>loading</span>,
   Tag: ({ children }: PropsWithChildren) => <span>{children}</span>,
@@ -222,6 +226,7 @@ vi.mock('@/renderer/pages/conversation/Preview/components/viewers/PDFViewer', ()
 vi.mock('@renderer/components/icons', () => ({
   Copy: () => <span>copy</span>,
   Down: () => <span>down</span>,
+  Download: () => <span>download</span>,
   EditOne: () => <span>edit-one</span>,
   FolderOpen: () => <span>folder-open</span>,
   Paperclip: () => <span>paperclip</span>,

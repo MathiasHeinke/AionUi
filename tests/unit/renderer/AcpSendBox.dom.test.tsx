@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { createInstance } from 'i18next';
@@ -26,6 +26,7 @@ import type {
   ComposerWorkProductModeOption,
   ComposerWorkProductSelection,
 } from '@/common/config/composerWorkProductModeCore';
+import { selectExplicitComposerWorkProductMode } from '@/common/config/composerWorkProductModeCore';
 import { ConversationArtifactProvider } from '@/renderer/pages/conversation/Messages/artifacts';
 import deDE from '@/renderer/services/i18n/locales/de-DE';
 
@@ -3799,7 +3800,12 @@ describe('AcpSendBox', () => {
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
     expect(imagePrepareInvokeMock).not.toHaveBeenCalled();
     expect(cloudVisualPolicyReceiptInvokeMock).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.queryByTestId('work-product-active-image')).toBeNull());
+    // Sticky lane (2026-08-18): the send consumes the artifact, not the mode —
+    // making a second image must not cost a second trip through the menu. What
+    // MUST still be gone is the expensive pick: the tier falls back to the
+    // default so a resend can never silently cost more than the one before it.
+    await waitFor(() => expect(screen.getByTestId('work-product-active-image')).toBeTruthy());
+    expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'quality');
   });
 
   it('1.823.0: an image refusal restores the draft, files and exact request id for a safe retry', async () => {
@@ -4559,7 +4565,7 @@ describe('AcpSendBox', () => {
     await waitFor(() => expect(screen.getByTestId('image-model-pill')).toBeTruthy());
 
     // Clicking the active image mode returns to ordinary chat.
-    await act(async () => screen.getByTestId('work-product-active-image').click());
+    await act(async () => screen.getByTestId('work-product-exit-image').click());
     await waitFor(() => expect(screen.queryByTestId('image-model-pill')).toBeNull());
     expect(screen.queryByTestId('video-quality-pill')).toBeNull();
 
@@ -4569,7 +4575,7 @@ describe('AcpSendBox', () => {
     expect(screen.queryByTestId('image-model-pill')).toBeNull();
 
     // Clicking the active video mode returns to a clean chat composer.
-    await act(async () => screen.getByTestId('work-product-active-video').click());
+    await act(async () => screen.getByTestId('work-product-exit-video').click());
     await waitFor(() => expect(screen.queryByTestId('video-quality-pill')).toBeNull());
   });
 
@@ -4647,7 +4653,7 @@ describe('AcpSendBox', () => {
     await chooseWorkProductMode('image');
     await waitFor(() => expect(screen.getByTestId('image-model-pill')).toBeTruthy());
 
-    await act(async () => screen.getByTestId('work-product-active-image').click());
+    await act(async () => screen.getByTestId('work-product-exit-image').click());
     await chooseWorkProductMode('video');
     await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
 
@@ -4793,7 +4799,7 @@ describe('AcpSendBox', () => {
     expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
-  it('1.820.3: the image-edit affordance shows ONLY the reference-capable tier with its edit quote, never the full selector', async () => {
+  it('1.823.0: image edit keeps its manual tier request-scoped and preserves the create preference', async () => {
     imageCapabilitiesInvokeMock.mockResolvedValue({
       success: true,
       data: {
@@ -4834,7 +4840,7 @@ describe('AcpSendBox', () => {
               slug: 'openai/gpt-image-2',
               display_name: 'GPT Image 2',
               premium: true,
-              supports_references: false,
+              supports_references: true,
               resolutions: ['1K', '2K'],
               quotes: {
                 generate_credits: { '1K': 2300, '2K': 2300 },
@@ -4844,6 +4850,16 @@ describe('AcpSendBox', () => {
             },
           ],
         },
+      },
+    });
+    imageModelPreferenceReadInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'resolved',
+        tier: 'quality',
+        source: 'stored_explicit',
+        seatId: 'seat-1',
+        physicalKey: 'commandEve.imageModelPreference',
       },
     });
     draftDataMock.current = {
@@ -4889,25 +4905,33 @@ describe('AcpSendBox', () => {
     await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
     await chooseWorkProductMode('image');
     await chooseArtifactReference('image-artifact-1');
-    await waitFor(() => expect(screen.getByTestId('image-edit-hint')).toBeTruthy());
-    // The full three-tier selector is NOT offered for an edit…
-    expect(screen.queryByTestId('image-model-pill')).toBeNull();
-    // …the affordance names the reference-capable tier and a quote LINE.
-    const hint = screen.getByTestId('image-edit-hint');
-    const hintText = hint.textContent ?? '';
-    expect(hintText).toContain('Nano Banana 2');
-    expect(hintText).toContain('Credits (1K)');
-    expect(hintText).not.toContain('GPT Image 2');
-    expect(hintText).not.toContain('Schnell');
-    // …and the newer video does NOT produce a video affordance either.
+    await waitFor(() =>
+      expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'quality')
+    );
+    expect(screen.getByTestId('image-model-pill-estimate')).toHaveAttribute('data-operation', 'edit');
+    expect(screen.getByTestId('image-model-pill-estimate')).toHaveAttribute('data-credits-1k', '1380');
+    expect(screen.getByTestId('image-model-pill-estimate')).toHaveAttribute('data-credits-2k', '1380');
+    expect(screen.queryByTestId('image-edit-hint')).toBeNull();
+    fireEvent.click(screen.getByTestId('image-model-dropdown-trigger'));
+    expect(screen.queryByTestId('image-model-entry-fast')).toBeNull();
+    expect(screen.getByTestId('image-model-entry-quality')).toBeTruthy();
+    expect(screen.getByTestId('image-model-entry-max')).toBeTruthy();
     expect(screen.queryByTestId('video-edit-hint')).toBeNull();
 
-    await act(async () => screen.getByRole('button', { name: 'send' }).click());
-    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
-    expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
+    await act(async () => screen.getByTestId('image-model-entry-max').click());
+    await waitFor(() => expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'max'));
+    expect(imageModelPreferenceSetInvokeMock).not.toHaveBeenCalled();
+
+    // The edit choice is held only in the one-shot composer selection. Removing
+    // the reference returns to the unchanged Main-authoritative create tier.
+    await act(async () => screen.getByTestId('work-product-reference-remove').click());
+    await waitFor(() =>
+      expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'quality')
+    );
+    expect(imageModelPreferenceSetInvokeMock).not.toHaveBeenCalled();
   });
 
-  it('1.820.3 price truth: the hint carries edit_credits (never generate_credits) from the effective reference-capable tier', async () => {
+  it('1.823.0: image edit replaces an ineligible prior model with the registry default and quotes edit credits only', async () => {
     // DELIBERATELY DIVERGENT fixture: generate and edit figures differ on
     // every tier, so a mode mix-up cannot hide. `quality` is the only
     // reference-capable tier; its EDIT figure is 980, not 1380.
@@ -4951,7 +4975,7 @@ describe('AcpSendBox', () => {
               slug: 'openai/gpt-image-2',
               display_name: 'GPT Image 2',
               premium: true,
-              supports_references: false,
+              supports_references: true,
               resolutions: ['1K', '2K'],
               quotes: {
                 generate_credits: { '1K': 2300, '2K': 2300 },
@@ -4961,6 +4985,16 @@ describe('AcpSendBox', () => {
             },
           ],
         },
+      },
+    });
+    imageModelPreferenceReadInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'resolved',
+        tier: 'fast',
+        source: 'stored_explicit',
+        seatId: 'seat-1',
+        physicalKey: 'commandEve.imageModelPreference',
       },
     });
     draftDataMock.current = {
@@ -5002,15 +5036,18 @@ describe('AcpSendBox', () => {
     await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
     await chooseWorkProductMode('image');
     await chooseArtifactReference('image-artifact-1');
-    await waitFor(() => expect(screen.getByTestId('image-edit-hint')).toBeTruthy());
-    const hint = screen.getByTestId('image-edit-hint');
-    // The effective tier is the reference-capable one…
-    expect(hint).toHaveAttribute('data-effective-tier', 'quality');
-    // …and the quote on it is the EDIT figure (980), never the generate
-    // figure (1380) — the exact blocker this surface exists to pin.
-    expect(hint).toHaveAttribute('data-edit-credits-1k', '980');
-    expect(hint).toHaveAttribute('data-edit-credits-2k', '980');
-    expect(hint.getAttribute('data-edit-credits-1k')).not.toBe('1380');
+    await waitFor(() =>
+      expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'quality')
+    );
+    const estimate = screen.getByTestId('image-model-pill-estimate');
+    expect(estimate).toHaveAttribute('data-operation', 'edit');
+    expect(estimate).toHaveAttribute('data-credits-1k', '980');
+    expect(estimate).toHaveAttribute('data-credits-2k', '980');
+    expect(estimate).not.toHaveAttribute('data-credits-1k', '1380');
+    fireEvent.click(screen.getByTestId('image-model-dropdown-trigger'));
+    expect(screen.queryByTestId('image-model-entry-fast')).toBeNull();
+    expect(screen.getByTestId('image-model-entry-quality')).toBeTruthy();
+    expect(screen.getByTestId('image-model-entry-max')).toBeTruthy();
   });
 
   it('MAT-1769: Vision accept is single-flight — a double-click buys one enablement and one re-drive', async () => {
@@ -5200,7 +5237,7 @@ describe('AcpSendBox', () => {
 
     // Returning to chat removes the explicit one-shot authority. Even enriched
     // prose mentioning a video remains an ordinary Hermes turn.
-    await act(async () => screen.getByTestId('work-product-active-video').click());
+    await act(async () => screen.getByTestId('work-product-exit-video').click());
     sendBoxMessageMock.current = '> Sollen wir ein Video über den Launch erstellen?\n\nja bitte, mach das';
     expect(screen.queryByTestId('video-quality-pill')).toBeNull();
     sendMessageInvokeMock.mockResolvedValue({});
@@ -5236,11 +5273,13 @@ describe('AcpSendBox', () => {
     await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
     expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'sd' });
 
-    // One successful send consumes authority. The next video needs a fresh
-    // explicit click and starts from Fast/Standard again.
-    await waitFor(() => expect(screen.queryByTestId('video-quality-pill')).toBeNull());
-    await chooseWorkProductMode('video');
-    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'fast');
+    // Sticky lane (2026-08-18): the mode survives the send — a second video no
+    // longer costs a trip through the menu. The PRICE does not survive it: the
+    // tier falls back to Fast/Standard, so the next send is never quietly
+    // dearer than the one the user just approved.
+    await waitFor(() =>
+      expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'fast')
+    );
 
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
@@ -5494,6 +5533,299 @@ describe('AcpSendBox', () => {
         }),
       })
     );
+  });
+
+  /**
+   * THE EDIT CHAIN (founder ruling 2026-08-18, second pass).
+   *
+   * "Mach die Linie orange" — sieht das Ergebnis — "nee, doch grün" — "warte,
+   * blau". Each step must build on the image the operator is LOOKING AT, not on
+   * the original three steps back, and it must stay an edit rather than becoming
+   * a brand new picture described in three words.
+   *
+   * The tests below drive the real seam: a successful edit appears as a NEW
+   * artifact naming its source in `parent_artifact_id`, arriving through the
+   * conversation artifact store exactly as it does in production.
+   */
+  const IMAGE_EDIT_SOURCE = {
+    id: 'image-chain-source',
+    conversation_id: 'conv-1',
+    kind: 'image' as const,
+    status: 'active' as const,
+    created_at: 900,
+    updated_at: 900,
+    payload: {
+      artifact_type: 'image' as const,
+      title: 'Linie orange',
+      path: '/tmp/chain-source.png',
+      mime_type: 'image/png',
+    },
+  };
+  const IMAGE_EDIT_RESULT = {
+    id: 'image-chain-result',
+    conversation_id: 'conv-1',
+    kind: 'image' as const,
+    status: 'active' as const,
+    created_at: 1100,
+    updated_at: 1100,
+    payload: {
+      artifact_type: 'image' as const,
+      title: 'Linie grün',
+      path: '/tmp/chain-result.png',
+      mime_type: 'image/png',
+      parent_artifact_id: IMAGE_EDIT_SOURCE.id,
+    },
+  };
+
+  const renderImageChain = async (artifacts: readonly unknown[]) => {
+    videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: artifacts });
+    render(
+      <ConversationArtifactProvider conversation_id='conv-1'>
+        <AcpSendBox
+          conversation_id='conv-1'
+          backend='hermes'
+          workspacePath='/tmp/workspace'
+          messageState={makeMessageState()}
+        />
+      </ConversationArtifactProvider>
+    );
+    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
+  };
+
+  it('EDIT CHAIN: the second send edits the RESULT and still says action=edit', async () => {
+    // Gap 1 closed in the same test: the whole sticky property lives in
+    // `calls[1]`, so asserting only `calls[0]` proves nothing about it.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'mach die Linie grün' };
+    sendBoxMessageMock.current = 'mach die Linie grün';
+    sendMessageInvokeMock.mockResolvedValue({});
+    await renderImageChain([IMAGE_EDIT_SOURCE]);
+
+    await chooseWorkProductMode('image');
+    await chooseArtifactReference(IMAGE_EDIT_SOURCE.id);
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(String(sendMessageInvokeMock.mock.calls[0][0].input)).toContain(`artifact_id=${IMAGE_EDIT_SOURCE.id}`);
+
+    // The successful edit lands as a child artifact naming its source.
+    videoArtifactsListInvokeMock.mockResolvedValue({
+      success: true,
+      data: [IMAGE_EDIT_SOURCE, IMAGE_EDIT_RESULT],
+    });
+    await act(async () => {
+      chatHistoryRefreshHandlerMock.current?.();
+    });
+
+    // The lane is still armed, still an edit — and now aimed at the RESULT.
+    await waitFor(() => expect(screen.getByTestId('work-product-reference-chip')).toBeTruthy());
+    expect(screen.getByTestId('work-product-active-image')).toBeTruthy();
+
+    sendBoxMessageMock.current = 'warte, doch blau';
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'warte, doch blau' };
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(2));
+
+    const secondTurn = String(sendMessageInvokeMock.mock.calls[1][0].input);
+    expect(secondTurn).toContain('mode=image');
+    expect(secondTurn).toContain('action=edit');
+    // THE POINT: the follow-up targets the result, never the original.
+    expect(secondTurn).toContain(`artifact_id=${IMAGE_EDIT_RESULT.id}`);
+    expect(secondTurn).not.toContain(`artifact_id=${IMAGE_EDIT_SOURCE.id}`);
+    expect(artifactContextEnvelopeInvokeMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectedArtifactIds: [IMAGE_EDIT_RESULT.id],
+        requestedEditOperation: 'image_edit',
+      })
+    );
+  });
+
+  it('EDIT CHAIN: a FAILED edit leaves the reference on the source, so a retry hits the same image', async () => {
+    // Randbedingung (a). No successor exists, so nothing may move — otherwise a
+    // retry would silently target an image that was never produced.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'mach die Linie grün' };
+    sendBoxMessageMock.current = 'mach die Linie grün';
+    sendMessageInvokeMock.mockResolvedValue({});
+    await renderImageChain([IMAGE_EDIT_SOURCE]);
+
+    await chooseWorkProductMode('image');
+    await chooseArtifactReference(IMAGE_EDIT_SOURCE.id);
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+
+    // The edit failed: the store refreshes and carries NO child artifact. An
+    // unrelated image produced meanwhile must not hijack the lane either —
+    // lineage decides, never recency.
+    videoArtifactsListInvokeMock.mockResolvedValue({
+      success: true,
+      data: [
+        IMAGE_EDIT_SOURCE,
+        {
+          ...IMAGE_EDIT_RESULT,
+          id: 'unrelated-newer-image',
+          created_at: 9999,
+          updated_at: 9999,
+          payload: { ...IMAGE_EDIT_RESULT.payload, parent_artifact_id: undefined },
+        },
+      ],
+    });
+    await act(async () => {
+      chatHistoryRefreshHandlerMock.current?.();
+    });
+
+    sendBoxMessageMock.current = 'nochmal versuchen';
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'nochmal versuchen' };
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(2));
+
+    const retry = String(sendMessageInvokeMock.mock.calls[1][0].input);
+    expect(retry).toContain('action=edit');
+    expect(retry).toContain(`artifact_id=${IMAGE_EDIT_SOURCE.id}`);
+    expect(retry).not.toContain('unrelated-newer-image');
+  });
+
+  it('COST SEAM: a carried reference spends nothing by itself and re-mints per send', async () => {
+    // Randbedingung (b). Authority still comes only from a click; a reference
+    // that merely persists must not buy anything. The permit is minted per send,
+    // bound to that turn's own text — so two turns mean two mints, never one
+    // reusable grant.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'mach die Linie grün' };
+    sendBoxMessageMock.current = 'mach die Linie grün';
+    sendMessageInvokeMock.mockResolvedValue({});
+    await renderImageChain([IMAGE_EDIT_SOURCE]);
+
+    await chooseWorkProductMode('image');
+    await chooseArtifactReference(IMAGE_EDIT_SOURCE.id);
+    const envelopeCallsAfterArming = artifactContextEnvelopeInvokeMock.mock.calls.length;
+
+    videoArtifactsListInvokeMock.mockResolvedValue({
+      success: true,
+      data: [IMAGE_EDIT_SOURCE, IMAGE_EDIT_RESULT],
+    });
+    await act(async () => {
+      chatHistoryRefreshHandlerMock.current?.();
+    });
+
+    // Arming, and re-pointing the armed reference at the successor, are pure
+    // state. Nothing was minted, generated or debited without a send.
+    expect(artifactContextEnvelopeInvokeMock.mock.calls.length).toBe(envelopeCallsAfterArming);
+    expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    sendBoxMessageMock.current = 'warte, doch blau';
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'warte, doch blau' };
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(2));
+
+    // One mint per send, each bound to its OWN text: the second turn is not
+    // spending the first turn's permit.
+    const mints = artifactContextEnvelopeInvokeMock.mock.calls.filter(
+      (call) => (call[0] as { requestedEditOperation?: string }).requestedEditOperation === 'image_edit'
+    );
+    expect(mints).toHaveLength(2);
+    expect((mints[0]?.[0] as { userTurnText?: string }).userTurnText).toBe('mach die Linie grün');
+    expect((mints[1]?.[0] as { userTurnText?: string }).userTurnText).toBe('warte, doch blau');
+  });
+
+  it('a CREATE never chains: the next send is a fresh image, not an edit of the last one', async () => {
+    // The counter-case that keeps the chain honest. A create lane that started
+    // chaining would turn "und noch eins" into an edit of the previous picture.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Bild einer Aubergine' };
+    sendBoxMessageMock.current = 'erstelle ein Bild einer Aubergine';
+    imageGenerateInvokeMock.mockResolvedValue({
+      success: true,
+      data: { ok: true, requestId: 'image-chain-1', alreadyCompleted: false, artifact: IMAGE_EDIT_RESULT },
+    });
+    await renderImageChain([]);
+
+    await chooseWorkProductMode('image');
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(1));
+
+    videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [IMAGE_EDIT_RESULT] });
+    await act(async () => {
+      chatHistoryRefreshHandlerMock.current?.();
+    });
+
+    // Still in image mode (sticky), but with NO reference: the next send is
+    // another creation, priced and routed as one.
+    await waitFor(() => expect(screen.getByTestId('work-product-active-image')).toBeTruthy());
+    expect(screen.queryByTestId('work-product-reference-chip')).toBeNull();
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(2));
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('stopping a turn leaves the armed lane exactly where it was', async () => {
+    // Gap 2. Cancelling the WORK must not cancel the INTENT: the operator who
+    // stops a long edit is still in image mode and still aimed at their image.
+    runtimeViewMock.activeTurnId = 'turn-1';
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'mach die Linie grün' };
+    sendBoxMessageMock.current = 'mach die Linie grün';
+    await renderImageChain([IMAGE_EDIT_SOURCE]);
+
+    await chooseWorkProductMode('image');
+    await chooseArtifactReference(IMAGE_EDIT_SOURCE.id);
+
+    const onStop = sendBoxPropsMock.current?.onStop as (() => Promise<void>) | undefined;
+    await act(async () => {
+      await onStop?.();
+    });
+
+    expect(conversationStopInvokeMock).toHaveBeenCalled();
+    expect(screen.getByTestId('work-product-active-image')).toBeTruthy();
+    expect(screen.getByTestId('work-product-reference-chip')).toBeTruthy();
+  });
+
+  it('GUID HANDOFF: a mode chosen on the start screen stays armed in the new chat', async () => {
+    // Gap 3. The start screen is a real mode control, so a selection made there
+    // is the same explicit click as one made in the composer — carrying it into
+    // the conversation is what makes "Bild erstellen, dann tippen, dann senden"
+    // survive the transition instead of silently reverting to chat.
+    //
+    // WHETHER IT SHOULD BE STICKY was the open question, and the answer is yes:
+    // the operator picked the lane one gesture ago and the chip says so above
+    // the input. What would be wrong is a NEW chat inheriting a lane nobody
+    // picked for it — that cannot happen here, because the seat/conversation
+    // effect resets to chat and only this explicit handoff re-arms it.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Bild einer Aubergine' };
+    imageGenerateInvokeMock.mockResolvedValue({
+      success: true,
+      data: { ok: true, requestId: 'image-guid-1', alreadyCompleted: false, artifact: IMAGE_EDIT_RESULT },
+    });
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await waitFor(() => expect(initialMessageParamsMock.current?.sendInitialMessage).toBeTruthy());
+
+    // No mode is armed until the handoff carries one.
+    expect(screen.queryByTestId('work-product-active-image')).toBeNull();
+
+    await act(async () => {
+      await initialMessageParamsMock.current?.sendInitialMessage?.(
+        'erstelle ein Bild einer Aubergine',
+        [],
+        undefined,
+        selectExplicitComposerWorkProductMode('image', undefined, {
+          tierId: 'quality',
+          aspectRatio: '16:9',
+          resolution: '1K',
+        })
+      );
+    });
+
+    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    // The lane the operator chose on the start screen is still the lane they are
+    // in, and it is visible: a second image costs no trip through the menu.
+    await waitFor(() => expect(screen.getByTestId('work-product-active-image')).toBeTruthy());
+    expect(screen.getByTestId('image-model-pill')).toBeTruthy();
   });
 });
 

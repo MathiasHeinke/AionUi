@@ -548,6 +548,7 @@ export function buildConversationArtifactEnvelopeEntries(
     if (editHandle !== undefined) entry.editHandle = editHandle;
     if (payload.parent_artifact_id !== undefined) entry.parentArtifactId = payload.parent_artifact_id;
     if (selected.has(record.id)) entry.selected = true;
+    if (payload.cleanup_notice !== undefined) entry.cleanupNotice = payload.cleanup_notice;
     return entry;
   });
 }

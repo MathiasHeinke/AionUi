@@ -17,9 +17,49 @@ import {
  * prose is intentionally absent from this module: mentioning an image, video or
  * document can never activate a paid or generative lane by itself.
  *
- * The selection is one-shot. Consuming it for a send always returns the neutral
- * chat state for the next turn. Artifact identity and content travel through the
- * existing artifact envelope; this contract carries only safe mode metadata.
+ * The MODE is sticky (founder ruling 2026-08-18). Staying in "create an image"
+ * across turns is what makes the lane legible to both the operator ("I am still
+ * in image mode, it says so above the input") and to Hermes, which receives the
+ * same prepared context on every turn instead of only the first.
+ *
+ * THE REFERENCE FOLLOWS THE WORK, and only on an EDIT (founder ruling
+ * 2026-08-18, second pass). Three outcomes were possible and two of them are
+ * wrong. Carrying the ORIGINAL forward is wrong: "and now make it blue" would
+ * silently re-edit the first image and throw away the step the operator just
+ * approved. Dropping the reference is equally wrong: the same sentence would
+ * then start a NEW image from the words "make it blue", which is not what anyone
+ * asked for. What is right is carrying the RESULT: each step builds on the one
+ * visible above it, which is how "orange — no, green — wait, blue" is supposed
+ * to feel.
+ *
+ * This module keeps the safe half of that promise: an edit keeps its reference
+ * ARMED so the lane stays an edit lane. Which artifact the reference points at
+ * is renderer state, because only the renderer can see whether a successor was
+ * actually produced. That split matters for the failure case: no successor means
+ * nothing moves, and the retry hits the same source.
+ *
+ * A CREATE still drops its reference. A selected image in VIDEO mode is an
+ * image-to-video create source, so it is consumed by the render that used it —
+ * carrying it would re-render the same clip from the same still.
+ *
+ * THE COST PROPERTY IS UNCHANGED, and it is worth naming why neither stickiness
+ * nor a surviving reference weakens it. Authority still only ever comes from
+ * `selectExplicitComposerWorkProductMode`,
+ * i.e. from a real click on a mode control; draft prose can no more activate a
+ * paid lane after this change than before it. What used to bound the exposure was
+ * amnesia — the mode forgot itself after one send. What bounds it now is
+ * VISIBILITY plus an always-present exit: the active lane is rendered above the
+ * input for as long as it is armed, and one click on its × returns to chat. An
+ * intent the operator can see and cancel at any moment is a held intent, not a
+ * stale one.
+ *
+ * An armed reference is likewise not a spend: it is the STATEMENT of a target,
+ * never a permit for it. Every paid edit still mints its single-use permit at
+ * send time, bound to that turn's own text, and a reference that merely persists
+ * mints nothing and debits nothing.
+ *
+ * Artifact identity and content travel through the existing artifact envelope;
+ * this contract carries only safe mode metadata.
  */
 
 export const COMPOSER_WORK_PRODUCT_MODES = ['chat', 'image', 'video', 'presentation', 'pdf', 'word', 'excel'] as const;
@@ -148,8 +188,8 @@ export const COMPOSER_WORK_PRODUCT_MODE_DESCRIPTORS: readonly ComposerWorkProduc
 
 export const COMPOSER_WORK_PRODUCT_ACTION_DESCRIPTORS: readonly ComposerWorkProductActionDescriptor[] = [
   { action: 'chat', requiresExplicitUserSelection: false, oneShot: false },
-  { action: 'create', requiresExplicitUserSelection: true, oneShot: true },
-  { action: 'edit', requiresExplicitUserSelection: true, oneShot: true },
+  { action: 'create', requiresExplicitUserSelection: true, oneShot: false },
+  { action: 'edit', requiresExplicitUserSelection: true, oneShot: false },
 ] as const;
 
 const MODE_SET = new Set<string>(COMPOSER_WORK_PRODUCT_MODES);
@@ -354,8 +394,11 @@ export function renderComposerSelectedArtifactPreparedContext(artifactId: unknow
 }
 
 /**
- * Consumes explicit mode authority exactly once and resets the next turn to
- * chat. Invalid or text-derived lookalikes produce no prepared request.
+ * Consumes explicit mode authority for THIS turn and returns the selection the
+ * composer should hold for the next one. The mode always survives. The bound
+ * reference survives an EDIT and is dropped by a CREATE (see the module header).
+ * Invalid or text-derived lookalikes produce no prepared request and fall back
+ * to chat.
  */
 export function consumeComposerWorkProductSelection(value: unknown): ConsumedComposerWorkProductSelection {
   const normalized = normalizeExplicitSelection(value);
@@ -363,11 +406,34 @@ export function consumeComposerWorkProductSelection(value: unknown): ConsumedCom
     return { request: null, nextSelection: DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION };
   }
 
+  // The action table decides, not this function: a `oneShot` action still
+  // collapses to chat, so a future one-shot lane needs no change here.
+  const descriptor = COMPOSER_WORK_PRODUCT_ACTION_DESCRIPTORS.find(
+    (candidate) => candidate.action === normalized.action
+  );
+  // An edit lane stays an edit lane. The renderer re-points the reference at the
+  // successor once one exists; keeping `hasSelectedReference` true here is what
+  // stops the next turn from silently becoming a CREATE — which would answer
+  // "and now make the line blue" with a brand new image built from those words.
+  const keepsReference = normalized.action === 'edit' && normalized.hasSelectedReference;
+  const nextSelection =
+    descriptor && descriptor.oneShot === false
+      ? // `selectExplicitComposerWorkProductMode` is the only authority
+        // constructor, so re-arming through it keeps the "authority comes from a
+        // click" invariant intact across turns — for the mode and for a
+        // surviving edit reference alike.
+        selectExplicitComposerWorkProductMode(
+          normalized.mode,
+          keepsReference ? { selected: true, kind: normalized.selectedReferenceKind } : undefined,
+          normalized.imageOptions ?? undefined
+        )
+      : DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION;
+
   return {
     request: {
       ...normalized,
       preparedContext: renderComposerWorkProductPreparedContext(normalized),
     },
-    nextSelection: DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION,
+    nextSelection,
   };
 }
