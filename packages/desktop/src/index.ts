@@ -2406,7 +2406,11 @@ const handleAppReady = async (): Promise<void> => {
       userDataPath: runtimeUserDataPath,
       canonicalUserDataPath: canonicalRuntimeUserDataPath,
       appPath: app.getAppPath(),
-      resourcesPath: process.resourcesPath,
+      // Only a packaged build may turn Resources into the authoritative signed
+      // dependency site. In `electron-vite dev`, Electron's generic Resources
+      // directory otherwise shadows the exact Hermes/presentation wheels in the
+      // checkout and makes every source-run bootstrap fail closed.
+      resourcesPath: requirePackagedHermesRuntime ? process.resourcesPath : undefined,
       requireBundledPython: requirePackagedHermesRuntime,
       mode: 'auto',
       env: localModelTierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: localModelTierId } : undefined,
