@@ -1944,6 +1944,25 @@ export function resolveCommandEveManagedNodeExecutable(
   }
 }
 
+/**
+ * Select the single managed-resource root for Hermes' app-owned MCP children.
+ *
+ * A packaged build treats its Electron Resources tree as authoritative and must
+ * never fall back to a developer checkout. `electron-vite dev`, however, exposes
+ * Electron's own generic Resources directory while the checkout's
+ * `resources/bundled-aioncore` tree contains the real managed Node bundle. Select
+ * that checkout tree explicitly for a source run instead of silently emitting
+ * `mcp_servers: {}`.
+ */
+export function resolveCommandEveManagedNodeResourceRoot(
+  resourcesPath: string | undefined,
+  options: { devSourceRun?: boolean; cwd?: string } = {}
+): string {
+  const devSourceRun = options.devSourceRun ?? (process as NodeJS.Process & { defaultApp?: boolean }).defaultApp === true;
+  if (devSourceRun) return path.join(options.cwd ?? process.cwd(), 'resources');
+  return typeof resourcesPath === 'string' ? resourcesPath.trim() : '';
+}
+
 export type CommandEvePackagedBrowserUseRunner = {
   path: string;
   companionPath: string;
@@ -10912,7 +10931,9 @@ function writeHermesRuntimeFiles(
   const vettedMcpServers = resolveVettedMcpServersForBootstrap(capabilityPack, getActiveSeatId(), mcpVaultDeps);
   const managedImageScriptPath = getBuiltinMcpScriptPath('builtin-mcp-image-gen');
   const managedImageTokenFile = commandEveShimAuthTokenFilePath(paths.userDataPath);
-  const managedImageNodeExecutable = resolveCommandEveManagedNodeExecutable(process.resourcesPath);
+  const managedImageNodeExecutable = resolveCommandEveManagedNodeExecutable(
+    resolveCommandEveManagedNodeResourceRoot(process.resourcesPath)
+  );
   const managedImageMcpServer =
     managedImageNodeExecutable && fs.existsSync(managedImageScriptPath) && fs.existsSync(managedImageTokenFile)
       ? buildCommandEveManagedImageHermesMcpServer({

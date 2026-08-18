@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildCommandEveManagedImageHermesMcpServer,
   renderHermesMcpServersYaml,
+  resolveCommandEveManagedNodeResourceRoot,
   resolveCommandEveManagedNodeExecutable,
 } from '@/process/commandEve/runtimeBootstrapCore';
 
@@ -101,6 +102,27 @@ describe('renderHermesMcpServersYaml', () => {
     const executable = writeManagedNode(resourcesRoot);
 
     expect(resolveCommandEveManagedNodeExecutable(resourcesRoot, 'darwin', 'arm64')).toBe(executable);
+  });
+
+  it('selects the checkout resource root in dev without weakening packaged fail-closed behavior', () => {
+    const checkout = makeResourcesRoot();
+    const checkoutResources = path.join(checkout, 'resources');
+    const executable = writeManagedNode(checkoutResources);
+    const electronResources = '/Applications/Electron.app/Contents/Resources';
+
+    const devRoot = resolveCommandEveManagedNodeResourceRoot(electronResources, {
+      devSourceRun: true,
+      cwd: checkout,
+    });
+    expect(devRoot).toBe(checkoutResources);
+    expect(resolveCommandEveManagedNodeExecutable(devRoot, 'darwin', 'arm64')).toBe(executable);
+
+    const packagedRoot = resolveCommandEveManagedNodeResourceRoot(electronResources, {
+      devSourceRun: false,
+      cwd: checkout,
+    });
+    expect(packagedRoot).toBe(electronResources);
+    expect(resolveCommandEveManagedNodeExecutable(packagedRoot, 'darwin', 'arm64')).toBe('');
   });
 
   it('fails closed when the managed Node layout is ambiguous or symlinked', () => {
