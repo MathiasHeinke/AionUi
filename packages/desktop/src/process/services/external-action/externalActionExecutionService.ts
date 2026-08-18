@@ -1286,7 +1286,7 @@ export class ExternalActionExecutionService {
     this.now = deps.now ?? (() => new Date());
     this.randomUUID = deps.randomUUID ?? (() => crypto.randomUUID());
     this.adapters = deps.adapters ?? [];
-    this.broker = new ExternalSecretUseBroker(store, this.now);
+    this.broker = new ExternalSecretUseBroker(store);
   }
 
   private async readValidatedAdapterPayload(input: AdapterPayloadReadInput): Promise<AdapterPayloadReadResult> {

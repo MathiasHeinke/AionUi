@@ -257,7 +257,7 @@ describe('ExternalSecretUseBroker opaque one-use injection', () => {
     const claim = claimedReservation(store, binding);
     expect(store.revokeSecretHandle(binding, 'handle-payment-a')).toEqual({ ok: true });
     const resolve = vi.fn(async () => new Uint8Array([1]));
-    const result = await new ExternalSecretUseBroker(store, () => new Date(NOW_ISO)).use(
+    const result = await new ExternalSecretUseBroker(store).use(
       {
         binding,
         ...claim,

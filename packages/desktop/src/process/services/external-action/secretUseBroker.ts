@@ -80,10 +80,7 @@ function fixedReason(reasonCode: unknown, fallback: string): string {
  * adapter exception cannot echo secret material into logs or renderer state.
  */
 export class ExternalSecretUseBroker {
-  constructor(
-    private readonly store: ExternalActionStore,
-    private readonly now: () => Date = () => new Date()
-  ) {}
+  constructor(private readonly store: ExternalActionStore) {}
 
   async use(
     request: ExternalSecretUseRequest,
@@ -126,20 +123,28 @@ export class ExternalSecretUseBroker {
       };
     }
     const handle = consumed.handle;
-    if (handle.revokedAt || Date.parse(handle.expiresAt) <= this.now().getTime()) {
+    const recheckedBeforeResolution = this.store.recheckSecretUseForInjection(
+      request.binding,
+      request.reservationId,
+      request.claimId,
+      request.slot,
+      request.executionContract,
+      handle
+    );
+    if ('reasonCode' in recheckedBeforeResolution) {
       this.store.reverse({
         binding: request.binding,
         reservationId: request.reservationId,
         claimId: request.claimId,
         authMode: request.executionContract.authMode,
         terminalState: 'denied',
-        reasonCode: externalActionTerminalReason('EXTERNAL_SECRET_HANDLE_NOT_ACTIVE'),
+        reasonCode: externalActionTerminalReason(recheckedBeforeResolution.reasonCode),
         outcomeDigest: BROKER_REVERSED_DIGEST,
       });
       return {
         ok: false,
         status: 'blocked',
-        reasonCode: 'EXTERNAL_SECRET_HANDLE_NOT_ACTIVE',
+        reasonCode: recheckedBeforeResolution.reasonCode,
         reservationId: request.reservationId,
       };
     }
