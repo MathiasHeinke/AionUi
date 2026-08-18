@@ -194,51 +194,31 @@ namespace["_command_eve_ask_authority"] = lambda command, inside: {
 assert approval_callback("git push origin main", "Publish changes") == "human"
 assert manual_approval_calls == [("git push origin main", "Publish changes")]
 
-# 7) Structured tools use the SAME already-wired ACP permission callback instead
-#    of escalating into the gateway queue. This is the shipped image-edit failure:
-#    the callback is the bridge to conn.request_permission, so "once" means the
-#    visible card reached the user and was approved.
-structured_approval_calls: list[tuple[str, str, dict[str, object]]] = []
-
-
-def structured_approval_callback(command: str, description: str, **options: object) -> str:
-    structured_approval_calls.append((command, description, dict(options)))
-    return "once"
-
-
-current_tool_approval_callback = structured_approval_callback
+# 7) A shim "ask" becomes the NATIVE Hermes approve directive — never a bespoke
+#    one-operation card. Hermes' own gate (tools.approval.request_tool_approval)
+#    then offers once/session/always/deny through the interactive ACP permission
+#    callback and persists the answer in its own allowlists. The rule key folds
+#    in the ladder so a lowered rung asks again instead of riding a stale grant.
 namespace["_command_eve_ask_tool_authority"] = lambda tool_name, action="": {
     "decision": "ask",
     "ladder": 1,
 }
-assert namespace["_command_eve_authority_pre_tool_call"](
+directive = namespace["_command_eve_authority_pre_tool_call"](
     "eve_image_edit",
     {"action": "replace"},
     session_id="session-auto",
-) is None
-assert structured_approval_calls == [
-    (
-        "<eve_image_edit> replace",
-        "Command EVE requires your approval for eve_image_edit:replace at this authority level.",
-        {"allow_permanent": False, "smart_denied": True},
-    )
-]
-
-# 8) No attached ACP callback is an explicit fail-CLOSED block. Crucially the
-#    directive is NOT "approve", so Hermes never enters submit_pending and never
-#    creates an invisible queue item that the desktop cannot consume.
-current_tool_approval_callback = None
-blocked_without_callback = namespace["_command_eve_authority_pre_tool_call"](
-    "eve_video_edit",
-    {"action": "trim"},
-    session_id="session-auto",
 )
-assert blocked_without_callback["action"] == "block"
-assert "was not queued" in blocked_without_callback["message"]
+assert directive == {
+    "action": "approve",
+    "message": "Command EVE requires your approval for eve_image_edit:replace at this authority level.",
+    "rule_key": "command-eve:L1:eve_image_edit:replace",
+}
 
-# 9) A full authority grant still bypasses the card when the local decision
-#    arrives. A 2s authority timeout is distinct from a real policy "ask" and
-#    reaches the same visible one-operation callback instead of widening.
+# 8) The approve directive is returned regardless of callback attachment: the
+#    fail-closed ownership now lives in the native gate, which denies safely
+#    when no human can answer (and never enters the gateway submit_pending
+#    queue in the ACP desktop, where the context is interactive, not gateway).
+#    An "allow" decision still needs no human at all.
 namespace["_command_eve_ask_tool_authority"] = lambda tool_name, action="": {
     "decision": "allow",
     "ladder": 5,
@@ -249,18 +229,66 @@ assert namespace["_command_eve_authority_pre_tool_call"](
     session_id="session-auto",
 ) is None
 
-current_tool_approval_callback = structured_approval_callback
+# 9) A 2s authority timeout is distinct from a real policy "ask" and reaches
+#    the same native gate with its own message — not a widening.
 namespace["_command_eve_ask_tool_authority"] = lambda tool_name, action="": {
     "decision": "ask",
     "ladder": 0,
     "reason": "authority_timeout",
 }
-assert namespace["_command_eve_authority_pre_tool_call"](
+timeout_directive = namespace["_command_eve_authority_pre_tool_call"](
     "eve_image_edit",
     {"action": "replace"},
     session_id="session-auto",
+)
+assert timeout_directive is not None
+assert timeout_directive["action"] == "approve"
+assert "could not confirm the current authority grant within 2 seconds" in timeout_directive["message"]
+assert timeout_directive["rule_key"] == "command-eve:L0:eve_image_edit:replace"
+
+# 11) The Tool-Search bridge is invisible to authority: a `tool_call` is
+#     classified by its UNDERLYING tool — including MCP-enveloped names and
+#     JSON-string arguments — and the memory quarantine keeps holding through
+#     the bridge. (The quarantine function itself is covered by the attachment
+#     memory gate harness; here a stub proves only the ORDERING.)
+real_ask_tool_authority = namespace["_command_eve_ask_tool_authority"]
+seen_tool_queries: list[tuple[str, str]] = []
+
+
+def recording_tool_authority(tool_name: str, action: str = "") -> dict:
+    seen_tool_queries.append((tool_name, action))
+    return {"decision": "allow", "ladder": 5}
+
+
+namespace["_command_eve_ask_tool_authority"] = recording_tool_authority
+namespace["_command_eve_turn_memory_quarantined"] = lambda session_id: False
+assert namespace["_command_eve_authority_pre_tool_call"](
+    "tool_call",
+    {"name": "mcp__aionui_eve_artifacts__eve_image_edit", "arguments": {"action": "replace"}},
+    session_id="session-auto",
 ) is None
-assert "could not confirm the current authority grant within 2 seconds" in structured_approval_calls[-1][1]
+assert seen_tool_queries[-1] == ("mcp__aionui_eve_artifacts__eve_image_edit", "replace")
+
+assert namespace["_command_eve_authority_pre_tool_call"](
+    "tool_call",
+    {"name": "todo", "arguments": "{\"todos\": []}"},
+    session_id="session-auto",
+) is None
+assert seen_tool_queries[-1] == ("todo", "write")
+
+namespace["_command_eve_turn_memory_quarantined"] = lambda session_id: True
+quarantine_block = namespace["_command_eve_authority_pre_tool_call"](
+    "tool_call",
+    {"name": "memory", "arguments": {"operations": [{"action": "remove", "id": "m1"}]}},
+    session_id="session-auto",
+)
+assert quarantine_block is not None
+assert quarantine_block["action"] == "block"
+assert "quarantined" in quarantine_block["message"]
+
+# Case 10 below still needs the REAL emitted client: case 11 only borrowed the
+# name in this namespace.
+namespace["_command_eve_ask_tool_authority"] = real_ask_tool_authority
 
 # 10) The emitted HTTP client classifies both a direct socket timeout and the
 #     wrapped urllib form separately from an ordinary authority failure.
@@ -295,10 +323,12 @@ print(
             "manual_approval_timeout_seconds": 300,
             "rung_five_command_auto_approved_once": True,
             "closed_decision_reaches_human": True,
-            "structured_tool_reaches_acp_permission": True,
-            "missing_acp_callback_blocks_without_queue": True,
+            "ask_becomes_native_approve_directive": True,
+            "directive_contract_owns_fail_closed": True,
             "full_tool_authority_skips_card": True,
             "authority_timeout_is_distinct_and_visible": True,
+            "tool_call_bridge_resolves_underlying": True,
+            "bridge_quarantine_still_blocks": True,
             "idempotent_install": True,
         }
     )

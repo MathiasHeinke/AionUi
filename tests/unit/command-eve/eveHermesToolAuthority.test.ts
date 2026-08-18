@@ -67,6 +67,57 @@ describe('Hermes structured tool authority route', () => {
     await expect(decision(baseUrl, 'video_generate')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
   });
 
+  it('keeps the tool-search bridge reads and builtin product MCP tools popup-free at every rung', async () => {
+    const baseUrl = await startAt(0);
+    await expect(decision(baseUrl, 'tool_search')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
+    await expect(decision(baseUrl, 'tool_describe')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
+    await expect(decision(baseUrl, 'read_window_below')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
+    await expect(decision(baseUrl, 'video_analyze')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
+    await expect(decision(baseUrl, 'mcp__aionui_image_generation__aionui_image_generation')).resolves.toMatchObject({
+      decision: 'allow',
+      ladder: 0,
+    });
+    await expect(decision(baseUrl, 'mcp__aionui_eve_artifacts__eve_artifact_get')).resolves.toMatchObject({
+      decision: 'allow',
+      ladder: 0,
+    });
+    await expect(decision(baseUrl, 'mcp__aionui_eve_artifacts__eve_artifact_list')).resolves.toMatchObject({
+      decision: 'allow',
+      ladder: 0,
+    });
+    await expect(decision(baseUrl, 'mcp__aionui_eve_artifacts__eve_typed_ui_publish')).resolves.toMatchObject({
+      decision: 'allow',
+      ladder: 0,
+    });
+    await expect(decision(baseUrl, 'mcp__aionui_eve_artifacts__eve_image_edit')).resolves.toMatchObject({
+      decision: 'allow',
+      ladder: 0,
+    });
+    await expect(decision(baseUrl, 'mcp__aionui_eve_artifacts__eve_video_edit')).resolves.toMatchObject({
+      decision: 'allow',
+      ladder: 0,
+    });
+    await expect(decision(baseUrl, 'mcp__aionui_eve_artifacts__eve_video_generate')).resolves.toMatchObject({
+      decision: 'allow',
+      ladder: 0,
+    });
+  });
+
+  it('never lets a new builtin-server tool or a bare bridge call inherit unattended authority', async () => {
+    const baseUrl = await startWith(fullRelease());
+    await expect(decision(baseUrl, 'mcp__aionui_eve_artifacts__eve_future_destructive')).resolves.toMatchObject({
+      decision: 'ask',
+    });
+    await expect(decision(baseUrl, 'mcp__aionui_image_generation__future_tool')).resolves.toMatchObject({
+      decision: 'ask',
+    });
+    await expect(decision(baseUrl, 'mcp__aionui_unknown_server__whatever')).resolves.toMatchObject({
+      decision: 'ask',
+    });
+    await expect(decision(baseUrl, 'mcp__third_party__anything')).resolves.toMatchObject({ decision: 'ask' });
+    await expect(decision(baseUrl, 'tool_call')).resolves.toMatchObject({ decision: 'ask' });
+  });
+
   it('lets self-directed seats navigate and enables opaque actions only after their own grant', async () => {
     const baseUrl = await startAt(5);
     await expect(decision(baseUrl, 'browser_navigate')).resolves.toMatchObject({ decision: 'allow', ladder: 5 });

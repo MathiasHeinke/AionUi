@@ -1771,10 +1771,12 @@ describe('Command EVE runtime bootstrap core', () => {
         server_factory_bound: true,
         rung_five_command_auto_approved_once: true,
         closed_decision_reaches_human: true,
-        structured_tool_reaches_acp_permission: true,
-        missing_acp_callback_blocks_without_queue: true,
+        ask_becomes_native_approve_directive: true,
+        directive_contract_owns_fail_closed: true,
         full_tool_authority_skips_card: true,
         authority_timeout_is_distinct_and_visible: true,
+        tool_call_bridge_resolves_underlying: true,
+        bridge_quarantine_still_blocks: true,
         idempotent_install: true,
       });
       const browserUseUvXReceiptHarness = spawnSync(

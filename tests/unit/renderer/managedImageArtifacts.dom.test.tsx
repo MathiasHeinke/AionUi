@@ -15,16 +15,30 @@ const {
   imageArtifactsListInvokeMock,
   imageArtifactPreviewInvokeMock,
   previewOpenMock,
+  useConversationContextSafeMock,
+  getFileMetadataInvokeMock,
+  readGeneratedArtifactPreviewInvokeMock,
 } = vi.hoisted(() => ({
   listArtifactsInvokeMock: vi.fn(),
   videoArtifactsListInvokeMock: vi.fn(),
   imageArtifactsListInvokeMock: vi.fn(),
   imageArtifactPreviewInvokeMock: vi.fn(),
   previewOpenMock: vi.fn(),
+  useConversationContextSafeMock: vi.fn(),
+  getFileMetadataInvokeMock: vi.fn(),
+  readGeneratedArtifactPreviewInvokeMock: vi.fn(),
 }));
 
 vi.mock('@/common', () => ({
   ipcBridge: {
+    fs: {
+      getFileMetadata: { invoke: getFileMetadataInvokeMock },
+      getImageBase64: { invoke: vi.fn() },
+      readFileBuffer: { invoke: vi.fn() },
+    },
+    application: {
+      readGeneratedArtifactPreview: { invoke: readGeneratedArtifactPreviewInvokeMock },
+    },
     conversation: {
       listArtifacts: { invoke: listArtifactsInvokeMock },
       artifactStream: { on: vi.fn(() => () => {}) },
@@ -43,7 +57,9 @@ vi.mock('@/common', () => ({
 // kept real; the rest is doubled shallowly.
 vi.mock('@/renderer/components/Markdown', () => ({ default: () => null }));
 vi.mock('../../Preview/components/viewers/PDFViewer', () => ({ default: () => null }));
-vi.mock('@/renderer/hooks/context/ConversationContext', () => ({ useConversationContextSafe: () => null }));
+vi.mock('@/renderer/hooks/context/ConversationContext', () => ({
+  useConversationContextSafe: () => useConversationContextSafeMock(),
+}));
 vi.mock('@/renderer/pages/conversation/Preview', () => ({
   usePreviewContext: () => ({ openPreview: previewOpenMock }),
 }));
@@ -98,6 +114,7 @@ const asConversationArtifact = (record: CommandEveActiveImageArtifact): IConvers
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useConversationContextSafeMock.mockReturnValue(null);
   listArtifactsInvokeMock.mockResolvedValue([]);
   videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [] });
   imageArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [] });
@@ -198,6 +215,34 @@ describe('the managed image card previews by artifact id', () => {
     // No open/reveal affordance without a path — and no path anywhere in the DOM.
     expect(screen.queryByTestId('generated-artifact-reveal')).toBeNull();
     expect(document.body.innerHTML).not.toContain('/Users/');
+  });
+
+  it('keeps previewing through the bridge when the placement path resolves against a workspace (1.823.x regression)', async () => {
+    // Live evidence 2026-08-18: a temp conversation's workspace
+    // (hermes-temp-<conv>) resolved the payload's relative placement path into
+    // a file: source, which flipped the card off the managed bridge and ended
+    // in fs/metadata 400s — the card showed "keine direkte Vorschau" for a
+    // byte-perfect image. The marker alone must drive the bridge now.
+    useConversationContextSafeMock.mockReturnValue({
+      workspace: '/Users/probe/.command-eve/conversations/hermes-temp-conv-1',
+    });
+    const placed = managedImageArtifact();
+    (placed.payload as Record<string, unknown>).path = 'bilder/erstelle-hiermit-das-bild-2026-08-18.png';
+
+    render(<MessageGeneratedArtifact artifact={asConversationArtifact(placed) as never} />);
+    await waitFor(() =>
+      expect(imageArtifactPreviewInvokeMock).toHaveBeenCalledWith({
+        conversationId: 'conv-1',
+        artifactId: 'img_generated1',
+      })
+    );
+    const img = await screen.findByTestId('generated-artifact-image');
+    expect(img.getAttribute('src')?.startsWith('data:image/png;base64,')).toBe(true);
+    // The managed artifact never previews from the payload path: no metadata
+    // probe against the (wrong) conversation workspace, no generated-artifact
+    // fallback read.
+    expect(getFileMetadataInvokeMock).not.toHaveBeenCalled();
+    expect(readGeneratedArtifactPreviewInvokeMock).not.toHaveBeenCalled();
   });
 
   it('downloads the verified managed preview without fetching an internal artifact handle', async () => {

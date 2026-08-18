@@ -239,9 +239,13 @@ const HERMES_ALWAYS_READ_TOOLS = new Set([
   'project_list',
   'read_preview',
   'read_terminal',
+  'read_window_below',
   'session_search',
   'skill_view',
   'skills_list',
+  'tool_describe',
+  'tool_search',
+  'video_analyze',
   'vision_analyze',
   'web_extract',
   'web_search',
@@ -275,6 +279,52 @@ const HERMES_OUTWARD_TOOLS = new Set([
 ]);
 
 /**
+ * The two builtin product MCP servers arrive with Hermes' native
+ * `mcp__<server>__<tool>` envelope, so the seat's authority decision has to
+ * key on the inner tool name per server. The same doctrine as native tools
+ * applies: reads and the typed-UI surface are open at every rung, and the
+ * paid image/video calls stay popup-free because the product's credit
+ * preflight (or the minted permit, for edits) is their authority seam.
+ *
+ * A NEW tool on a known builtin server — or a new aionui server — is NOT
+ * covered by these tables and stays behind the one-operation card. Third-party
+ * MCP servers (`mcp__github__…`, user-configured) are deliberately not matched
+ * here at all: they fall through to the catch-all and ask.
+ */
+const HERMES_BUILTIN_MCP_TOOL_POLICIES: ReadonlyMap<
+  string,
+  { read: ReadonlySet<string>; surface: ReadonlySet<string>; productManaged: ReadonlySet<string> }
+> = new Map([
+  [
+    'mcp__aionui_image_generation__',
+    { read: new Set(), surface: new Set(), productManaged: new Set(['aionui_image_generation']) },
+  ],
+  [
+    'mcp__aionui_eve_artifacts__',
+    {
+      read: new Set(['eve_artifact_get', 'eve_artifact_list']),
+      surface: new Set(['eve_typed_ui_publish']),
+      productManaged: new Set(['eve_image_edit', 'eve_video_edit', 'eve_video_generate']),
+    },
+  ],
+]);
+
+function classifyBuiltinMcpTool(toolName: string): EveCommandApprovalVerdict | null {
+  if (!toolName.startsWith('mcp__aionui_')) return null;
+  for (const [prefix, policy] of HERMES_BUILTIN_MCP_TOOL_POLICIES) {
+    if (!toolName.startsWith(prefix)) continue;
+    const inner = toolName.slice(prefix.length);
+    if (policy.read.has(inner) || policy.surface.has(inner) || policy.productManaged.has(inner)) {
+      return 'allow';
+    }
+    // Known builtin server, unknown tool: installed, but it never inherits
+    // unattended authority from its neighbours.
+    return 'ask';
+  }
+  return 'ask';
+}
+
+/**
  * Decide whether a structured native Hermes action may run without a card.
  * This is deliberately separate from terminal command classification: native
  * tools have structured names/actions and must not be reverse-engineered into
@@ -303,8 +353,16 @@ export function decideHermesToolApproval(
     .trim()
     .toLowerCase();
 
+  const builtinMcpVerdict = classifyBuiltinMcpTool(toolName);
+  if (builtinMcpVerdict) return builtinMcpVerdict;
+
   if (HERMES_ALWAYS_READ_TOOLS.has(toolName)) return 'allow';
   if (HERMES_PRODUCT_MANAGED_TOOLS.has(toolName) || toolName.startsWith('bfl_flux3_')) return 'allow';
+  // The Tool-Search bridge executes the underlying tool with the Hermes hook
+  // skipped, so the shim hook resolves and classifies the UNDERLYING name
+  // before this point. A bare `tool_call` reaching here resolved to nothing —
+  // it must never become an unattended backdoor into the deferred catalog.
+  if (toolName === 'tool_call') return 'ask';
   if (HERMES_BROWSER_READ_TOOLS.has(toolName)) return 'allow';
   if (HERMES_BROWSER_NAVIGATION_TOOLS.has(toolName)) {
     return runtime.outside_workspace_command ? 'allow' : 'ask';

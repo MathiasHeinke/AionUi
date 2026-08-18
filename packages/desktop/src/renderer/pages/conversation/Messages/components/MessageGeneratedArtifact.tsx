@@ -391,11 +391,16 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const [localFilePreviewLoading, setLocalFilePreviewLoading] = useState(false);
   const [managedImagePreviewSource, setManagedImagePreviewSource] = useState<string>();
 
-  // 1.820.3 — a MANAGED GENERATED image carries NO path and NO URL by
-  // contract: its bytes live in Main's private store. The card resolves its
-  // preview BY ARTIFACT ID over the `commandEve.imageArtifactPreview` bridge,
-  // which re-verifies the conversation and the SHA-256 on every read.
-  const isManagedImage = type === 'image' && payload.managed_image === true && !source;
+  // 1.820.3 — a MANAGED GENERATED image's preview comes BY ARTIFACT ID over
+  // the `commandEve.imageArtifactPreview` bridge, which re-verifies the
+  // conversation and the SHA-256 on every read. The marker alone decides:
+  // since 1.823.x the payload ALSO carries a placement `path` (the canonical
+  // visible copy), and that relative path resolves against the conversation
+  // workspace — which for a temp conversation is the Hermes root, NOT the
+  // artifact root. Resolving it produced file-not-found previews and
+  // suppressed this bridge. A managed artifact therefore never previews from
+  // a payload path; the verified bytes are the only preview source.
+  const isManagedImage = type === 'image' && payload.managed_image === true;
   useEffect(() => {
     if (!isManagedImage) {
       setManagedImagePreviewSource(undefined);
@@ -474,6 +479,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   useEffect(() => {
     const isLocalFilePreview =
       (type === 'image' || type === 'video' || type === 'audio' || type === 'pdf') &&
+      !isManagedImage &&
       Boolean(openPath) &&
       source?.startsWith('file:');
     if (
@@ -543,7 +549,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
     return () => {
       active = false;
     };
-  }, [mimeType, openPath, source, type, workspace]);
+  }, [isManagedImage, mimeType, openPath, source, type, workspace]);
 
   const securedHtmlContent = useMemo(() => {
     const content = htmlContent || pathHtmlContent;

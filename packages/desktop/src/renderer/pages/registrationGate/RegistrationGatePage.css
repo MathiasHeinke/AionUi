@@ -320,10 +320,19 @@
   border: none !important;
   color: #ffffff !important;
   font-weight: 600 !important;
-  box-shadow: 0 8px 20px rgba(249, 115, 22, 0.3) !important;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--eve-accent) 32%, transparent) !important;
   transition:
     filter var(--eve-motion-duration-feedback, 300ms) var(--eve-motion-ease-standard, ease),
     box-shadow var(--eve-motion-duration-state, 400ms) var(--eve-motion-ease-standard, ease) !important;
+}
+/* The loading/disabled wait during the browser round-trip must stay readable —
+   Arco's default fades the whole button into a low-contrast wash. The action
+   stays bold; only the cursor and the spin affordance signal the wait. */
+.registration-gate .arco-btn-primary.arco-btn-loading,
+.registration-gate .arco-btn-primary:disabled {
+  opacity: 0.85 !important;
+  color: #ffffff !important;
+  filter: saturate(0.85);
 }
 .registration-gate__form > .arco-btn:not(.arco-btn-shape-circle) {
   border-radius: var(--registration-control-radius) !important;
@@ -495,9 +504,9 @@
   color: var(--registration-text);
 }
 .registration-gate__authmode-tab--active {
-  background: linear-gradient(180deg, rgba(251, 146, 60, 0.18) 0%, rgba(249, 115, 22, 0.18) 100%);
+  background: color-mix(in srgb, var(--eve-accent) 12%, transparent);
   color: var(--eve-accent);
-  box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.35);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--eve-accent) 60%, transparent);
 }
 .registration-gate__authmode-tab:disabled {
   cursor: default;
@@ -549,7 +558,7 @@
   font-size: 13px;
   font-weight: 600;
   line-height: 18px;
-  color: var(--eve-accent);
+  color: var(--eve-brand-ui, #c2410c);
 }
 .registration-gate__curtain-preserved-body {
   margin: 0;
