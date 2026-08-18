@@ -73,12 +73,27 @@ function isLadderRung(value: unknown): value is EveLadderRung {
 }
 
 /**
+ * Stamp a mutation epoch on every real human grant change.
+ *
+ * The native Hermes allowlist key must not be a function of the effective
+ * booleans alone: revoke -> restore would recreate the old key and revive a
+ * permanent "always" answer. This counter makes grant history part of the key
+ * without teaching the Python policy layer anything about grant storage.
+ */
+function withAuthorityMutation(grant: EveAuthorityGrant, next: EveAuthorityGrant): EveAuthorityGrant {
+  const epoch = grant.revisionEpoch ?? 0;
+  if (!Number.isSafeInteger(epoch) || epoch < 0 || epoch + 1 >= Number.MAX_SAFE_INTEGER) return grant;
+  return { ...next, revisionEpoch: epoch + 1 };
+}
+
+/**
  * The user moved the ladder. Seals are untouched: moving the ladder is a
  * convenience decision and must never open or close a trust decision.
  */
 export function withLadder(grant: EveAuthorityGrant, ladder: unknown): EveAuthorityGrant {
   if (!isLadderRung(ladder)) return grant;
-  return { ...grant, ladder, updatedBy: 'user' };
+  if (grant.ladder === ladder) return grant;
+  return withAuthorityMutation(grant, { ...grant, ladder, updatedBy: 'user' });
 }
 
 /**
@@ -93,17 +108,19 @@ export function withLadder(grant: EveAuthorityGrant, ladder: unknown): EveAuthor
 export function withOpaqueUiAutoRun(grant: EveAuthorityGrant, enabled: boolean, now: string): EveAuthorityGrant {
   if (enabled && grant.ladder < OPAQUE_UI_AUTORUN_MIN_RUNG) return grant;
   if (enabled) {
-    return {
+    if (grant.opaqueUiAutoRun === true) return grant;
+    return withAuthorityMutation(grant, {
       ...grant,
       opaqueUiAutoRun: true,
       opaqueUiAutoRunGrantedAt: now,
       updatedBy: 'user',
-    };
+    });
   }
+  if (grant.opaqueUiAutoRun !== true) return grant;
   const next: EveAuthorityGrant = { ...grant, updatedBy: 'user' };
   delete next.opaqueUiAutoRun;
   delete next.opaqueUiAutoRunGrantedAt;
-  return next;
+  return withAuthorityMutation(grant, next);
 }
 
 /**
@@ -120,6 +137,10 @@ export function withSeal(
   open: boolean,
   now: string
 ): EveAuthorityGrant {
+  const alreadyOpen = grant.capabilities[capability] === true;
+  const alreadyClosed = grant.capabilities[capability] !== true;
+  if (open && alreadyOpen && grant.grantedAt?.[capability] === now) return grant;
+  if (!open && alreadyClosed) return grant;
   const capabilities = { ...grant.capabilities };
   const grantedAt = { ...grant.grantedAt };
   const limits = { ...grant.limits };
@@ -133,7 +154,12 @@ export function withSeal(
     if (capability === 'spend.money') delete limits['spend.money'];
   }
 
-  const next: EveAuthorityGrant = { ...grant, capabilities, grantedAt, updatedBy: 'user' };
+  const next: EveAuthorityGrant = withAuthorityMutation(grant, {
+    ...grant,
+    capabilities,
+    grantedAt,
+    updatedBy: 'user',
+  });
   if (Object.keys(limits).length > 0) next.limits = limits;
   else delete (next as { limits?: unknown }).limits;
   return next;
@@ -165,11 +191,12 @@ export function classifyDailyBudget(dailyCents: unknown): DailyBudgetVerdict {
  */
 export function withDailyBudget(grant: EveAuthorityGrant, dailyCents: number): EveAuthorityGrant {
   if (classifyDailyBudget(dailyCents) === 'invalid') return grant;
-  return {
+  if (grant.limits?.['spend.money']?.dailyCents === dailyCents) return grant;
+  return withAuthorityMutation(grant, {
     ...grant,
     limits: { ...grant.limits, 'spend.money': { dailyCents } },
     updatedBy: 'user',
-  };
+  });
 }
 
 /**
@@ -338,6 +365,7 @@ export function withFullAuthority(
 ): EveAuthorityGrant {
   const preview = previewFullAuthority(grant, money, opaqueUi);
   if (preview.blocked !== null) return grant;
+  if ((grant.revisionEpoch ?? 0) + 1 >= Number.MAX_SAFE_INTEGER) return grant;
 
   let next = withLadder(grant, FULL_AUTHORITY_RUNG);
   for (const capability of preview.sealsToOpen) next = withSeal(next, capability, true, now);
@@ -381,7 +409,7 @@ export function withRememberedCommand(grant: EveAuthorityGrant, command: string,
   // Stamping it here made a grant that a migration invented look confirmed, and
   // silenced the "you have not confirmed this yet" banner on a rung nobody
   // picked (P2, Kimi).
-  return { ...grant, rememberedCommands: next };
+  return withAuthorityMutation(grant, { ...grant, rememberedCommands: next });
 }
 
 /** The human withdrew one remembered command. The next boot emits the allowlist without it. */
@@ -391,7 +419,7 @@ export function withoutRememberedCommand(grant: EveAuthorityGrant, command: stri
   if (next.length === existing.length) return grant;
   // Same reasoning as `withRememberedCommand`: withdrawing a command says
   // nothing about the ladder, so it must not mark the ladder as confirmed.
-  return { ...grant, rememberedCommands: next };
+  return withAuthorityMutation(grant, { ...grant, rememberedCommands: next });
 }
 
 /**

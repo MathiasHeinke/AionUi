@@ -120,7 +120,8 @@ describe('Hermes desktop bridge', () => {
     expect(shim).toContain('/command-eve/tool-approval?');
     expect(shim).toContain('context.register_hook("pre_tool_call", _command_eve_authority_pre_tool_call)');
     expect(shim).toContain('"action": "approve",');
-    expect(shim).toContain('"rule_key": f"command-eve:L{ladder}:{label}",');
+    expect(shim).toContain('rule_scope = f"A{revision}" if revision else f"U{uuid.uuid4().hex}"');
+    expect(shim).toContain('"rule_key": f"command-eve:{rule_scope}:L{ladder}:{label}",');
     expect(shim).not.toContain('cb["smart_denied"] = True');
     expect(shim).not.toContain('cb["allow_permanent"] = False');
     expect(shim).not.toContain('handler=lambda args, **_kw: _command_eve_read_terminal_tool(args)');

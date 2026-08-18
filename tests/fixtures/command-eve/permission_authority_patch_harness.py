@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import types
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse
@@ -68,6 +69,7 @@ def load_patch() -> Any:
         "os": os,
         "re": re,
         "json": json,
+        "uuid": uuid,
         "Path": Path,
         "Request": Request,
         "urlopen": urlopen,
@@ -129,6 +131,7 @@ sys.modules["acp_adapter.permissions"] = permissions_module
 namespace = load_patch()
 install_patch = namespace["_install_command_eve_permission_authority_patch"]
 install_approval_patch = namespace["_install_command_eve_approval_class_patch"]
+emitted_ask_tool_authority = namespace["_command_eve_ask_tool_authority"]
 install_patch()
 install_patch()
 
@@ -199,20 +202,21 @@ assert manual_approval_calls == [("git push origin main", "Publish changes")]
 #    then offers once/session/always/deny through the interactive ACP permission
 #    callback and persists the answer in its own allowlists. The rule key folds
 #    in the ladder so a lowered rung asks again instead of riding a stale grant.
+verified_revision = "A" * 32
 namespace["_command_eve_ask_tool_authority"] = lambda tool_name, action="": {
     "decision": "ask",
     "ladder": 1,
+    "authority_revision": verified_revision,
 }
 directive = namespace["_command_eve_authority_pre_tool_call"](
     "eve_image_edit",
     {"action": "replace"},
     session_id="session-auto",
 )
-assert directive == {
-    "action": "approve",
-    "message": "Command EVE requires your approval for eve_image_edit:replace at this authority level.",
-    "rule_key": "command-eve:L1:eve_image_edit:replace",
-}
+assert directive is not None
+assert directive["action"] == "approve", directive
+assert directive["message"] == "Command EVE requires your approval for eve_image_edit:replace at this authority level.", directive
+assert directive["rule_key"] == f"command-eve:A{verified_revision}:L1:eve_image_edit:replace", directive
 
 # 8) The approve directive is returned regardless of callback attachment: the
 #    fail-closed ownership now lives in the native gate, which denies safely
@@ -244,14 +248,40 @@ timeout_directive = namespace["_command_eve_authority_pre_tool_call"](
 assert timeout_directive is not None
 assert timeout_directive["action"] == "approve"
 assert "could not confirm the current authority grant within 2 seconds" in timeout_directive["message"]
-assert timeout_directive["rule_key"] == "command-eve:L0:eve_image_edit:replace"
+assert timeout_directive["rule_key"].startswith("command-eve:U")
+assert timeout_directive["rule_key"].endswith(":L0:eve_image_edit:replace")
+assert ":L0:eve_image_edit:replace" not in timeout_directive["rule_key"][:-len(":L0:eve_image_edit:replace")]
+
+# A second unverified ask can never reuse the first timeout key, even when the
+# same tool/action asks again immediately.
+second_timeout_directive = namespace["_command_eve_authority_pre_tool_call"](
+    "eve_image_edit",
+    {"action": "replace"},
+    session_id="session-auto",
+)
+assert second_timeout_directive is not None
+assert second_timeout_directive["rule_key"] != timeout_directive["rule_key"]
+
+# A missing revision is treated exactly like an outage and cannot mint a
+# reusable L0 key.
+namespace["_command_eve_ask_tool_authority"] = lambda tool_name, action="": {
+    "decision": "ask",
+    "ladder": 2,
+}
+missing_revision_directive = namespace["_command_eve_authority_pre_tool_call"](
+    "eve_image_edit",
+    {"action": "replace"},
+    session_id="session-auto",
+)
+assert missing_revision_directive is not None
+assert missing_revision_directive["rule_key"].startswith("command-eve:U")
+assert missing_revision_directive["rule_key"].endswith(":L2:eve_image_edit:replace")
 
 # 11) The Tool-Search bridge is invisible to authority: a `tool_call` is
 #     classified by its UNDERLYING tool — including MCP-enveloped names and
 #     JSON-string arguments — and the memory quarantine keeps holding through
 #     the bridge. (The quarantine function itself is covered by the attachment
 #     memory gate harness; here a stub proves only the ORDERING.)
-real_ask_tool_authority = namespace["_command_eve_ask_tool_authority"]
 seen_tool_queries: list[tuple[str, str]] = []
 
 
@@ -286,12 +316,10 @@ assert quarantine_block is not None
 assert quarantine_block["action"] == "block"
 assert "quarantined" in quarantine_block["message"]
 
-# Case 10 below still needs the REAL emitted client: case 11 only borrowed the
-# name in this namespace.
-namespace["_command_eve_ask_tool_authority"] = real_ask_tool_authority
-
 # 10) The emitted HTTP client classifies both a direct socket timeout and the
 #     wrapped urllib form separately from an ordinary authority failure.
+# Restore the REAL emitted client after case 11 replaced it with a recording stub.
+namespace["_command_eve_ask_tool_authority"] = emitted_ask_tool_authority
 class WrappedTimeout(Exception):
     reason = TimeoutError("timed out")
 

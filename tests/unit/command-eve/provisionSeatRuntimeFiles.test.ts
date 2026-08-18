@@ -68,6 +68,21 @@ afterEach(() => {
 });
 
 describe('(a) provisioning a fresh TARGET seat home', () => {
+  it('fails closed when an explicit isolated user-data root is missing or relative', () => {
+    for (const invalidRoot of [undefined, '', 'command-eve-relative-root']) {
+      const result = provisionSeatRuntimeFiles({
+        userDataPath: invalidRoot as string,
+        seatId: REAL_UUID_A,
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        hermes_home: '',
+        memory_enabled: false,
+        error: 'provisionSeatRuntimeFiles requires an absolute isolated userDataPath',
+      });
+    }
+  });
+
   it('writes config.yaml (memory_enabled: true) + SOUL.md into the seat home, NOT the legacy home', () => {
     const userData = makeUserData();
     // Simulate the switch step (a): the active seat is now the target.

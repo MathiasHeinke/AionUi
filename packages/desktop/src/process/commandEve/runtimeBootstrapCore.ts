@@ -1958,7 +1958,8 @@ export function resolveCommandEveManagedNodeResourceRoot(
   resourcesPath: string | undefined,
   options: { devSourceRun?: boolean; cwd?: string } = {}
 ): string {
-  const devSourceRun = options.devSourceRun ?? (process as NodeJS.Process & { defaultApp?: boolean }).defaultApp === true;
+  const devSourceRun =
+    options.devSourceRun ?? (process as NodeJS.Process & { defaultApp?: boolean }).defaultApp === true;
   if (devSourceRun) return path.join(options.cwd ?? process.cwd(), 'resources');
   return typeof resourcesPath === 'string' ? resourcesPath.trim() : '';
 }
@@ -7388,7 +7389,10 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        ladder = int(payload.get("ladder") or 0)',
     '    except Exception:',
     '        ladder = 0',
-    '    return {"decision": decision, "ladder": ladder}',
+    '    revision = str(payload.get("authority_revision") or "")',
+    '    if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", revision):',
+    '        revision = ""',
+    '    return {"decision": decision, "ladder": ladder, "authority_revision": revision}',
     '',
     '',
     '# Terminal commands and file edits already have native ACP authority seams.',
@@ -7404,11 +7408,11 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    if normalized_tool in _COMMAND_EVE_NATIVE_AUTHORITY_TOOLS:',
     '        return None',
     '    normalized_args = args if isinstance(args, dict) else {}',
-    "    # Tool-Search bridge: run_agent fires this hook once for `tool_call` and",
-    "    # then executes the underlying tool with the hook skipped, so authority",
-    "    # has to classify the UNDERLYING tool, never the bridge. Resolving here",
-    "    # also keeps the memory quarantine and the approval-card label honest",
-    "    # through the bridge instead of leaving a tool_call-shaped backdoor.",
+    '    # Tool-Search bridge: run_agent fires this hook once for `tool_call` and',
+    '    # then executes the underlying tool with the hook skipped, so authority',
+    '    # has to classify the UNDERLYING tool, never the bridge. Resolving here',
+    '    # also keeps the memory quarantine and the approval-card label honest',
+    '    # through the bridge instead of leaving a tool_call-shaped backdoor.',
     '    if normalized_tool == "tool_call":',
     '        underlying_name = str(normalized_args.get("name") or "").strip()',
     '        if underlying_name:',
@@ -7449,19 +7453,23 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        prompt = f"Command EVE could not confirm the current authority grant within 2 seconds, so it requires approval for {label}."',
     '    else:',
     '        prompt = f"Command EVE requires your approval for {label} at this authority level."',
-    "    # Native Hermes gate, not a bespoke card: the `approve` directive routes",
+    '    # Native Hermes gate, not a bespoke card: the `approve` directive routes',
     "    # through tools.approval.request_tool_approval, which is Hermes' own",
-    "    # once/session/always/deny gate with its session and permanent",
-    "    # allowlists — the capability this product layer used to clamp away.",
-    "    # In the ACP desktop the gate maps to the interactive permission",
-    "    # callback (never the gateway submit_pending queue), and the ladder is",
-    "    # folded into the rule key so lowering the seat rung asks again instead",
-    "    # of riding a stale always-grant.",
+    '    # once/session/always/deny gate with its session and permanent',
+    '    # allowlists — the capability this product layer used to clamp away.',
+    '    # In the ACP desktop the gate maps to the interactive permission',
+    '    # callback (never the gateway submit_pending queue), and the ladder is',
+    '    # folded into the rule key so lowering the seat rung asks again instead',
+    '    # of riding a stale always-grant.',
     '    ladder = int(authority.get("ladder") or 0)',
+    '    revision = str(authority.get("authority_revision") or "")',
+    '    if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", revision):',
+    '        revision = ""',
+    '    rule_scope = f"A{revision}" if revision else f"U{uuid.uuid4().hex}"',
     '    return {',
     '        "action": "approve",',
     '        "message": prompt,',
-    '        "rule_key": f"command-eve:L{ladder}:{label}",',
+    '        "rule_key": f"command-eve:{rule_scope}:L{ladder}:{label}",',
     '    }',
     '',
     '',
@@ -7558,9 +7566,9 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '                    "Command EVE authority check failed; asking the human",',
     '                    exc_info=True,',
     '                )',
-    '            # Structured tool gates keep the caller\'s flags. The native',
+    "            # Structured tool gates keep the caller's flags. The native",
     '            # plugin approval gate (request_tool_approval) offers',
-    '            # once/session/always and persists the answer in Hermes\' own',
+    "            # once/session/always and persists the answer in Hermes' own",
     '            # allowlist — clamping structured gates to one-operation',
     '            # approval was this layer castrating a native capability.',
     '            return inner(command, description, **cb)',
@@ -8921,7 +8929,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    #',
     '    # On this seat it catches the wrong eleven. Everything Hermes ships is',
     '    # core and never defers; the ONLY deferrable tools here are Command',
-    '    # EVE\'s own product surface — artifacts, the paid image/video seams,',
+    "    # EVE's own product surface — artifacts, the paid image/video seams,",
     '    # and the four GUI affordances. Measured against the real wheel: 41',
     '    # tools offered, 30 visible, 11 deferred. So the bridge hid the',
     '    # product and left the heavy native schemas (browser, terminal,',
@@ -8939,7 +8947,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    # NATIVE SEAM, NOT A SECOND MECHANISM. Hermes decides "never defer" by',
     '    # reading toolsets._HERMES_CORE_TOOLS LAZILY on every classification',
     '    # (tool_search.py _core_tool_names). Naming the app-owned tools there',
-    '    # keeps them eager through Hermes\' own rule. tool_search itself is',
+    "    # keeps them eager through Hermes' own rule. tool_search itself is",
     '    # untouched and stays fully armed for real third-party MCP servers.',
     '    #',
     '    # REBIND, NEVER append/extend. 17 of the 59 wheel toolsets — hermes-cli,',
@@ -8947,7 +8955,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    # of the messaging lanes — hold the SAME list object as their "tools"',
     '    # value. Mutating it in place would hand every one of them read_terminal,',
     '    # open_preview and the video tools: capabilities no Telegram or Signal',
-    '    # client can answer, breaking the wheel\'s narrow-waist doctrine. Binding',
+    "    # client can answer, breaking the wheel's narrow-waist doctrine. Binding",
     '    # a NEW list leaves those entries pointing at the original object, so the',
     '    # core-name lookup sees the addition and no toolset does. Both halves are',
     '    # measured in tests/fixtures/command-eve/',
@@ -9492,7 +9500,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    """Record the agent loop\'s OWN proof that a turn reached its end.',
     '',
     '    Per session, because concurrent ACP sessions share this module: a global',
-    '    counter would let one session\'s completed turn vouch for another\'s.',
+    "    counter would let one session's completed turn vouch for another's.",
     '    """',
     '',
     '    def emit(self, record: Any) -> None:',
@@ -9557,7 +9565,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    3. RequestError STILL PROPAGATES. A RequestError is a DELIBERATE protocol',
     '       answer (permission authority, session guard). Swallowing it would hide an',
     '       authority decision. Note this cannot re-open the bug it fixes: the',
-    '       RuntimeError→RequestError conversion happens in acp\'s _run_request, which',
+    "       RuntimeError→RequestError conversion happens in acp's _run_request, which",
     '       is OUTSIDE this wrapper — here the raw RuntimeError is still visible.',
     '',
     '    WHY NO STEP IS EXEMPTED, stated explicitly because the obvious candidate is',
@@ -11924,6 +11932,18 @@ export function seatRuntimeConfigKeepsManualApprovals(configYaml: string): boole
 }
 
 export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOptions): ProvisionSeatRuntimeFilesResult {
+  // This is a write-capable public seam. A missing argument must never cross
+  // the path resolver, because its compatibility fallback is the live legacy
+  // home — useful for boot paths, catastrophic for a test or tooling caller.
+  if (typeof options.userDataPath !== 'string' || !path.isAbsolute(options.userDataPath)) {
+    return {
+      ok: false,
+      hermes_home: '',
+      memory_enabled: false,
+      bundled_skill_failures: [],
+      error: 'provisionSeatRuntimeFiles requires an absolute isolated userDataPath',
+    };
+  }
   const env = { ...process.env, ...options.env };
   const seatId = options.seatId === undefined ? getActiveSeatId() : options.seatId;
   // resolveCommandEveRuntimeBootstrapPaths THROWS on a crafted/unsafe seat id

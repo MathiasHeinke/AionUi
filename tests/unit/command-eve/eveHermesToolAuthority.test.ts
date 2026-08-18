@@ -32,6 +32,14 @@ async function startWith(grant: EveAuthorityGrant): Promise<string> {
   });
 }
 
+async function startWithRuntime(runtime: ReturnType<typeof renderEveAuthorityRuntime>): Promise<string> {
+  return startCommandEveOllamaOpenAiShim({
+    port: 0,
+    ollamaBaseUrl: 'http://127.0.0.1:1',
+    commandEveApproval: () => runtime,
+  });
+}
+
 const fullRelease = (): EveAuthorityGrant => ({
   ladder: 5,
   capabilities: Object.fromEntries(EVE_SEALED_CAPABILITIES.map((capability) => [capability, true])),
@@ -194,6 +202,53 @@ describe('Hermes structured tool authority route', () => {
     await expect(decision(baseUrl, 'browser_click')).resolves.toMatchObject({ decision: 'allow', ladder: 5 });
     const response = await fetch(`${baseUrl}/v1/command-eve/tool-approval?tool=browser_click`);
     expect(response.status).toBe(401);
+  });
+
+  it('emits a valid authority revision only when the resolver provides one', async () => {
+    await stopCommandEveOllamaOpenAiShimForTest();
+    const revision = 'A'.repeat(32);
+    const baseUrl = await startWithRuntime({
+      ...renderEveAuthorityRuntime(fullRelease()),
+      authority_revision: revision,
+    });
+    await expect(decision(baseUrl, 'browser_click')).resolves.toMatchObject({
+      decision: 'allow',
+      authority_revision: revision,
+    });
+
+    await stopCommandEveOllamaOpenAiShimForTest();
+    const malformedBaseUrl = await startWithRuntime({
+      ...renderEveAuthorityRuntime(fullRelease()),
+      authority_revision: 'invalid revision!',
+    });
+    await expect(decision(malformedBaseUrl, 'browser_click')).resolves.toMatchObject({
+      decision: 'allow',
+    });
+    const malformedPayload = await decision(malformedBaseUrl, 'browser_click');
+    expect(Object.hasOwn(malformedPayload, 'authority_revision')).toBe(false);
+
+    await stopCommandEveOllamaOpenAiShimForTest();
+    for (const boundary of ['A'.repeat(15), `${'A'.repeat(128)}\n`, 'A'.repeat(129), ' has spaces ']) {
+      const boundaryBaseUrl = await startWithRuntime({
+        ...renderEveAuthorityRuntime(fullRelease()),
+        authority_revision: boundary,
+      });
+      const payload = await decision(boundaryBaseUrl, 'browser_click');
+      expect(payload).toMatchObject({ decision: 'allow' });
+      expect(Object.hasOwn(payload, 'authority_revision')).toBe(false);
+    }
+  });
+
+  it('fails closed without a revision when authority resolution throws', async () => {
+    const baseUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      commandEveApproval: () => {
+        throw new Error('authority backend unavailable');
+      },
+    });
+    const payload = await decision(baseUrl, 'browser_click');
+    expect(payload).toEqual({ decision: 'ask', ladder: 0 });
   });
 
   it('applies the same seat rung to memory, skills, process and cron actions', async () => {

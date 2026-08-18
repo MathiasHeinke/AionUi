@@ -71,6 +71,13 @@ export interface EveAuthorityRuntime {
   seals: Record<EveSealedCapability, boolean>;
   /** The user-configured ceiling for display/future metered calls. 0 = none configured. */
   spend_daily_cents: number;
+  /**
+   * Opaque revision of this exact runtime projection plus its seat context.
+   * Native approval rule keys fold it in so "always" cannot survive a grant,
+   * seal, opaque-UI, seat, or context revision without a ladder change. It is
+   * intentionally not policy: the Python patch never interprets it.
+   */
+  authority_revision?: string;
 }
 
 /**

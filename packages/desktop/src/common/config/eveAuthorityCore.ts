@@ -90,6 +90,13 @@ export function mayOfferToAct(rung: EveLadderRung): boolean {
 export interface EveAuthorityGrant {
   ladder: EveLadderRung;
   /**
+   * Monotonic mutation counter for native approval rule keys. It deliberately
+   * lives on the persisted grant rather than the effective projection: without
+   * it, revoking and later restoring the same projection would recreate an old
+   * revision and resurrect Hermes' permanent "always" answer.
+   */
+  revisionEpoch?: number;
+  /**
    * Explicit escape hatch for the opaque final mile of Browser/Desktop work.
    *
    * This is deliberately NOT a sixth sealed capability. The five seals describe
@@ -331,6 +338,14 @@ export function isEveAuthorityGrant(value: unknown): value is EveAuthorityGrant 
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<EveAuthorityGrant>;
   if (!EVE_LADDER_RUNGS.includes(candidate.ladder as EveLadderRung)) return false;
+  if (
+    candidate.revisionEpoch !== undefined &&
+    (!Number.isSafeInteger(candidate.revisionEpoch) ||
+      candidate.revisionEpoch < 0 ||
+      candidate.revisionEpoch >= Number.MAX_SAFE_INTEGER)
+  ) {
+    return false;
+  }
   if (candidate.updatedBy !== 'user' && candidate.updatedBy !== 'migration') return false;
   if (candidate.opaqueUiAutoRun !== undefined && typeof candidate.opaqueUiAutoRun !== 'boolean') return false;
   if (candidate.opaqueUiAutoRun === true) {

@@ -338,6 +338,10 @@ export type CommandEveKanbanAcpReadResolver = () => unknown;
 /** CEVE-1821 — the seat's live approval authority, rendered from the stored grant. */
 export type CommandEveApprovalResolver = () => EveAuthorityRuntime | Promise<EveAuthorityRuntime>;
 
+function normalizeAuthorityRevision(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(value) ? value : undefined;
+}
+
 /**
  * COMPA-624 — the Honcho DERIVER cloud lane route resolver. The local Honcho
  * memory server's deriver LLM (the dialectical user-model reasoning, NOT the
@@ -3340,6 +3344,7 @@ async function handleApprovalDecision(
       decision,
       edit_policy: runtime.edit_policy,
       ladder: runtime.ladder,
+      authority_revision: normalizeAuthorityRevision(runtime.authority_revision),
     });
   } catch {
     jsonResponse(response, 200, { decision: 'ask', edit_policy: 'ask', ladder: 0 });
@@ -3366,7 +3371,11 @@ async function handleHermesToolApprovalDecision(
   try {
     const runtime = await options.commandEveApproval();
     const decision = decideHermesToolApproval({ toolName, action }, runtime);
-    jsonResponse(response, 200, { decision, ladder: runtime.ladder });
+    jsonResponse(response, 200, {
+      decision,
+      ladder: runtime.ladder,
+      authority_revision: normalizeAuthorityRevision(runtime.authority_revision),
+    });
   } catch {
     jsonResponse(response, 200, { decision: 'ask', ladder: 0 });
   }

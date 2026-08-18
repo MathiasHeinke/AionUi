@@ -1779,6 +1779,28 @@ describe('Command EVE runtime bootstrap core', () => {
         bridge_quarantine_still_blocks: true,
         idempotent_install: true,
       });
+      const nativeApprovalContractHarness = spawnSync(
+        'python3',
+        [
+          path.resolve('tests/fixtures/command-eve/hermes_native_approval_contract_harness.py'),
+          path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+        ],
+        { encoding: 'utf8', timeout: 30_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
+      );
+      expect(
+        nativeApprovalContractHarness.status,
+        nativeApprovalContractHarness.stderr || nativeApprovalContractHarness.stdout
+      ).toBe(0);
+      expect(JSON.parse(nativeApprovalContractHarness.stdout)).toEqual({
+        exact_wheel_function_executed: true,
+        always_persists_exact_plugin_rule_key: true,
+        same_key_skips_human: true,
+        changed_key_asks_again: true,
+        once_does_not_persist: true,
+        session_persists_only_in_session: true,
+        timeout_fails_closed: true,
+        missing_human_fails_closed: true,
+      });
       const browserUseUvXReceiptHarness = spawnSync(
         'python3',
         [

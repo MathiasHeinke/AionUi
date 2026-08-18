@@ -14,6 +14,7 @@ import {
   isUnconfirmedGrant,
   resolveStoredGrant,
   withDailyBudget,
+  withFullAuthority,
   withLadder,
   withOpaqueUiAutoRun,
   backendModeForGrant,
@@ -60,6 +61,8 @@ describe('one record, resolved the same way everywhere', () => {
       'ladder: 5',
       { ladder: 9, capabilities: {}, updatedBy: 'user' },
       { ladder: 4, capabilities: {}, opaqueUiAutoRun: true, updatedBy: 'user' },
+      { ladder: 4, capabilities: {}, revisionEpoch: -1, updatedBy: 'user' },
+      { ladder: 4, capabilities: {}, revisionEpoch: 1.5, updatedBy: 'user' },
     ]) {
       expect(resolveStoredGrant(bad, null)).toBe(EVE_AUTHORITY_FAIL_CLOSED);
     }
@@ -74,6 +77,39 @@ describe('one record, resolved the same way everywhere', () => {
     // Command EVE lane seeds the shared grant.
     const resolved = resolveStoredGrant(undefined, { codex: { preferredMode: 'full-access' } });
     expect(resolved).toBe(EVE_AUTHORITY_FAIL_CLOSED);
+  });
+});
+
+describe('grant mutations invalidate native always-allow keys', () => {
+  it('advances the epoch on revoke and restore without reusing either state', () => {
+    const opened = withSeal({ ladder: 4, capabilities: {}, updatedBy: 'user' }, 'delete.outside', true, NOW);
+    const revoked = withSeal(opened, 'delete.outside', false, NOW);
+    const restored = withSeal(revoked, 'delete.outside', true, NOW);
+
+    expect(opened.revisionEpoch).toBe(1);
+    expect(revoked.revisionEpoch).toBe(2);
+    expect(restored.revisionEpoch).toBe(3);
+  });
+
+  it('does not advance on rejected or already-unchanged writes', () => {
+    const grant: EveAuthorityGrant = { ladder: 3, revisionEpoch: 7, capabilities: {}, updatedBy: 'user' };
+    expect(withLadder(grant, 3)).toBe(grant);
+    expect(withLadder(grant, 9)).toBe(grant);
+    expect(withSeal(grant, 'delete.outside', false, NOW)).toBe(grant);
+    expect(withDailyBudget(grant, 0)).toBe(grant);
+    expect(withRememberedCommand(grant, '', NOW)).toBe(grant);
+  });
+
+  it('rejects rather than rotates-less once the epoch is exhausted', () => {
+    const grant: EveAuthorityGrant = {
+      ladder: 3,
+      revisionEpoch: Number.MAX_SAFE_INTEGER - 1,
+      capabilities: {},
+      updatedBy: 'user',
+    };
+    expect(withLadder(grant, 4)).toBe(grant);
+    expect(withSeal(grant, 'delete.outside', true, NOW)).toBe(grant);
+    expect(withFullAuthority(grant, { dailyCents: 5000 }, 'allow')).toBe(grant);
   });
 });
 

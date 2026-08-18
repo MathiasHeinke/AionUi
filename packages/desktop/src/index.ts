@@ -133,6 +133,7 @@ import {
 } from './process/commandEve/typedUIProvenanceAttestationCore';
 import { attestDurableTypedUIArtifact } from './process/commandEve/typedUIArtifactAttestationMain';
 import { renderEveAuthorityRuntime, type EveAuthorityRuntime } from './common/config/eveAuthorityRuntimeCore';
+import { deriveEveAuthorityRevision } from './process/commandEve/eveAuthorityRevisionCore';
 import { createEgressRedactionModeResolver } from './process/commandEve/egressRedactionModeResolverCore';
 import { createCommandEveRegisteredProcessIdentityProbeProvider } from './process/commandEve/registeredProcessIdentityProbeCore';
 import {
@@ -1006,7 +1007,17 @@ function buildCommandEveShimApprovalResolver(): () => Promise<EveAuthorityRuntim
   return async () => {
     try {
       const bag = await readCommandEveSettingsFromBackend(['commandEve.authority']);
-      return renderEveAuthorityRuntime(readEveAuthorityGrant(bag['commandEve.authority']));
+      const grant = readEveAuthorityGrant(bag['commandEve.authority']);
+      const runtime = renderEveAuthorityRuntime(grant);
+      return {
+        ...runtime,
+        authority_revision: deriveEveAuthorityRevision({
+          runtime,
+          seatId: getActiveSeatId(),
+          seatContextRevision: getActiveSeatContextRevision(),
+          authorityMutationEpoch: grant.revisionEpoch ?? 0,
+        }),
+      };
     } catch (error) {
       console.warn('[Command EVE] approval-authority backend read failed; failing CLOSED (ask):', error);
       return renderEveAuthorityRuntime(EVE_AUTHORITY_FAIL_CLOSED);
