@@ -879,6 +879,62 @@ describe('MessageList', () => {
     });
   });
 
+  it('suppresses duplicate managed-image tool cards when the durable artifact is already rendered', () => {
+    artifactMock.artifacts = [
+      {
+        id: 'managed-image-1',
+        conversation_id: 'conversation-1',
+        kind: 'image',
+        status: 'active',
+        payload: {
+          artifact_type: 'image',
+          title: 'Managed image',
+          managed_image: true,
+          mime_type: 'image/png',
+          model: 'google/gemini-3.1-flash-image',
+        },
+        created_at: 20,
+        updated_at: 20,
+      },
+    ];
+    const managedImageToolCall = {
+      id: 'managed-image-tool',
+      msg_id: 'managed-image-tool',
+      conversation_id: 'conversation-1',
+      type: 'acp_tool_call',
+      position: 'left',
+      created_at: 20,
+      content: {
+        session_id: 'session-1',
+        update: {
+          sessionUpdate: 'tool_call_update',
+          tool_call_id: 'call-managed-image',
+          status: 'completed',
+          title: 'mcp__aionui_image_generation__aionui_image_generation',
+          kind: 'execute',
+          content: [
+            {
+              type: 'content',
+              content: {
+                type: 'text',
+                text: `Bild erstellt. Interne Artefakt-Referenz: img_h_${'ab'.repeat(32)} (1K · 2:3 · 123 KB).`,
+              },
+            },
+          ],
+        },
+      },
+    } as unknown as IMessageAcpToolCall;
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[managedImageToolCall]}>{children}</Wrapper>,
+    });
+
+    expect(screen.getAllByTestId('generated-artifact-card')).toHaveLength(1);
+    expect(screen.getByText('Managed image')).toBeInTheDocument();
+    expect(screen.queryByText('acp_tool_call')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Interne Artefakt-Referenz/)).not.toBeInTheDocument();
+  });
+
   it('loads and securely frames source-only html artifacts', async () => {
     ipcMock.getFileMetadata.mockResolvedValue({
       name: 'generated-landing-page.html',

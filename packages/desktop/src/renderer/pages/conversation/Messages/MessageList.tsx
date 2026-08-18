@@ -63,6 +63,7 @@ import {
   hasToolResultGeneratedArtifact,
   type WriteFileResult,
 } from './types';
+import { extractImageStagedHandle } from '@/common/config/imageArtifactBindCore';
 import { useAutoScroll } from './useAutoScroll';
 import { useAutoPreviewOfficeFiles } from '@/renderer/hooks/file/useAutoPreviewOfficeFiles';
 import SelectionReplyButton from './components/SelectionReplyButton';
@@ -317,6 +318,15 @@ const DurableAcpTypedUIArtifact: React.FC<{ candidate: DurableAcpTypedUICandidat
 
 const hasInlineToolGroupArtifact = (message: IMessageToolGroup): boolean =>
   message.content.some((item) => item.status === 'Success' && hasToolResultGeneratedArtifact(item.result_display));
+
+const acpToolCallCarriesManagedImage = (message: IMessageAcpToolCall): boolean => {
+  const update = message.content?.update;
+  if (!update || update.status !== 'completed') return false;
+  return (update.content ?? []).some((item) => {
+    const text = item.type === 'content' ? item.content?.text : undefined;
+    return extractImageStagedHandle(text) !== undefined;
+  });
+};
 
 const hasConversationArtifactDuplicate = (
   message: IMessageToolGroup,
@@ -634,6 +644,13 @@ const MessageList: React.FC<{
         continue;
       }
       if (message.type === 'acp_tool_call') {
+        if (acpToolCallCarriesManagedImage(message)) {
+          toolList = [];
+          toolSourceMessageIds = [];
+          diffsChanges = [];
+          diffsSourceMessageIds = [];
+          continue;
+        }
         const candidate = readDurableAcpTypedUICandidate(message);
         if (candidate) {
           toolList = [];
