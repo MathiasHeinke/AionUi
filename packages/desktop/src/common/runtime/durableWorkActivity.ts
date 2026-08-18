@@ -325,11 +325,15 @@ export function durableWorkRuntimeMs(item: DurableWorkItemV1, now: number): numb
 }
 
 const legacyStatus = (task: DelegatedTaskProjection): DurableWorkStatus => {
+  // A persisted failure is terminal and does not depend on reconnect liveness.
+  // In particular, Hermes' delegate tool rejects an invalid batch before a
+  // child worker exists; showing that historical rejection as "reconnect
+  // missing" invents a worker that never existed.
+  if (task.status === 'failed') return 'failed';
   if (!task.observedLive) return 'reconnect_unavailable';
   if (task.backgroundDispatched) return 'running';
   if (task.status === 'pending') return 'queued';
   if (task.status === 'in_progress') return 'running';
-  if (task.status === 'failed') return 'failed';
   // A completed delegate_task tool call only proves dispatch/return of that
   // call. It never proves the detached child worker completed successfully.
   return 'reconnect_unavailable';
@@ -375,8 +379,10 @@ export function projectLegacyDelegation(
     statusReason: legacyStatus(projectedTask) === 'failed' ? undefined : reason,
     // Persisted chat timestamps are descriptive only. Runtime timing is shown
     // solely for updates observed during this renderer app epoch.
-    queuedAt: observedLive ? task.createdAt : undefined,
-    lastActivityAt: observedLive ? task.createdAt : undefined,
+    // Even a historical failure has a known terminal timestamp. Keep actions
+    // unavailable, but do not erase the persisted timing behind "unknown".
+    queuedAt: observedLive || projectedTask.status === 'failed' ? task.createdAt : undefined,
+    lastActivityAt: observedLive || projectedTask.status === 'failed' ? task.createdAt : undefined,
     gates: [],
     evidence: [],
     actions: {

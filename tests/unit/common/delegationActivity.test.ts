@@ -32,6 +32,44 @@ describe('delegation activity projection', () => {
     ]);
   });
 
+  it('projects Hermes’ pre-dispatch delegate validation failure even without structured output', () => {
+    const message = {
+      id: 'msg-pre-dispatch-failed',
+      type: 'acp_tool_call',
+      conversation_id: 'conv-1',
+      created_at: 300,
+      content: {
+        session_id: 'session-1',
+        update: {
+          sessionUpdate: 'tool_call_update',
+          tool_call_id: 'tc-pre-dispatch-failed',
+          kind: 'execute',
+          title: 'delegate: Recherche für einen AAA-Forschungsbericht',
+          status: 'failed',
+          content: [
+            {
+              type: 'content',
+              content: {
+                type: 'text',
+                text: 'Delegation failed: Batch mode requires at least 2 tasks. For a single task, use the goal parameter instead of tasks.',
+              },
+            },
+          ],
+        },
+      },
+    } as IMessageAcpToolCall;
+
+    expect(projectDelegatedTasksFromMessage(message)).toEqual([
+      expect.objectContaining({
+        id: 'tc-pre-dispatch-failed:0',
+        goal: 'Recherche für einen AAA-Forschungsbericht',
+        status: 'failed',
+        taskCount: 1,
+        createdAt: 300,
+      }),
+    ]);
+  });
+
   it('expands a Hermes batch delegation without inventing worker identities', () => {
     const message = {
       id: 'msg-2',

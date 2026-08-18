@@ -137,6 +137,28 @@ describe('durable work activity contract', () => {
     expect(durableWorkRuntimeMs(item({ startedAt: 5_000, finishedAt: 4_000 }), 20_000)).toBe(0);
   });
 
+  it('shows a pre-dispatch historical delegate failure as failed, not reconnect-missing', () => {
+    const projected = projectLegacyDelegation(
+      {
+        id: 'legacy-failed',
+        toolCallId: 'tool-legacy-failed',
+        goal: 'Research the report',
+        status: 'failed',
+        taskIndex: 0,
+        taskCount: 1,
+        createdAt: 4_000,
+      },
+      'conv-1'
+    );
+
+    expect(projected.status).toBe('failed');
+    expect(projected.statusReason).toBeUndefined();
+    expect(projected.queuedAt).toBe(4_000);
+    expect(projected.lastActivityAt).toBe(4_000);
+    expect(projected.origin.sessionId).toBe('legacy-unbound:conv-1');
+    expect(Object.values(projected.actions).every((action) => action.available === false)).toBe(true);
+  });
+
   it.each([
     ['background dispatch', 'completed', true, 'running'],
     ['pending call', 'pending', false, 'queued'],
