@@ -6,7 +6,6 @@ import { execFileSync } from 'node:child_process';
 import {
   MAX_REMEMBERED_COMMAND_LENGTH,
   answerAllowsExecution,
-  buildCommandAllowlistYaml,
   canOfferRemember,
   classifyRememberCandidate,
   forgetCommand,
@@ -103,29 +102,6 @@ describe('stored rows are re-checked on read, not trusted for being there', () =
     for (const bad of [null, undefined, {}, 'git status', 7]) {
       expect(readRememberedCommands(bad)).toEqual([]);
     }
-  });
-});
-
-describe('the config.yaml projection', () => {
-  it('is byte-identical to the C0 containment when nothing is granted', () => {
-    // With no grants this change must be a no-op: legacy category-wide entries
-    // keep getting revoked exactly as before.
-    expect(buildCommandAllowlistYaml([])).toEqual(['command_allowlist: []']);
-  });
-
-  it('emits one quoted literal per grant', () => {
-    const list = rememberCommand(rememberCommand([], 'git status', NOW), 'bun run test', NOW);
-    expect(buildCommandAllowlistYaml(list)).toEqual(['command_allowlist:', '  - "git status"', '  - "bun run test"']);
-  });
-
-  it('never emits a category description, only literals', () => {
-    // The dangerous unit is what Hermes' own "always" writes: the NAME of a
-    // regex category. Nothing here can produce one, because a description is
-    // stored only if it is also a literal command — and then it grants only
-    // itself.
-    const list = readRememberedCommands([{ command: 'delete in root path', grantedAt: NOW }]);
-    expect(buildCommandAllowlistYaml(list)).toEqual(['command_allowlist:', '  - "delete in root path"']);
-    // Which matches nothing a shell would ever run as that exact string.
   });
 });
 

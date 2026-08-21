@@ -42,17 +42,17 @@ PROVIDER_PATH = Path(sys.argv[1]).resolve()
 WHEEL_PATH = Path(sys.argv[2]).resolve()
 SOURCE = PROVIDER_PATH.read_text(encoding="utf-8")
 
-# The app-owned surface: three read tools, three paid media seams, the built-in
-# image MCP, and the four GUI affordances.  These are exactly the tools that
-# classified as deferrable before the seam existed.
+# The app-owned surface under the exact names Hermes exposes to the model.
+# Built-in MCP names include server and tool prefixes; testing only the inner
+# names would prove a surface that production never assembles.
 PRODUCT_TOOL_NAMES = [
-    "eve_artifact_get",
-    "eve_artifact_list",
-    "eve_typed_ui_publish",
-    "eve_image_edit",
-    "eve_video_edit",
-    "eve_video_generate",
-    "aionui_image_generation",
+    "mcp__aionui_eve_artifacts__eve_artifact_get",
+    "mcp__aionui_eve_artifacts__eve_artifact_list",
+    "mcp__aionui_eve_artifacts__eve_typed_ui_publish",
+    "mcp__aionui_eve_artifacts__eve_image_edit",
+    "mcp__aionui_eve_artifacts__eve_video_edit",
+    "mcp__aionui_eve_artifacts__eve_video_generate",
+    "mcp__aionui_image_generation__aionui_image_generation",
     "open_preview",
     "read_preview",
     "focus_pane",
@@ -252,7 +252,7 @@ for name in toolsets.TOOLSETS["hermes-acp"]["tools"]:
 
 for name in PRODUCT_TOOL_NAMES:
     if registry.get_entry(name) is None:
-        toolset = "mcp-aionui-eve-artifacts" if name.startswith(("eve_", "aionui_")) else "desktop_ui"
+        toolset = "mcp-aionui-eve-artifacts" if name.startswith("mcp__") else "desktop_ui"
         registry.register(name=name, toolset=toolset, schema=schema_for(name, toolset))
     if all(td["function"]["name"] != name for td in tool_defs):
         tool_defs.append(schema_for(name, "product"))
@@ -279,6 +279,12 @@ messaging_leaks = sorted(
 print(
     json.dumps(
         {
+            # 0. Hermes ACP hardcodes the hermes-acp bundle. The emitted
+            # compatibility merge must therefore make the configured native
+            # desktop/clarify tools real before AIAgent snapshots schemas.
+            "clarify_in_acp_surface": "clarify" in toolsets.TOOLSETS["hermes-acp"]["tools"],
+            "computer_use_in_acp_surface": "computer_use"
+            in toolsets.TOOLSETS["hermes-acp"]["tools"],
             # 1. The app's own tools must be eager.
             "product_tools_deferrable": sorted(deferrable_names & set(PRODUCT_TOOL_NAMES)),
             "product_tools_visible": sorted(visible_names & set(PRODUCT_TOOL_NAMES)),

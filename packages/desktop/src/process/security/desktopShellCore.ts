@@ -3,6 +3,25 @@ import path from 'node:path';
 const MAX_EXTERNAL_URL_LENGTH = 4096;
 const MAX_FILE_PATH_BYTES = 32 * 1024;
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(['https:', 'http:', 'mailto:']);
+const EXECUTABLE_FILE_EXTENSIONS = new Set([
+  '.app',
+  '.command',
+  '.workflow',
+  '.scpt',
+  '.sh',
+  '.zsh',
+  '.bash',
+  '.fish',
+  '.ksh',
+  '.py',
+  '.rb',
+  '.pl',
+  '.jar',
+  '.bat',
+  '.cmd',
+  '.com',
+  '.exe',
+]);
 
 export function parseDesktopExternalUrl(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0 || value.length > MAX_EXTERNAL_URL_LENGTH) {
@@ -30,6 +49,9 @@ export function parseDesktopAbsolutePath(value: unknown): string {
     Buffer.byteLength(value, 'utf8') > MAX_FILE_PATH_BYTES ||
     (!path.posix.isAbsolute(value) && !path.win32.isAbsolute(value))
   ) {
+    throw new Error('Invalid absolute file path.');
+  }
+  if (EXECUTABLE_FILE_EXTENSIONS.has(path.extname(value).toLowerCase())) {
     throw new Error('Invalid absolute file path.');
   }
   return value;

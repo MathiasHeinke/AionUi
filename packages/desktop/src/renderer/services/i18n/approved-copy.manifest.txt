@@ -52,7 +52,7 @@
 #   copy    <TAB> <count> <TAB> <id> <TAB> <verbatim string>
 #
 # surfaces: 58
-# entries: 7858
+# entries: 7868
 #
 surface	de-DE/acp.json
 surface	de-DE/agent.json
@@ -1029,6 +1029,7 @@ copy	1	de-DE/conversation.json	Antwort-Stream wurde unterbrochen
 copy	1	de-DE/conversation.json	Anzeige holt auf
 copy	1	de-DE/conversation.json	App
 copy	1	de-DE/conversation.json	Arbeiten
+copy	1	de-DE/conversation.json	Arbeiten mit explizitem Artefakt oder Arbeitsprodukt bleiben in der Warteschlange.
 copy	1	de-DE/conversation.json	Arbeitet
 copy	1	de-DE/conversation.json	Arbeitsfläche anordnen
 copy	1	de-DE/conversation.json	Arbeitsfläche links, Chat rechts
@@ -1110,6 +1111,7 @@ copy	1	de-DE/conversation.json	Das Ergebnis der dauerhaften Zustellung ist ausdr
 copy	1	de-DE/conversation.json	Das Ergebnis des Child-Workers ist nicht typisiert
 copy	1	de-DE/conversation.json	Das Suchergebnis ist leer
 copy	1	de-DE/conversation.json	Das aktuelle Modellkontingent ist aufgebraucht. Zu {{model}} wechseln, um fortzufahren?
+copy	1	de-DE/conversation.json	Das ausgewählte Bildmodell, die Auflösung und der Preis konnten nicht verifiziert werden. Es wurde nichts gesendet.
 copy	1	de-DE/conversation.json	Das ausgewählte Modell ist nicht verfügbar oder unterstützt die angeforderte Funktion nicht. Wähle ein unterstütztes Modell und versuche es erneut.
 copy	1	de-DE/conversation.json	Das ausgewählte Modell wurde nicht gefunden
 copy	1	de-DE/conversation.json	Das persistente Receipt ist an keinen aktiven AionCore-Turn gebunden
@@ -1197,8 +1199,10 @@ copy	1	de-DE/conversation.json	Die Warteschlange ist voll. Entferne einen Befehl
 copy	1	de-DE/conversation.json	Die Warteschlangendaten sind zu groß, um sie sicher zu speichern. Entferne zuerst einige Befehle aus der Warteschlange.
 copy	1	de-DE/conversation.json	Die Zwischenfrage hatte im aktuellen Gespräch keine eindeutige Antwort.
 copy	1	de-DE/conversation.json	Die Zwischenfrage konnte nicht beantwortet werden.
+copy	1	de-DE/conversation.json	Die ausgewählte Bildquelle konnte nicht sicher für dieses Dokument bereitgestellt werden. Es wurde nichts gesendet.
 copy	1	de-DE/conversation.json	Die ausgewählte Datei passt nicht zum gewählten Office-Format und wurde nicht bearbeitet.
 copy	1	de-DE/conversation.json	Die ausgewählte Office-Datei liegt außerhalb des Arbeitsbereichs und wurde nicht bearbeitet.
+copy	1	de-DE/conversation.json	Die bezahlte Bearbeitung konnte nicht vorbereitet werden. Es wurde nichts gesendet.
 copy	1	de-DE/conversation.json	Die laufende Antwort konnte nicht gestoppt werden. Der Mikrofonstatus bleibt unverändert.
 copy	1	de-DE/conversation.json	Die verwaltete visuelle Analyse konnte nicht freigegeben werden. Entwurf und Dateien bleiben ungesendet.
 copy	1	de-DE/conversation.json	Die visuelle Folienanalyse ist fehlgeschlagen. Nachricht und Präsentation bleiben ungesendet.
@@ -2379,7 +2383,7 @@ copy	1	de-DE/mcp.json	vor {{count}} Minuten
 copy	1	de-DE/mcp.json	vor {{count}} Stunden
 copy	1	de-DE/mcp.json	vor {{count}} Tagen
 copy	1	de-DE/messages.json	/ eingeben, um das Befehlsmenü zu öffnen
-copy	1	de-DE/messages.json	Abbrechen
+copy	2	de-DE/messages.json	Abbrechen
 copy	1	de-DE/messages.json	Aktion wählen:
 copy	1	de-DE/messages.json	Aktuelle Unterhaltung in eine Datei oder Zwischenablage exportieren
 copy	1	de-DE/messages.json	Antwort erfolgreich gesendet
@@ -2395,6 +2399,8 @@ copy	1	de-DE/messages.json	Ausführung abgebrochen
 copy	1	de-DE/messages.json	Ausführung des MCP-Tools "{{toolName}}" vom Server "{{serverName}}" zulassen?
 copy	1	de-DE/messages.json	Ausführung zulassen?
 copy	1	de-DE/messages.json	Ausgewählt: {{choice}}
+copy	1	de-DE/messages.json	Ausgewählt: {{choice}} — gemerkt. In den Einstellungen unter „Freigaben“ widerrufbar.
+copy	1	de-DE/messages.json	Automatisch freigegeben — gemerkte Entscheidung. In den Einstellungen unter „Freigaben“ widerrufbar.
 copy	1	de-DE/messages.json	Bearbeiten
 copy	1	de-DE/messages.json	Befehl:
 copy	1	de-DE/messages.json	Befehle
@@ -2432,6 +2438,7 @@ copy	1	de-DE/messages.json	Download erfolgreich
 copy	1	de-DE/messages.json	Download fehlgeschlagen
 copy	1	de-DE/messages.json	EVE konnte die Sicherheitsklasse dieser Operation nicht verifizieren und fragt deshalb bewusst nach. Prüfen Sie die exakte Operation vor der Freigabe.
 copy	1	de-DE/messages.json	Eine Unterhaltung läuft gerade...
+copy	1	de-DE/messages.json	Entscheidung konnte nicht gemerkt werden — nur dieses Mal freigegeben.
 copy	1	de-DE/messages.json	Erfolgreich kopiert
 copy	1	de-DE/messages.json	Export der Unterhaltung konnte nicht vorbereitet werden
 copy	1	de-DE/messages.json	Exportiert am
@@ -2443,6 +2450,7 @@ copy	1	de-DE/messages.json	Generierungsnachweis nicht verfügbar
 copy	1	de-DE/messages.json	Generierungsnachweis wird geprüft…
 copy	1	de-DE/messages.json	HTML
 copy	1	de-DE/messages.json	Im Ordner zeigen
+copy	1	de-DE/messages.json	Immer erlauben
 copy	1	de-DE/messages.json	In Datei speichern
 copy	1	de-DE/messages.json	In Zwischenablage kopieren
 copy	1	de-DE/messages.json	In Zwischenablage kopiert
@@ -2802,7 +2810,6 @@ copy	1	de-DE/settings.json	Assistenten-Beschreibung
 copy	1	de-DE/settings.json	Assistenten-Details
 copy	1	de-DE/settings.json	Auf Kopieren klicken, um das Passwort zu erhalten
 copy	1	de-DE/settings.json	Auf Standardstil zurückgesetzt
-copy	1	de-DE/settings.json	Aus (Standard): Videos entstehen nur, wenn du sie selbst über die Video-Auswahl startest — dort siehst du vorher Qualität, Länge und Kosten. An: EVE darf im Gespräch selbst ein kurzes Video erzeugen, wenn du es im selben Zug verlangst. Jeder Lauf kostet Credits. Länge und Qualität bestimmt die App, nicht das Modell. Gilt nur für diesen Seat.
 copy	1	de-DE/settings.json	Aus Assistent entfernen
 copy	1	de-DE/settings.json	Aus JSON importieren
 copy	1	de-DE/settings.json	Aus Sicherheitsgründen können WebUI-Einstellungen nur in der Desktop-Anwendung verwaltet werden. Bitte öffne das Einstellungsfenster in der Command-EVE-Desktop-App zur Konfiguration.
@@ -3109,7 +3116,6 @@ copy	1	de-DE/settings.json	Erweiterungs-Assistenten sind schreibgeschützt. Du k
 copy	1	de-DE/settings.json	Erzähl EVE dein Geschäft — sie merkt es sich und arbeitet damit.
 copy	1	de-DE/settings.json	Es können mehrere Server gleichzeitig importiert werden.
 copy	1	de-DE/settings.json	Es wird nur das Protokoll http/https unterstützt
-copy	1	de-DE/settings.json	Eve darf selbst Videos generieren
 copy	2	de-DE/settings.json	Experimentell
 copy	1	de-DE/settings.json	Feedback
 copy	3	de-DE/settings.json	Fehler
@@ -3123,7 +3129,6 @@ copy	1	de-DE/settings.json	Firma
 copy	1	de-DE/settings.json	Folge dem Tutorial
 copy	1	de-DE/settings.json	Fortsetzen & aktivieren
 copy	1	de-DE/settings.json	Founder
-copy	1	de-DE/settings.json	Freigabe konnte nicht gespeichert werden — Änderung nicht übernommen. Bitte erneut versuchen.
 copy	1	de-DE/settings.json	Freigaben
 copy	1	de-DE/settings.json	Frosted Gallery
 copy	1	de-DE/settings.json	Fähigkeit
@@ -5440,6 +5445,7 @@ copy	1	en-US/conversation.json	The editing source could not be provided safely �
 copy	1	en-US/conversation.json	The image could not be created. Your draft and selection were preserved.
 copy	1	en-US/conversation.json	The marketing card could not be created.
 copy	1	en-US/conversation.json	The next queued command could not start. Edit, reorder, or remove it to continue.
+copy	1	en-US/conversation.json	The paid edit could not be prepared. Nothing was sent.
 copy	1	en-US/conversation.json	The persisted receipt is not bound to a live AionCore turn
 copy	1	en-US/conversation.json	The persistent adapter returned no matching receipt state for this conversation.
 copy	1	en-US/conversation.json	The privacy filter is off — click to turn it back on in settings.
@@ -5469,6 +5475,8 @@ copy	1	en-US/conversation.json	The selected agent is using an incompatible proto
 copy	1	en-US/conversation.json	The selected agent needs authentication
 copy	1	en-US/conversation.json	The selected agent rejected the request
 copy	1	en-US/conversation.json	The selected file does not match the chosen Office format and was not edited.
+copy	1	en-US/conversation.json	The selected image model, resolution and price could not be verified. Nothing was sent.
+copy	1	en-US/conversation.json	The selected image source could not be provided safely to this document. Nothing was sent.
 copy	1	en-US/conversation.json	The selected model is unavailable or does not support the requested capability. Choose a supported model and retry.
 copy	1	en-US/conversation.json	The selected model was not found
 copy	1	en-US/conversation.json	The selected provider needs active billing, credits, or quota before it can complete this request.
@@ -5552,6 +5560,7 @@ copy	1	en-US/conversation.json	What are we working on today?
 copy	1	en-US/conversation.json	What can Command EVE do?
 copy	1	en-US/conversation.json	Word
 copy	1	en-US/conversation.json	Work
+copy	1	en-US/conversation.json	Work with an explicit artifact or work product stays queued.
 copy	1	en-US/conversation.json	Workbench left, chat right
 copy	1	en-US/conversation.json	Worker
 copy	1	en-US/conversation.json	Working
@@ -6296,7 +6305,9 @@ copy	1	en-US/messages.json	A direct preview is not available for this file type.
 copy	1	en-US/messages.json	Allow execution of MCP tool "{{toolName}}" from server "{{serverName}}"?
 copy	1	en-US/messages.json	Allow execution?
 copy	1	en-US/messages.json	Allow this exact operation in this session
+copy	1	en-US/messages.json	Always allow
 copy	1	en-US/messages.json	Apply this change?
+copy	1	en-US/messages.json	Approved automatically — remembered decision. Revocable in Settings under “Permissions”.
 copy	1	en-US/messages.json	Artifact ID
 copy	1	en-US/messages.json	Artifact created, but no preview source was provided.
 copy	1	en-US/messages.json	Artifact failed
@@ -6304,7 +6315,7 @@ copy	1	en-US/messages.json	Assistant
 copy	1	en-US/messages.json	Audio
 copy	1	en-US/messages.json	Auto handling permission request: {{request}}
 copy	1	en-US/messages.json	Building the validated interface…
-copy	1	en-US/messages.json	Cancel
+copy	2	en-US/messages.json	Cancel
 copy	1	en-US/messages.json	Choose an action:
 copy	1	en-US/messages.json	Choose how to export the current conversation
 copy	1	en-US/messages.json	Command EVE did not find a matching trusted generation receipt. No interface or action was rendered.
@@ -6376,12 +6387,14 @@ copy	1	en-US/messages.json	Save the conversation to a file in the current projec
 copy	1	en-US/messages.json	Save to file
 copy	1	en-US/messages.json	Scroll to bottom
 copy	1	en-US/messages.json	Selected: {{choice}}
+copy	1	en-US/messages.json	Selected: {{choice}} — remembered. Revocable in Settings under “Permissions”.
 copy	1	en-US/messages.json	Sending failed.
 copy	1	en-US/messages.json	Sending failed: {{reason}}
 copy	1	en-US/messages.json	Show in folder
 copy	1	en-US/messages.json	System
 copy	1	en-US/messages.json	The action was stopped because EVE authority or receipt persistence was unavailable.
 copy	1	en-US/messages.json	The agent is requesting permission.
+copy	1	en-US/messages.json	The decision could not be remembered — approved this time only.
 copy	1	en-US/messages.json	The permission response could not be applied. The operation remains unapproved.
 copy	1	en-US/messages.json	The selection could not be applied. Nothing was executed.
 copy	1	en-US/messages.json	This interactive artifact was blocked
@@ -6890,7 +6903,6 @@ copy	1	en-US/settings.json	Copy Link
 copy	1	en-US/settings.json	Copy MCP config
 copy	2	en-US/settings.json	Copy pairing code
 copy	1	en-US/settings.json	Copy the JSON configuration from the MCP service introduction page (preferably NPX or UVX configuration) and paste it into the input box below.
-copy	1	en-US/settings.json	Could not save the release — the change was not applied. Please try again.
 copy	1	en-US/settings.json	Couldn't send {{name}} because the file is outside the allowed send directories
 copy	1	en-US/settings.json	Cover
 copy	1	en-US/settings.json	Create Assistant
@@ -7179,7 +7191,6 @@ copy	1	en-US/settings.json	Latest check in Tools settings: Available
 copy	1	en-US/settings.json	Latest check in Tools settings: Failed
 copy	1	en-US/settings.json	Launch Command EVE automatically when you sign in to macOS or Windows.
 copy	1	en-US/settings.json	Learned by EVE
-copy	1	en-US/settings.json	Let EVE generate videos on her own
 copy	2	en-US/settings.json	Light
 copy	1	en-US/settings.json	List preferred tools/skills for the assistant.
 copy	1	en-US/settings.json	Loaded {{count}} tools
@@ -7314,7 +7325,6 @@ copy	2	en-US/settings.json	Notifications
 copy	1	en-US/settings.json	OAuth login failed
 copy	1	en-US/settings.json	OAuth login successful
 copy	1	en-US/settings.json	Obsidian Atrium
-copy	1	en-US/settings.json	Off (default): videos are only created when you start one yourself from the video picker, where you see quality, length and cost beforehand. On: EVE may create a short video during the conversation when you ask for one in that same turn. Every run costs credits. Length and quality are set by the app, not by the model. Applies to this seat only.
 copy	1	en-US/settings.json	Off by default. Sends redacted crash diagnostics and structural log metadata only — never raw log text.
 copy	1	en-US/settings.json	Off by default. Your choice is stored locally; voice output is only processed through EVE Cloud after you allow it.
 copy	1	en-US/settings.json	Off: content goes UNREDACTED to the cloud model (this seat only). Personal data (phone, IBAN, addresses, health/financial data) will NO LONGER be automatically removed before it leaves your Mac.

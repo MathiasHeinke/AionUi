@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { handleCommandEveArtifactContextEnvelope } from '@/process/bridge/commandEveVideoBridge';
 import { buildEveArtifactContextEnvelope } from '@/common/config/eveArtifactContextEnvelopeCore';
@@ -7,7 +7,6 @@ import type { CommandEveActiveImageArtifact } from '@/common/config/managedImage
 const IMAGE_SHA = 'b'.repeat(64);
 const HANDLE = `evecap_${'e'.repeat(64)}`;
 const SEAT_ID = 'seat-a';
-
 function managedImageRecord(
   overrides: { id?: string; sha256?: string; createdAt?: number } = {}
 ): CommandEveActiveImageArtifact {
@@ -57,7 +56,7 @@ function deps(overrides: Record<string, unknown> = {}) {
 describe('managed image envelope entries', () => {
   it('an ACTIVE image rides with metadata + edit handle + parentage — and NO path anywhere', async () => {
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'bearbeite das bild', requestedEditOperation: 'image_edit' },
+      { conversationId: 'conv-1', userTurnText: 'bearbeite das bild' },
       deps()
     );
     expect(envelope).toContain('artifact_id=img_generated1');
@@ -66,7 +65,10 @@ describe('managed image envelope entries', () => {
     expect(envelope).toContain('editable=true');
     expect(envelope).toContain(`edit_handle=${HANDLE}`);
     expect(envelope).toContain('edited_from=img_parent1');
-    expect(envelope).toContain('Allowed capabilities on this seat: eve_image_edit.');
+    expect(envelope).toContain('Managed MCP artifact capabilities advertised to tools: eve_image_edit.');
+    expect(envelope).toContain(
+      'This capability list governs only managed MCP artifact operations; it is not the selected work-product surface.'
+    );
     for (const token of ['/Users/', 'file:', 'MEDIA:', 'data:image', 'blobs']) {
       expect(envelope).not.toContain(token);
     }
@@ -119,23 +121,20 @@ describe('managed image envelope entries', () => {
     expect(envelope).toContain('artifact_id=img_generated1');
     expect(envelope).toContain('editable=false');
     expect(envelope).not.toContain('edit_handle=');
-    // …and a closed image seat advertises no capability and mints no permit.
+    // …and a closed image seat advertises no capability.
     expect(envelope).not.toContain('eve_image_edit');
-    expect(envelope).not.toContain('evespend_');
   });
 
-  it('a closed image seat lists the image read-only and mints no image permit', async () => {
+  it('a closed image seat lists the image read-only', async () => {
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      { conversationId: 'conv-1', userTurnText: 'bearbeite das bild', requestedEditOperation: 'image_edit' },
+      { conversationId: 'conv-1', userTurnText: 'bearbeite das bild' },
       deps({ isImageEditEnabled: () => false })
     );
     expect(envelope).not.toContain('eve_image_edit');
-    expect(envelope).not.toContain('evespend_');
   });
 
-  it('marks the exact managed image selection and binds the permit only to its bytes', async () => {
+  it('marks the exact managed image selected for the native Hermes edit tool', async () => {
     const selectedSha = 'd'.repeat(64);
-    const issuePermit = vi.fn(() => `evespend_${'7'.repeat(64)}`);
     const records = [
       managedImageRecord({ id: 'img_newer', sha256: IMAGE_SHA, createdAt: 1_754_000_010_000 }),
       managedImageRecord({ id: 'img_selected', sha256: selectedSha }),
@@ -145,38 +144,17 @@ describe('managed image envelope entries', () => {
       {
         conversationId: 'conv-1',
         userTurnText: 'make the selected image brighter',
-        requestedEditOperation: 'image_edit',
         selectedArtifactIds: ['img_selected'],
       },
-      deps({ listManagedImageRecords: () => records, issuePermit })
+      deps({ listManagedImageRecords: () => records })
     );
 
     expect(envelope).toContain('artifact_id=img_selected kind=image');
     expect(envelope).toContain('selected=true');
-    expect(issuePermit).toHaveBeenCalledTimes(1);
-    expect(issuePermit.mock.calls[0]?.[1]).toMatchObject({
-      operation: 'image_edit',
-      allowedArtifactSha256: [selectedSha],
-    });
+    expect(envelope).toContain('eve_image_edit');
   });
 
-  it('mints no permit when the explicit selection is stale or unknown', async () => {
-    const issuePermit = vi.fn(() => `evespend_${'7'.repeat(64)}`);
-    const { envelope } = await handleCommandEveArtifactContextEnvelope(
-      {
-        conversationId: 'conv-1',
-        userTurnText: 'edit this exact image',
-        requestedEditOperation: 'image_edit',
-        selectedArtifactIds: ['img_missing'],
-      },
-      deps({ issuePermit })
-    );
-
-    expect(issuePermit).not.toHaveBeenCalled();
-    expect(envelope).not.toContain('evespend_');
-  });
-
-  it('the pure builder renders image entries and the permit only alongside an advertised capability', () => {
+  it('the pure builder renders image entries alongside the advertised native tool', () => {
     const rendered = buildEveArtifactContextEnvelope({
       entries: [
         {
@@ -190,11 +168,10 @@ describe('managed image envelope entries', () => {
         },
       ],
       allowedCapabilities: ['eve_image_edit'],
-      spendPermit: `evespend_${'7'.repeat(64)}`,
     });
     expect(rendered).toContain('kind=image');
     expect(rendered).toContain(`edit_handle=${HANDLE}`);
-    expect(rendered).toContain('evespend_');
+    expect(rendered).toContain('eve_image_edit');
     // The content hash travels ONLY in the non-rendered field.
     expect(rendered).not.toContain(IMAGE_SHA);
   });

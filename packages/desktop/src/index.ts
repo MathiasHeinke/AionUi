@@ -60,12 +60,13 @@ import {
   type EveTeamDirectiveRole,
   type EveWorkerAssignmentMap,
 } from './common/config/eveWorkerAssignmentCore';
-import type {
-  CommandEveEveCloudRoute,
-  CommandEveHonchoDeriverRoute,
-  CommandEveHonchoDeriverRouteResolver,
-  CommandEveLocalOpenAiRoute,
-  CommandEveLocalOpenAiRoutingResolver,
+import {
+  commandEveMessagesContainNativeVisionToolResult,
+  type CommandEveEveCloudRoute,
+  type CommandEveHonchoDeriverRoute,
+  type CommandEveHonchoDeriverRouteResolver,
+  type CommandEveLocalOpenAiRoute,
+  type CommandEveLocalOpenAiRoutingResolver,
 } from './process/commandEve/ollamaOpenAiShim';
 import { applyLauncherWiring, clearHermesDelegateTransportEnv } from './process/commandEve/eveWorkerLauncherCore';
 import { resolveDispatchAgentId } from './process/commandEve/eveAgentTaskRegistry';
@@ -114,8 +115,6 @@ import { resolveCommandEveManagedVisualTurn } from './process/commandEve/managed
 import { CommandEveManagedVisualAuthorizationError } from './process/commandEve/shimPublicError';
 import { readCommandEveSettingsFromBackend } from './process/commandEve/commandEveBackendSettingsRead';
 import { readCommandEveCloudVisualPolicy } from './process/commandEve/visual/cloudVisualPolicyMain';
-import { type EveRememberedCommand } from '@/common/config/eveRememberedCommandsCore';
-import { rememberedCommandsFromSettings } from '@/common/config/eveAuthorityStoreCore';
 import { createTeamWorkerStatusResolver } from './process/commandEve/teamWorkerStatusResolverCore';
 import childProcess from 'node:child_process';
 import { startCuratorTickTimer } from './process/commandEve/curatorTickCore';
@@ -644,27 +643,27 @@ function buildCommandEveShimRoutingResolver(): (
   return async (body) => {
     const seatId = getActiveSeatId();
     const seatContextRevision = getActiveSeatContextRevision();
+    const authorizeCloudVisualEgress = async (): Promise<boolean> => {
+      const policy = await readCommandEveCloudVisualPolicy();
+      return (
+        policy.status === 'enabled' &&
+        policy.seatId === seatId &&
+        getActiveSeatId() === seatId &&
+        getActiveSeatContextRevision() === seatContextRevision
+      );
+    };
     const managedVisualTurn = resolveCommandEveManagedVisualTurn(body, seatId, seatContextRevision);
     if (managedVisualTurn.status === 'invalid') {
       throw new CommandEveManagedVisualAuthorizationError(managedVisualTurn.reason_code);
     }
     if (managedVisualTurn.status === 'authorized') {
       const wireResult = readLicenseWire(getDataPath());
-      const claim = managedVisualTurn.visualPolicyClaim;
       return {
         active: true,
         functionUrl: EVE_INFERENCE_FUNCTION_URL,
         license: wireResult.ok ? wireResult.wire : undefined,
         tier: managedVisualTurn.tier,
-        authorizeManagedVisualEgress: async () => {
-          const policy = await readCommandEveCloudVisualPolicy();
-          return (
-            policy.status === 'enabled' &&
-            policy.seatId === claim.seatId &&
-            getActiveSeatId() === claim.seatId &&
-            getActiveSeatContextRevision() === claim.seatContextRevision
-          );
-        },
+        authorizeManagedVisualEgress: authorizeCloudVisualEgress,
       };
     }
 
@@ -681,6 +680,9 @@ function buildCommandEveShimRoutingResolver(): (
         return wireResult.ok ? wireResult.wire : undefined;
       },
       functionUrl: EVE_INFERENCE_FUNCTION_URL,
+    }).then((route) => {
+      if (!route.active || !commandEveMessagesContainNativeVisionToolResult(body?.messages)) return route;
+      return { ...route, authorizeManagedVisualEgress: authorizeCloudVisualEgress };
     });
   };
 }
@@ -1050,16 +1052,6 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
   claudeDelegate: ReturnType<typeof resolveAssignedClaudeDelegate>;
   /** 1.6.3 Team-Realität: roster + live status + worker for the SOUL team directive. */
   teamRoles: EveTeamDirectiveRole[];
-  /**
-   * 1.820: the commands THIS SEAT's human said EVE may always run.
-   *
-   * P1 (independent review, Grok): the emitter accepted this and the tests passed
-   * it explicitly, but no production caller ever read it — so a user could tick
-   * "always allow this command", see it listed in Freigaben, and Hermes would
-   * never learn about it. Green feature, no effect. It is resolved HERE because
-   * both provisioning call sites already spread this object.
-   */
-  rememberedCommands: readonly EveRememberedCommand[];
 }> {
   try {
     // S9 #3 store-split fix: worker assignments + team status are RENDERER-written
@@ -1071,14 +1063,9 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
     const bag = await readCommandEveSettingsFromBackend([
       'commandEve.workerAssignments',
       'commandEve.teamWorkerStatus',
-      'commandEve.authority',
     ]);
     const assignmentsRaw = bag['commandEve.workerAssignments'];
     const statusesRaw = bag['commandEve.teamWorkerStatus'];
-    // Seat-scoped by `SEAT_SCOPED_CONFIG_KEYS`, so this reads THIS seat's grants
-    // and never a sibling client's. Re-validated on read: a row that reached the
-    // store by another route is not trusted for already being there.
-    const rememberedCommands = rememberedCommandsFromSettings(bag);
     const assignments =
       assignmentsRaw && typeof assignmentsRaw === 'object'
         ? (Object.fromEntries(
@@ -1107,7 +1094,6 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
         packaged: app.isPackaged,
       }),
       teamRoles: buildTeamDirectiveRoles(assignments, statuses),
-      rememberedCommands,
     };
   } catch (error) {
     clearHermesDelegateTransportEnv(process.env);
@@ -1121,7 +1107,6 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
       codexRuntime: '',
       claudeDelegate: null,
       teamRoles: buildTeamDirectiveRoles({}, {}),
-      rememberedCommands: [],
     };
   }
 }

@@ -555,6 +555,7 @@
     "remove": "Entfernen",
     "promote": "Jetzt als Korrektur einschieben",
     "promoteFilesUnsupported": "Korrekturen mit Dateien bleiben in der Warteschlange.",
+    "promoteAuthorityUnsupported": "Arbeiten mit explizitem Artefakt oder Arbeitsprodukt bleiben in der Warteschlange.",
     "promoteFailed": "Die Korrektur konnte nicht in den laufenden Auftrag eingeschoben werden.",
     "activeTurnUnavailable": "Der aktuelle Lauf ist noch nicht bereit für eine Korrektur.",
     "steerFilesQueued": "Korrekturen können keine Dateien enthalten. Diese Nachricht wurde deshalb für danach eingereiht.",
@@ -649,6 +650,9 @@
       "file": "Datei"
     },
     "referenceUnavailable": "Dieses Artefakt kann nicht mehr als Bearbeitungsquelle verwendet werden.",
+    "mediaEditPreparationUnavailable": "Die bezahlte Bearbeitung konnte nicht vorbereitet werden. Es wurde nichts gesendet.",
+    "imageGenerationPreparationUnavailable": "Das ausgewählte Bildmodell, die Auflösung und der Preis konnten nicht verifiziert werden. Es wurde nichts gesendet.",
+    "artifactInputUnavailable": "Die ausgewählte Bildquelle konnte nicht sicher für dieses Dokument bereitgestellt werden. Es wurde nichts gesendet.",
     "artifactCapabilityRefusal": {
       "medium": {
         "image": {

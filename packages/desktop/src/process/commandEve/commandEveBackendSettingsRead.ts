@@ -65,17 +65,7 @@ import { getActiveSeatId } from './seatContextCore';
  * fail-safes to 'on' = always redact). The legacy/founder seat is unaffected
  * (physicalKeyFor returns the un-prefixed key verbatim there).
  */
-const NO_LEGACY_INHERIT_KEYS: ReadonlySet<string> = new Set<string>([
-  'commandEve.egressRedactionMode',
-  // CEVE-18205: the agent video-GENERATE release is a SPEND switch, so the
-  // fail-open argument above applies to it with money attached. A client seat that
-  // never ticked the box would otherwise inherit the FOUNDER seat's `true` and let
-  // the model start paid renders on that client's credits, while its own settings
-  // card (which refuses the un-prefixed read for a real seat) still shows the
-  // feature as off. A real seat reads ONLY its own scoped value; absent ⇒ omitted
-  // ⇒ the resolver's fail-closed default (off).
-  'commandEve.agentVideoGenerateEnabled',
-]);
+const NO_LEGACY_INHERIT_KEYS: ReadonlySet<string> = new Set<string>(['commandEve.egressRedactionMode']);
 
 /**
  * Resolve the seat-physical key for a logical `commandEve.*` key (seat-scoped

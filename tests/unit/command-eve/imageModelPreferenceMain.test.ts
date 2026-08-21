@@ -123,7 +123,10 @@ describe('image model preference mutation', () => {
     // A non-default tier, so the write is a real stored choice rather than the
     // key-removal path the next test pins. ('fast' was this tier until the
     // 2026-08-18 catalog retired it.)
-    const result = await setCommandEveImageModelPreference({ expectedSeatId: SEAT_A, tier: 'seedream-pro' }, state.deps);
+    const result = await setCommandEveImageModelPreference(
+      { expectedSeatId: SEAT_A, tier: 'seedream-pro' },
+      state.deps
+    );
     expect(result.ok).toBe(true);
     expect(result.preference).toMatchObject({ status: 'resolved', tier: 'seedream-pro', source: 'stored_explicit' });
     expect(state.bag[KEY_A]).toBe('seedream-pro');

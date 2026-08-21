@@ -1,6 +1,6 @@
 ---
 name: local-vision-qa
-description: Explicit OFFLINE/ON-DEVICE visual QA via an already installed local model or, only after informed user approval, an optional model download. Use solely when the operator explicitly asks for local, offline, private, or on-device image processing. Never trigger for routine image/PPTX analysis, never treat a cloud-model mismatch as permission to suggest Ollama, and never download a model silently. Images stay on this Mac. NOT for reading text or generating images.
+description: LOCAL/OFFLINE ONLY. Never use for routine visual QA or PDF review. Trigger solely when the operator explicitly asks for local, offline, private, no-cloud, or on-device image processing. Ordinary PDF QA belongs to editorial-pdf-design plus native vision_analyze. Never treat a cloud-model mismatch as permission to suggest Ollama, and never download a model silently. Images stay on this Mac. NOT for reading text or generating images.
 disable_model_invocation: true
 ---
 
@@ -22,6 +22,9 @@ and screenshots stay local, DSGVO-green by construction.
 
 - Activate only after an explicit request such as “lokal”, “offline”, “nur auf
   diesem Mac”, “on-device” or “darf die Cloud nicht verlassen”.
+- If none of those explicit local-only choices appears, do not continue this
+  skill. For PDF review use `editorial-pdf-design`; for ordinary image review
+  use native `vision_analyze`.
 - A 502, a non-vision chat model, a PPTX attachment, or “analysiere dieses Bild”
   is **not** permission to propose, install or pull a local model.
 - For ordinary image/PPTX analysis, use the managed presentation/vision lane.
@@ -32,8 +35,9 @@ and screenshots stay local, DSGVO-green by construction.
 
 ## When to use
 
-- Visual QA of rendered artifacts: PDF pages, HTML→PDF output, social-post images,
-  logo/format conversions, layout drafts.
+- Visual QA of rendered artifacts only after the operator explicitly chose the
+  local/offline lane: PDF pages, HTML→PDF output, social-post images,
+  logo/format conversions, and layout drafts.
 - Explicitly local/offline “Schau dir das Bild an” requests when the managed
   cloud lane must not be used.
 - NOT for reading text out of documents — use `pdftotext` (vision models

@@ -6,7 +6,7 @@
 
 import type { TProviderWithModel } from './storage';
 import type { CommandEvePrivacyLane } from './eveMultimodalGatewayCore';
-import type { CommandEveImageModelTierId } from './eveImageModelRegistryCore';
+import { isCommandEveImageModelTierId, type CommandEveImageModelTierId } from './eveImageModelRegistryCore';
 import type { CommandEveActiveImageArtifact } from './managedImageArtifactCore';
 
 export const COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID = 'command-eve-managed-image';
@@ -37,6 +37,46 @@ export const COMMAND_EVE_MANAGED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 
 export type CommandEveManagedImageAspectRatio = (typeof COMMAND_EVE_MANAGED_IMAGE_ASPECT_RATIOS)[number];
 export type CommandEveManagedImageResolution = (typeof COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS)[number];
 export type CommandEveManagedImageMimeType = (typeof COMMAND_EVE_MANAGED_IMAGE_MIME_TYPES)[number];
+
+/**
+ * Request-scoped image-generation choice carried by an explicit image or document
+ * composer send. Reference count zero is a pure text-to-image request; attached
+ * draft images remain the app-verified reference set for exactly this send.
+ */
+export type CommandEveImageGenerateSelectionRequest = Readonly<{
+  workProductMode: 'image' | 'presentation' | 'pdf' | 'word' | 'excel';
+  tierId: CommandEveImageModelTierId;
+  resolution: CommandEveManagedImageResolution;
+  aspectRatio: CommandEveManagedImageAspectRatio;
+  registryRevision: string;
+  referenceCount: 0 | 1 | 2 | 3 | 4;
+}>;
+
+export function parseCommandEveImageGenerateSelectionRequest(
+  value: unknown
+): CommandEveImageGenerateSelectionRequest | null {
+  if (!isRecord(value)) return null;
+  const keys = Object.keys(value);
+  if (
+    keys.length !== 6 ||
+    !['workProductMode', 'tierId', 'resolution', 'aspectRatio', 'registryRevision', 'referenceCount'].every((key) =>
+      Object.hasOwn(value, key)
+    ) ||
+    !['image', 'presentation', 'pdf', 'word', 'excel'].includes(String(value.workProductMode)) ||
+    !isCommandEveImageModelTierId(value.tierId) ||
+    !COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS.includes(value.resolution as CommandEveManagedImageResolution) ||
+    !COMMAND_EVE_MANAGED_IMAGE_ASPECT_RATIOS.includes(value.aspectRatio as CommandEveManagedImageAspectRatio) ||
+    typeof value.registryRevision !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(value.registryRevision) ||
+    typeof value.referenceCount !== 'number' ||
+    !Number.isInteger(value.referenceCount) ||
+    value.referenceCount < 0 ||
+    value.referenceCount > COMMAND_EVE_MANAGED_IMAGE_MAX_REFERENCES
+  ) {
+    return null;
+  }
+  return value as CommandEveImageGenerateSelectionRequest;
+}
 
 /**
  * Renderer -> Main contract for one explicit composer image turn. Provider
@@ -131,6 +171,7 @@ export type CommandEveManagedImageReceipt = {
   resolution: CommandEveManagedImageResolution;
   input_reference_count: number;
   input_reference_sha256: string[];
+  credits_quoted: number;
   zdr_enforced: true;
   data_collection: 'deny';
   cost_usd?: number;
@@ -226,6 +267,8 @@ export function parseCommandEveManagedImageEdgeResponse(raw: unknown): CommandEv
     !COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS.includes(receipt.resolution as CommandEveManagedImageResolution) ||
     !Number.isInteger(receipt.input_reference_count) ||
     receipt.input_reference_count !== referenceHashes.length ||
+    !Number.isInteger(receipt.credits_quoted) ||
+    Number(receipt.credits_quoted) < 0 ||
     referenceHashes.some((value) => !/^[a-f0-9]{64}$/.test(value)) ||
     receipt.zdr_enforced !== true ||
     receipt.data_collection !== 'deny' ||

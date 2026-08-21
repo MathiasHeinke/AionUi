@@ -32,6 +32,7 @@ import {
   type CommandEveImageModelRegistryResult,
 } from '@/common/config/eveImageModelRegistryCore';
 import type { CommandEveImageModelPreferenceState } from '@/common/config/visual/imageModelPreferenceCore';
+import { isSha256Hex } from '@/common/config/eveOpaqueTokenCore';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 import { readCommandEveLimitedResponseText } from './limitedFetchResponse';
 import { readCommandEveImageModelPreference } from './imageModelPreferenceMain';
@@ -61,6 +62,8 @@ export type CommandEveManagedImageLocalRequest = {
   aspect_ratio?: unknown;
   resolution?: unknown;
   input_references?: unknown;
+  /** Hermes-derived SHA-256 idempotency key from the managed MCP request. */
+  requestId?: unknown;
 };
 
 export type CommandEveManagedImageLocalResult = {
@@ -85,7 +88,8 @@ function parseReferenceDataUrl(value: unknown): { mimeType: CommandEveManagedIma
 }
 
 function buildEdgeRequest(
-  raw: CommandEveManagedImageLocalRequest
+  raw: CommandEveManagedImageLocalRequest,
+  requestId: string
 ):
   | { ok: true; body: Omit<CommandEveManagedImageEdgeRequest, 'image_model'>; promptSha256: string }
   | { ok: false; result: CommandEveManagedImageLocalResult } {
@@ -143,7 +147,7 @@ function buildEdgeRequest(
       capability: 'image_generation',
       privacyLane: 'cloud_auto',
       directProviderKeyPresentInDesktop: false,
-      requestId: `image-${crypto.randomUUID()}`,
+      requestId,
       prompt,
       aspect_ratio: aspectRatio as CommandEveManagedImageAspectRatio,
       resolution: resolution as CommandEveManagedImageResolution,
@@ -200,6 +204,7 @@ export type CommandEveManagedImageGenerationOptions = {
     promptSha256: string;
     nameHint?: string;
     parentArtifactId?: string;
+    editRequestSha256?: string;
   }) => { artifactHandle: string } | undefined;
   /**
    * Set by the image EDIT lane only: the staged child records the artifact it
@@ -213,7 +218,22 @@ export async function executeCommandEveManagedImageGeneration(
   raw: CommandEveManagedImageLocalRequest,
   options: CommandEveManagedImageGenerationOptions = {}
 ): Promise<CommandEveManagedImageLocalResult> {
-  const built = buildEdgeRequest(raw);
+  const requestId = options.requestId ?? (typeof raw.requestId === 'string' ? raw.requestId : undefined);
+  if (options.stagedParentArtifactId !== undefined && !isSha256Hex(requestId)) {
+    return failure(
+      500,
+      'managed_image_edit_request_identity_missing',
+      'The paid image edit could not be bound to a durable recovery identity.'
+    );
+  }
+  if (!isSha256Hex(requestId)) {
+    return failure(
+      400,
+      'managed_image_request_identity_missing',
+      'Managed image generation requires a durable Hermes tool-call identity.'
+    );
+  }
+  const built = buildEdgeRequest(raw, requestId);
   if (built.ok === false) return built.result;
   if (!COMMAND_EVE_MANAGED_IMAGE_ENABLED) {
     return failure(503, 'managed_image_disabled', 'Managed image generation is not enabled.');
@@ -351,10 +371,14 @@ export async function executeCommandEveManagedImageGeneration(
       'The selected image model tier does not support this resolution.'
     );
   }
+  const quotedCredits =
+    referenceCount > 0
+      ? effectiveTierSpec.quotes.edit_credits[built.body.resolution] +
+        effectiveTierSpec.quotes.per_input_reference_credits * referenceCount
+      : effectiveTierSpec.quotes.generate_credits[built.body.resolution];
   // The bare tier id travels; the server owns tier → slug (CoS contract).
   const body: CommandEveManagedImageEdgeRequest = {
     ...built.body,
-    ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
     image_model: effectiveTierSpec.id,
     ...commandEveMediaSeedAttribution(capturedSeatId),
   };
@@ -413,8 +437,10 @@ export async function executeCommandEveManagedImageGeneration(
     if (
       artifactSha256 !== parsed.data.artifact.sha256 ||
       parsed.data.image_generation.prompt_sha256 !== built.promptSha256 ||
+      parsed.data.image_generation.model !== effectiveTierSpec.slug ||
       parsed.data.image_generation.aspect_ratio !== built.body.aspect_ratio ||
       parsed.data.image_generation.resolution !== built.body.resolution ||
+      parsed.data.image_generation.credits_quoted !== quotedCredits ||
       parsed.data.image_generation.input_reference_sha256.length !== built.body.input_references.length ||
       parsed.data.image_generation.input_reference_sha256.some(
         (value, index) => value !== built.body.input_references[index]?.sha256
@@ -443,6 +469,7 @@ export async function executeCommandEveManagedImageGeneration(
         promptSha256: string;
         nameHint?: string;
         parentArtifactId?: string;
+        editRequestSha256?: string;
       }) => {
         const staged = stageGeneratedImageArtifact(originDataPath, stageInput);
         return staged ? { artifactHandle: staged.handle } : undefined;
@@ -458,6 +485,7 @@ export async function executeCommandEveManagedImageGeneration(
       promptSha256: built.promptSha256,
       nameHint: built.body.prompt,
       ...(options.stagedParentArtifactId === undefined ? {} : { parentArtifactId: options.stagedParentArtifactId }),
+      ...(options.stagedParentArtifactId === undefined ? {} : { editRequestSha256: requestId }),
     });
     if (!staged) {
       // The image WAS generated (and billed) upstream — reporting a generation

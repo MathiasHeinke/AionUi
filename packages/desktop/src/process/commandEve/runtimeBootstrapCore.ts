@@ -19,6 +19,7 @@ import {
 } from '../../common/config/commandEveShell';
 import { COMMAND_EVE_CONTEXT_COMPRESSION_THRESHOLD } from '../../common/config/eveContextPolicyCore';
 import {
+  COMMAND_EVE_MANAGED_IMAGE_MAX_PROMPT_CHARS,
   COMMAND_EVE_MANAGED_IMAGE_MODEL,
   COMMAND_EVE_MANAGED_IMAGE_PLATFORM,
   COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID,
@@ -49,11 +50,10 @@ import {
 import { getBuiltinMcpScriptPath } from '../utils/builtinMcpPath';
 import { honchoMcpServerForSeat } from './honchoMcpServerCore';
 import { provisionArtifactCapabilityBearerFile } from './artifactCapabilityLoopback';
-import { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG, isAgentVideoEditAdvertisingEnabled } from './agentVideoEditFlag';
+import { COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG } from './agentVideoEditFlag';
 import { backupHermesStateDbsBeforeUpgrade } from './hermesStateDbBackup';
 import { COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG, isAgentImageEditAdvertisingEnabled } from './agentImageEditFlag';
 import { COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG } from './agentVideoGenerateFlag';
-import { productionAgentVideoGenerateGate } from './agentVideoGenerateGateMain';
 import {
   eveHonchoMemoryDirective,
   resolveHonchoRenderForSeat,
@@ -73,6 +73,7 @@ import {
 } from './companyBrainStoreCore';
 import { stampUserMdTiersToHome } from './userMdTierStampCore';
 import { isMcpVaultEnabled } from './mcpVaultFlagCore';
+import { composeCommandEveHermesMcpServers } from './mcp';
 import { readVettedConnectorsForSeat, resolveEnvFromVault } from './vaultEnvResolveCore';
 import type { VaultConnectorRecord } from './vaultRecordCore';
 import {
@@ -96,8 +97,7 @@ import {
   resolveCommandEvePresentationPythonBundleDir,
   verifyCommandEvePresentationPythonBundle,
 } from './presentationPythonRuntimeCore';
-import { buildCommandAllowlistYaml, type EveRememberedCommand } from '@/common/config/eveRememberedCommandsCore';
-
+import { HERMES_NATIVE_PATCH_SOURCE } from './hermesNativePatchSource';
 export const COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION = 'command-eve-runtime-bootstrap/v0';
 
 const ONE_GB = 1024 ** 3;
@@ -108,7 +108,7 @@ const DEFAULT_MODEL_REF = 'hf.co/tripolskypetr/Gemma-4-Uncensored-Aggressive-GGU
 const DEFAULT_HERMES_VERSION = '0.20.0';
 const DEFAULT_HERMES_PACKAGE = 'hermes-agent';
 export const COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 =
-  '0fcd755a455743869b00c3831ec01bd71e9c392c8b3c1fedaa9da45d99d9b67e';
+  'bec95a22b43c2ca675ffa39a810ad62aae020086069d16d7de33fc808b4787e7';
 const COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE = 'bundled-wheel-receipt.json';
 const DEFAULT_FAST_CONTEXT_LENGTH = 65_536;
 const DEFAULT_LONG_CONTEXT_LENGTH = 65_536;
@@ -166,7 +166,7 @@ export const EVE_STRATEGY_SKILL_IDS = [
   // instead of sleeping blind, let a governed CEO coordinate bounded workers plus an
   // independent audit arm, judge the evidence, and return ONE decision card.
   // It carries NO disable_model_invocation. Honest scope of that (FACT, verified
-  // against resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl: ZERO
+  // against the current bundled Hermes wheel: ZERO
   // occurrences of the string): the bundled Hermes does not read that key at all, so
   // its absence is not what makes the skill reachable — it is a REPO-SIDE curation
   // contract, enforced by SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION in
@@ -248,6 +248,9 @@ export const EVE_STRATEGY_SKILL_IDS = [
   'office-studio',
   // 4 further EVE-authored field skills harvested + hardened (2026-07-03).
   'ai-coding-delegation',
+  // General PDF production owns neutral reports, covers, brochures and PDF edits.
+  // Lead-generation assets keep their dedicated conversion workflow below.
+  'editorial-pdf-design',
   'lead-magnet-pdf',
   'skill-authoring',
   'legal-enforcement-dach',
@@ -1065,31 +1068,11 @@ export type RuntimeBootstrapOptions = {
     status: string;
     worker: string | null;
   }> | null;
-  /**
-   * 1.820: the literal commands THIS SEAT's human said EVE may always run,
-   * from `commandEve.authority.rememberedCommands`.
-   *
-   * The emitted `command_allowlist` is a PROJECTION of that record. Revoking a
-   * row and rebooting removes it, so no authority can accumulate that the human
-   * cannot withdraw — which is the whole reason the C0 containment wipes Hermes'
-   * own persisted grants. Absent/[] -> `command_allowlist: []`, byte-identical
-   * to that containment.
-   */
-  rememberedCommands?: readonly EveRememberedCommand[];
-  /**
-   * CEVE-18205-FLAG — test seam for the per-seat agent video-generate release.
-   *
-   * Production omits it and the real fail-closed gate
-   * (`productionAgentVideoGenerateGate`) is used, which performs a backend read.
-   * A bootstrap test injects a stub so both directions are drivable without a
-   * backend and without an env var.
-   */
-  resolveAgentVideoGenerateRelease?: () => Promise<boolean>;
 };
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
   version: 'command-eve-capability-pack/v0',
-  release: '1.823.4',
+  release: '1.823.6',
   policy: {
     default_mode: 'proposal_only',
     secret_rule: 'Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.',
@@ -1437,6 +1420,13 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       default_state: 'gated',
     },
     {
+      id: 'editorial-pdf-design',
+      name: 'Editorial PDF Design',
+      tier: 'department',
+      source: 'Command EVE general PDF production skill',
+      default_state: 'active',
+    },
+    {
       id: 'lead-magnet-pdf',
       name: 'Lead-Magnet PDF Studio',
       tier: 'department',
@@ -1648,7 +1638,7 @@ type PythonLookup = CommandLookup & {
 
 export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
   version: 'command-eve-runtime-bootstrap-manifest/v0',
-  release: '1.823.4',
+  release: '1.823.6',
   hermes: {
     package: DEFAULT_HERMES_PACKAGE,
     version: DEFAULT_HERMES_VERSION,
@@ -2475,11 +2465,18 @@ export function buildCommandEveManagedImageHermesMcpServer(input: {
   scriptPath: string;
   shimBaseUrl: string;
   authTokenFile: string;
+  userDataPath: string;
 }): CommandEveHermesMcpServer | undefined {
   const nodeExecutable = input.nodeExecutable.trim();
   const scriptPath = input.scriptPath.trim();
   const authTokenFile = input.authTokenFile.trim();
-  if (!path.isAbsolute(nodeExecutable) || !path.isAbsolute(scriptPath) || !path.isAbsolute(authTokenFile)) {
+  const userDataPath = input.userDataPath.trim();
+  if (
+    !path.isAbsolute(nodeExecutable) ||
+    !path.isAbsolute(scriptPath) ||
+    !path.isAbsolute(authTokenFile) ||
+    !path.isAbsolute(userDataPath)
+  ) {
     return undefined;
   }
   if (!isLoopbackHttpUrl(input.shimBaseUrl)) return undefined;
@@ -2494,6 +2491,7 @@ export function buildCommandEveManagedImageHermesMcpServer(input: {
       AIONUI_IMG_BASE_URL: ollamaOpenAiCompatibleBaseUrl(input.shimBaseUrl),
       AIONUI_IMG_API_KEY_FILE: authTokenFile,
       AIONUI_IMG_MODEL: COMMAND_EVE_MANAGED_IMAGE_MODEL,
+      DATA_DIR: userDataPath,
     },
   };
 }
@@ -3494,6 +3492,10 @@ export function commandEveArtifactFirstSkillMarkdown(): string {
     ``,
     `For every successful local or HTTPS work product, add exactly one machine-readable line to the final answer: \`MEDIA: <absolute-local-path-or-https-url>\`. For local HTML, use the absolute path to the generated .html file. Never use a transient loopback URL such as 127.0.0.1 or localhost as the artifact source. The app already turns this native carrier into the visible chat artifact and shared artifact register.`,
     ``,
+    `## Canonical placement`,
+    ``,
+    `Write generated work products into the workspace folder that matches the OUTPUT, not the source: images in \`bilder/\`, videos in \`videos/\`, and PDF/DOCX/XLSX/PPTX/HTML documents in \`dokumente/\`. When an image is used to build a PDF or deck, the image stays in \`bilder/\` and the resulting document goes to \`dokumente/\`. Never let the source file's folder decide where a different output type is saved.`,
+    ``,
     `## Failure contract`,
     ``,
     `If generation fails, is blocked by privacy, requires payment, needs a missing connector, or is waiting for a human gate, return a visible failure artifact instead of silently stopping or only explaining in prose.`,
@@ -3774,7 +3776,6 @@ export const COMMAND_EVE_ACP_PLATFORM_TOOLSETS: readonly string[] = Object.freez
   'hermes-acp',
   'computer_use',
   'clarify',
-  'command-eve-desktop',
 ]);
 
 /**
@@ -3848,6 +3849,16 @@ function writeCommandEveRuntimeReconciliation(
   writeJsonAtomic(path.join(paths.hermesHome, COMMAND_EVE_RUNTIME_RECONCILIATION_FILE), reconciliation);
 }
 
+function readExistingEmittedMcpServerIds(file: string): readonly string[] {
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as { hermes_config?: { mcp_servers?: unknown } };
+    const servers = raw?.hermes_config?.mcp_servers;
+    return Array.isArray(servers) && servers.every((value) => typeof value === 'string') ? (servers as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function ensureCommandEveManagedSkillsReconciliation(options: {
   userDataPath?: string;
   bundledSkillsDir?: string;
@@ -3858,7 +3869,12 @@ export function ensureCommandEveManagedSkillsReconciliation(options: {
   const capabilityPack = loadCommandEveCapabilityPack(fs.existsSync(paths.capabilityPack) ? paths.capabilityPack : '');
   writeCommandEveCapabilityPack(paths, capabilityPack);
   const { executableSkillIds } = writeCommandEveManagedSkills(paths, capabilityPack, options.bundledSkillsDir || '');
-  writeCommandEveRuntimeReconciliation(paths, capabilityPack, executableSkillIds);
+  writeCommandEveRuntimeReconciliation(
+    paths,
+    capabilityPack,
+    executableSkillIds,
+    readExistingEmittedMcpServerIds(paths.runtimeReconciliation)
+  );
   return executableSkillIds;
 }
 
@@ -5568,6 +5584,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     'import threading',
     'import time',
     'import uuid',
+    ...HERMES_NATIVE_PATCH_SOURCE.imports,
     'from pathlib import Path',
     'from types import SimpleNamespace',
     'from typing import Any',
@@ -5602,6 +5619,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '_COMMAND_EVE_EXPECTED_PATCHES = (',
     '    "auxiliary_auth",',
     '    "browser_use_uvx_receipt",',
+    HERMES_NATIVE_PATCH_SOURCE.expectedPatchNames.webCapabilityTruth,
     '    "media_runtime_cwd",',
     '    "attachment_memory_gate",',
     '    "attachment_history",',
@@ -5612,6 +5630,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    "permission_authority",',
     '    "approval_class",',
     '    "tool_authority",',
+    HERMES_NATIVE_PATCH_SOURCE.expectedPatchNames.executeCodeAuthority,
     '    "context_policy",',
     '    "compression_call",',
     '    "compression_runtime",',
@@ -5674,6 +5693,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        pass',
     '',
     '',
+    ...HERMES_NATIVE_PATCH_SOURCE.webCapabilityTruth,
     'def _command_eve_shim_token() -> str:',
     '    token_file = os.environ.get("COMMAND_EVE_SHIM_AUTH_TOKEN_FILE", "").strip()',
     '    if not token_file or not Path(token_file).is_absolute():',
@@ -7414,18 +7434,26 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    # also keeps the memory quarantine and the approval-card label honest',
     '    # through the bridge instead of leaving a tool_call-shaped backdoor.',
     '    if normalized_tool == "tool_call":',
-    '        underlying_name = str(normalized_args.get("name") or "").strip()',
-    '        if underlying_name:',
-    '            underlying_args = normalized_args.get("arguments")',
-    '            if isinstance(underlying_args, str):',
-    '                try:',
-    '                    underlying_args = json.loads(underlying_args)',
-    '                except Exception:',
-    '                    underlying_args = {}',
-    '            normalized_tool = underlying_name',
-    '            normalized_args = underlying_args if isinstance(underlying_args, dict) else {}',
-    '            if normalized_tool in _COMMAND_EVE_NATIVE_AUTHORITY_TOOLS:',
-    '                return None',
+    '        invalid_bridge = {',
+    '            "action": "block",',
+    '            "message": "Command EVE blocked a Tool Search bridge call because it did not provide an underlying tool name with JSON-object arguments.",',
+    '            "rule_key": "command-eve:tool-call-envelope-invalid",',
+    '        }',
+    '        if not isinstance(args, dict) or "arguments" not in normalized_args:',
+    '            return dict(invalid_bridge)',
+    '        try:',
+    '            from tools import tool_search as command_eve_tool_search',
+    '            underlying_name, underlying_args, bridge_error = command_eve_tool_search.resolve_underlying_call(',
+    '                normalized_args',
+    '            )',
+    '        except Exception:',
+    '            return dict(invalid_bridge)',
+    '        if bridge_error or not underlying_name or not isinstance(underlying_args, dict):',
+    '            return dict(invalid_bridge)',
+    '        normalized_tool = underlying_name',
+    '        normalized_args = underlying_args',
+    '        if normalized_tool in _COMMAND_EVE_NATIVE_AUTHORITY_TOOLS:',
+    '            return None',
     '    action = str(normalized_args.get("action") or "").strip().lower()[:128]',
     '    if normalized_tool == "todo":',
     '        action = "write" if "todos" in normalized_args else "read"',
@@ -7524,8 +7552,24 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    try:',
     '        from acp_adapter import permissions as acp_permissions',
     '        from acp_adapter import server as acp_server',
+    '        from tools import approval as hermes_approval',
     '    except Exception:',
     '        return',
+    '    gateway_context = getattr(hermes_approval, "_is_gateway_approval_context", None)',
+    '    if callable(gateway_context) and not getattr(gateway_context, "_command_eve_acp_interactive_patch", False):',
+    '        original_gateway_context = gateway_context',
+    '',
+    '        def command_eve_is_gateway_approval_context() -> bool:',
+    '            try:',
+    '                platform = str(hermes_approval._get_session_platform() or "").strip().lower()',
+    '                if platform == "acp" and bool(hermes_approval._is_interactive_cli()):',
+    '                    return False',
+    '            except Exception:',
+    '                pass',
+    '            return bool(original_gateway_context())',
+    '',
+    '        command_eve_is_gateway_approval_context._command_eve_acp_interactive_patch = True',
+    '        hermes_approval._is_gateway_approval_context = command_eve_is_gateway_approval_context',
     '    module_factory = getattr(acp_permissions, "make_approval_callback", None)',
     '    server_factory = getattr(acp_server, "make_approval_callback", None)',
     '    patched_factory = next((',
@@ -7634,6 +7678,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    _command_eve_mark_patch("permission_authority")',
     '',
     '',
+    ...HERMES_NATIVE_PATCH_SOURCE.executeCodeAuthority,
     '# Dynamic Command EVE context policy. The same Hermes process serves local',
     '# and cloud turns, so one static context_length cannot be correct for both.',
     'def _command_eve_context_policy_url(base_url: str, model: str) -> str:',
@@ -8463,10 +8508,9 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '# the bundled wheel binds clarify_callback itself.',
     '_COMMAND_EVE_ACP_CLARIFY_TIMEOUT_SECONDS = 300.0',
     '_COMMAND_EVE_ACP_CLARIFY_LOCK = threading.Lock()',
-    '_COMMAND_EVE_ACP_CLARIFY_CONTEXTS: dict[str, list[dict[str, Any]]] = {}',
+    ...HERMES_NATIVE_PATCH_SOURCE.clarify.contextDeclaration,
     '_COMMAND_EVE_ACP_CLARIFY_AGENTS: dict[int, dict[str, Any]] = {}',
-    '',
-    '',
+    `_COMMAND_EVE_MANAGED_IMAGE_MAX_PROMPT_CHARS = ${COMMAND_EVE_MANAGED_IMAGE_MAX_PROMPT_CHARS}`,
     'def _command_eve_acp_clarify_callback(',
     '    question: str, choices: Any, *, multi_select: bool = False,',
     ') -> str:',
@@ -8488,30 +8532,17 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '            raise RuntimeError("Command EVE ACP clarify received an invalid visible choice")',
     '        normalized_choices.append(choice.strip())',
     '    question_text = str(question or "").strip()',
-    '    artifact_mode = ""',
-    '    artifact_prefix = "[command_eve:artifact_followup:"',
-    '    if question_text.startswith(artifact_prefix):',
-    '        prefix_match = re.match(',
-    '            r"^\\[command_eve:artifact_followup:(image|video|word|excel)\\]\\s*",',
-    '            question_text,',
-    '        )',
-    '        if prefix_match is None:',
-    '            raise RuntimeError("Command EVE ACP clarify received an invalid artifact follow-up prefix")',
-    '        artifact_mode = prefix_match.group(1)',
-    '        question_text = question_text[prefix_match.end():].strip()',
-    '    if artifact_mode and len(normalized_choices) != 1:',
-    '        raise RuntimeError("Command EVE artifact follow-up clarify requires exactly one action choice")',
     '    if not question_text or len(question_text) > 4000:',
     '        raise RuntimeError("Command EVE ACP clarify received an invalid visible question")',
     '',
     '    session_id = str(get_session_env("HERMES_SESSION_KEY", "") or "").strip()',
     '    if not session_id:',
     '        raise RuntimeError("Command EVE ACP clarify has no active session")',
-    '    with _COMMAND_EVE_ACP_CLARIFY_LOCK:',
-    '        contexts = list(_COMMAND_EVE_ACP_CLARIFY_CONTEXTS.get(session_id) or [])',
-    '    if not contexts:',
+    ...HERMES_NATIVE_PATCH_SOURCE.clarify.contextLookup,
+    '    if not isinstance(context, dict):',
     '        raise RuntimeError("Command EVE ACP clarify is outside an active turn")',
-    '    context = contexts[-1]',
+    '    if str(context.get("session_id") or "") != session_id:',
+    '        raise RuntimeError("Command EVE ACP clarify turn owner mismatch")',
     '    request_permission = context.get("request_permission")',
     '    loop = context.get("loop")',
     '    loop_thread_id = context.get("loop_thread_id")',
@@ -8525,17 +8556,11 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        for index, choice in enumerate(normalized_choices)',
     '    ]',
     '    options.append(PermissionOption(option_id="clarify_cancel", kind="reject_once", name="Cancel"))',
-    '    source_user_turn = str(context.get("source_user_turn") or "")',
-    '    if artifact_mode and not source_user_turn:',
-    '        raise RuntimeError("Command EVE artifact follow-up clarify has no visible source turn")',
     '    metadata = {',
-    '        "interaction_kind": "artifact_followup" if artifact_mode else "clarify",',
+    '        "interaction_kind": "clarify",',
     '        "question": question_text,',
     '        "choices": list(normalized_choices),',
-    '        "source_user_turn": source_user_turn,',
     '    }',
-    '    if artifact_mode:',
-    '        metadata["artifact_mode"] = artifact_mode',
     '    tool_call = acp.update_tool_call(',
     '        f"clarify-{uuid.uuid4().hex}",',
     '        title=question_text,',
@@ -8578,77 +8603,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        raise RuntimeError("Command EVE ACP clarify returned an invalid choice") from exc',
     '',
     '',
-    'def _command_eve_visible_source_user_turn(value: Any) -> str:',
-    '    """Recover only the visible user text from the app-owned ACP payload."""',
-    '    output = str(value or "")',
-    '    start_marker = "[[COMMAND_EVE_PREPARED_CONTEXT]]"',
-    '    end_marker = "[[/COMMAND_EVE_PREPARED_CONTEXT]]"',
-    '    start_index = output.find(start_marker)',
-    '    while start_index != -1:',
-    '        end_index = output.find(end_marker, start_index)',
-    '        if end_index == -1:',
-    '            output = output[:start_index]',
-    '            break',
-    '        output = output[:start_index] + output[end_index + len(end_marker):].lstrip()',
-    '        start_index = output.find(start_marker)',
-    '    file_marker = "\\n\\n[[AION_FILES]]\\n"',
-    '    file_index = output.rfind(file_marker)',
-    '    if file_index != -1:',
-    '        output = output[:file_index]',
-    '    return output.strip()',
-    '',
-    '',
-    'def _command_eve_bind_acp_clarify(',
-    '    agent: Any, session_id: str, request_permission: Any, loop: Any,',
-    '    loop_thread_id: int, source_user_turn: str, owner: object,',
-    ') -> None:',
-    '    """Bind only turn-scoped ACP routing; never store model-hidden authority."""',
-    '    if not session_id or not callable(request_permission):',
-    '        raise RuntimeError("Command EVE ACP clarify binding is incomplete")',
-    '    context = {',
-    '        "owner": owner,',
-    '        "request_permission": request_permission,',
-    '        "loop": loop,',
-    '        "loop_thread_id": loop_thread_id,',
-    '        "source_user_turn": str(source_user_turn or ""),',
-    '    }',
-    '    with _COMMAND_EVE_ACP_CLARIFY_LOCK:',
-    '        agent_key = id(agent)',
-    '        record = _COMMAND_EVE_ACP_CLARIFY_AGENTS.get(agent_key)',
-    '        if record is None:',
-    '            record = {',
-    '                "agent": agent,',
-    '                "previous": getattr(agent, "clarify_callback", None),',
-    '                "owners": [],',
-    '            }',
-    '            _COMMAND_EVE_ACP_CLARIFY_AGENTS[agent_key] = record',
-    '        record["owners"].append(owner)',
-    '        _COMMAND_EVE_ACP_CLARIFY_CONTEXTS.setdefault(session_id, []).append(context)',
-    '        agent.clarify_callback = _command_eve_acp_clarify_callback',
-    '',
-    '',
-    'def _command_eve_unbind_acp_clarify(agent: Any, session_id: str, owner: object) -> None:',
-    '    """Remove exactly one turn binding and restore the pre-existing callback."""',
-    '    with _COMMAND_EVE_ACP_CLARIFY_LOCK:',
-    '        contexts = _COMMAND_EVE_ACP_CLARIFY_CONTEXTS.get(session_id) or []',
-    '        contexts = [item for item in contexts if item.get("owner") is not owner]',
-    '        if contexts:',
-    '            _COMMAND_EVE_ACP_CLARIFY_CONTEXTS[session_id] = contexts',
-    '        else:',
-    '            _COMMAND_EVE_ACP_CLARIFY_CONTEXTS.pop(session_id, None)',
-    '        agent_key = id(agent)',
-    '        record = _COMMAND_EVE_ACP_CLARIFY_AGENTS.get(agent_key)',
-    '        if record is None or record.get("agent") is not agent:',
-    '            return',
-    '        owners = [item for item in (record.get("owners") or []) if item is not owner]',
-    '        if owners:',
-    '            record["owners"] = owners',
-    '            return',
-    '        if getattr(agent, "clarify_callback", None) is _command_eve_acp_clarify_callback:',
-    '            agent.clarify_callback = record.get("previous")',
-    '        _COMMAND_EVE_ACP_CLARIFY_AGENTS.pop(agent_key, None)',
-    '',
-    '',
+    ...HERMES_NATIVE_PATCH_SOURCE.clarify.bindAndUnbind,
     'def _command_eve_read_preview_result(value: Any) -> dict[str, Any] | None:',
     '    if value is None:',
     '        return None',
@@ -8900,13 +8855,17 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    # Hermes ACP currently constructs each agent with the literal',
     '    # ``hermes-acp`` toolset before it consults platform_toolsets. The custom',
     '    # provider loads before AIAgent resolves that named toolset, so merge',
-    "    # the bounded UI tools plus Hermes 0.20's native ``read_terminal`` into",
+    "    # the bounded UI tools, configured native desktop/clarify tools and Hermes 0.20's",
+    '    # native ``read_terminal`` into',
     '    # its existing definition as the ACP compatibility seam.',
     '    # Do not replace or narrow any other ACP tools.',
     '    acp_toolset = toolsets.TOOLSETS.get("hermes-acp")',
     '    if isinstance(acp_toolset, dict):',
     '        acp_tools = list(acp_toolset.get("tools") or [])',
-    '        for tool_name in ("open_preview", "read_preview", "focus_pane", "read_terminal"):',
+    '        for tool_name in (',
+    '            "open_preview", "read_preview", "focus_pane", "read_terminal",',
+    '            "computer_use", "clarify",',
+    '        ):',
     '            if tool_name not in acp_tools:',
     '                acp_tools.append(tool_name)',
     '        acp_toolset["tools"] = acp_tools',
@@ -8974,6 +8933,13 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        "eve_video_edit",',
     '        "eve_video_generate",',
     '        "aionui_image_generation",',
+    '        "mcp__aionui_eve_artifacts__eve_artifact_get",',
+    '        "mcp__aionui_eve_artifacts__eve_artifact_list",',
+    '        "mcp__aionui_eve_artifacts__eve_typed_ui_publish",',
+    '        "mcp__aionui_eve_artifacts__eve_image_edit",',
+    '        "mcp__aionui_eve_artifacts__eve_video_edit",',
+    '        "mcp__aionui_eve_artifacts__eve_video_generate",',
+    '        "mcp__aionui_image_generation__aionui_image_generation",',
     '        "open_preview",',
     '        "read_preview",',
     '        "focus_pane",',
@@ -9314,54 +9280,14 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        if context_session_id and canonical_session_id and context_session_id != canonical_session_id:',
     '            raise RuntimeError("Command EVE ACP clarify session context mismatch")',
     '        session_id = canonical_session_id or context_session_id',
-    '        prompt_arg = kwargs.get("prompt")',
-    '        if prompt_arg is None and args:',
-    '            prompt_arg = args[0]',
-    '        internal_context = kwargs.get("internal_context")',
-    '        if internal_context is None and len(args) > 2:',
-    '            internal_context = args[2]',
-    '        transcript_user_text = getattr(internal_context, "transcript_user_text", None)',
-    '        if isinstance(transcript_user_text, str):',
-    '            source_user_turn = _command_eve_visible_source_user_turn(transcript_user_text)',
-    '        else:',
-    '            extract_text = getattr(acp_server, "_extract_text", None)',
-    '            extracted_text = extract_text(prompt_arg) if callable(extract_text) else ""',
-    '            source_user_turn = _command_eve_visible_source_user_turn(extracted_text)',
-    '        conn = getattr(self, "_conn", None)',
-    '        owner = object()',
-    '        clarify_agent = None',
-    '        if conn is not None and session_id:',
-    '            try:',
-    '                manager = getattr(self, "session_manager", None)',
-    '                state = manager.get_session(session_id) if manager is not None else None',
-    '                clarify_agent = getattr(state, "agent", None)',
-    '                if clarify_agent is not None:',
-    '                    _command_eve_bind_acp_clarify(',
-    '                        clarify_agent,',
-    '                        session_id,',
-    '                        conn.request_permission,',
-    '                        asyncio.get_running_loop(),',
-    '                        threading.get_ident(),',
-    '                        source_user_turn,',
-    '                        owner,',
-    '                    )',
-    '            except Exception:',
-    '                clarify_agent = None',
-    '                logging.getLogger(__name__).warning(',
-    '                    "Command EVE could not bind Hermes 0.20 ACP clarify",',
-    '                    exc_info=True,',
-    '                )',
-    '        try:',
-    '            return await original_prompt(self, *args, **kwargs)',
-    '        finally:',
-    '            if clarify_agent is not None:',
-    '                _command_eve_unbind_acp_clarify(clarify_agent, session_id, owner)',
+    ...HERMES_NATIVE_PATCH_SOURCE.clarify.promptBinding,
     '',
     '    HermesACPAgent._prompt_impl = command_eve_clarify_prompt',
     '    HermesACPAgent._command_eve_acp_clarify_patch_installed = True',
     '    _command_eve_mark_patch("acp_clarify")',
     '',
     '',
+    ...HERMES_NATIVE_PATCH_SOURCE.clarify.requirePatch,
     '_COMMAND_EVE_TURN_FAILURE_LOCK = threading.Lock()',
     '_COMMAND_EVE_TURN_FAILURE: dict[str, Any] = {"seq": 0, "text": "", "consumed": 0}',
     '',
@@ -9946,6 +9872,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        _install_command_eve_auxiliary_auth_patch()',
     '        _install_command_eve_provider_call_identity_patch()',
     '        _install_command_eve_browser_use_uvx_receipt_patch()',
+    HERMES_NATIVE_PATCH_SOURCE.installers.profileWebCapabilityTruth,
     '        _install_command_eve_media_runtime_cwd_patch()',
     '        _install_command_eve_attachment_memory_gate()',
     '        _install_command_eve_attachment_history_patch()',
@@ -9957,6 +9884,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        _install_command_eve_permission_authority_patch()',
     '        _install_command_eve_approval_class_patch()',
     '        _install_command_eve_tool_authority()',
+    HERMES_NATIVE_PATCH_SOURCE.installers.profileExecuteCodeAuthority,
     '        _install_command_eve_context_policy_patch()',
     '        _install_command_eve_compression_runtime_patch()',
     '        _install_command_eve_stop_continuation_patch()',
@@ -9964,6 +9892,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        _install_command_eve_desktop_bridge_patch()',
     '        _install_command_eve_acp_session_guard_patch()',
     '        _install_command_eve_acp_clarify_patch()',
+    HERMES_NATIVE_PATCH_SOURCE.installers.profileClarify,
     '        _install_command_eve_acp_session_restore_patch()',
     '        _install_command_eve_acp_disabled_toolsets_patch()',
     '        _install_command_eve_acp_internal_error_context_patch()',
@@ -10031,6 +9960,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '_install_command_eve_auxiliary_auth_patch()',
     '_install_command_eve_provider_call_identity_patch()',
     '_install_command_eve_browser_use_uvx_receipt_patch()',
+    HERMES_NATIVE_PATCH_SOURCE.installers.moduleWebCapabilityTruth,
     '_install_command_eve_media_runtime_cwd_patch()',
     '_install_command_eve_attachment_memory_gate()',
     '_install_command_eve_attachment_history_patch()',
@@ -10041,6 +9971,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '_install_command_eve_permission_authority_patch()',
     '_install_command_eve_approval_class_patch()',
     '_install_command_eve_tool_authority()',
+    HERMES_NATIVE_PATCH_SOURCE.installers.moduleExecuteCodeAuthority,
     '_install_command_eve_context_policy_patch()',
     '_install_command_eve_compression_runtime_patch()',
     '_install_command_eve_stop_continuation_patch()',
@@ -10091,6 +10022,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '    try:',
     '        from acp_adapter import permissions as _ce_permissions',
     '        from acp_adapter import server as _ce_server',
+    '        from tools import approval as _ce_approval',
     '        _ce_approval_factory = getattr(_ce_server, "make_approval_callback", None)',
     '        if (',
     '            not callable(_ce_approval_factory)',
@@ -10098,6 +10030,12 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '            or _ce_approval_factory is not getattr(_ce_permissions, "make_approval_callback", None)',
     '        ):',
     '            return False, "server approval factory not bound to seat authority"',
+    '        _ce_gateway_context = getattr(_ce_approval, "_is_gateway_approval_context", None)',
+    '        if (',
+    '            not callable(_ce_gateway_context)',
+    '            or not getattr(_ce_gateway_context, "_command_eve_acp_interactive_patch", False)',
+    '        ):',
+    '            return False, "ACP approval routing not bound to interactive callback"',
     '    except Exception as exc:',
     '        return False, f"server approval factory unverifiable: {exc}"',
     '    try:',
@@ -10865,44 +10803,17 @@ function writeHermesRuntimeFiles(
   // NOTHING Honcho is emitted and config.yaml + SOUL stay byte-identical to today.
   honcho: HonchoRenderInput = { ready: false },
   maxConcurrentDelegates = DEFAULT_COMMAND_EVE_DELEGATION_CONCURRENCY,
-  // 1.820: the commands THIS SEAT's human said EVE may always run, from
-  // `commandEve.authority.rememberedCommands`. The emitted allowlist is a
-  // PROJECTION of that record, never a place authority accumulates: revoking a
-  // row and rebooting removes it, and a grant the human cannot withdraw is not a
-  // grant. [] (the default) emits `command_allowlist: []`, byte-identical to the
-  // C0 containment, so with nothing granted this parameter changes nothing and
-  // every legacy category-wide entry keeps being revoked.
-  rememberedCommands: readonly EveRememberedCommand[] = [],
-  // CEVE-18205-FLAG — whether THIS seat's persisted config releases the paid
-  // agent video-GENERATE tool. A PRE-RESOLVED boolean, not a resolver, because
-  // this writer is synchronous and the release lives behind an async backend read.
+  // 1.821.0 — the INSTALLED optional local vision model ref (e.g. `minicpm-v:8b`), or ''.
   //
-  // The async bootstrap path (`ensureCommandEveRuntimeBootstrapUnlocked`) awaits
-  // the gate and passes the answer in. The SYNCHRONOUS provisioning path
-  // (`provisionSeatRuntimeFiles`, used on seat switch) cannot await and therefore
-  // passes an explicit `false` — same value as this default, named at the call
-  // site since CEVE-1821 B2 so the vision parameter behind it can be reached.
-  //
-  // That asymmetry is deliberate and it is the SAFE direction: advertisement can
-  // only ever be NARROWER than the loopback gate, never wider. A seat provisioned
-  // synchronously simply is not told about the tool until the next full bootstrap;
-  // the reverse (advertised here, refused at the gate) is the dishonest direction
-  // POLICY F exists to prevent, and it cannot happen because both ends read the
-  // same gate and this one defaults closed.
-  agentVideoGenerateSeatEnabled = false,
-  // 1.821.0 — the INSTALLED local vision model ref (e.g. `minicpm-v:8b`), or ''.
-  //
-  // Same pre-resolved shape as `agentVideoGenerateSeatEnabled` above and for the
-  // same reason: this writer is synchronous and the answer lives behind an async
+  // This writer is synchronous and the answer lives behind an async
   // probe of the local runtime. The async bootstrap resolves it and passes it in,
   // then persists it (`persistLocalVisionModelRef`); the synchronous seat-switch
   // path passes the persisted last-known-good back in (CEVE-1821 B2), so a
   // switch no longer strips `auxiliary.vision` until the next app launch.
   //
-  // '' OMITS the whole `auxiliary.vision` key, which is why a box WITHOUT the
-  // model emits a byte-identical config to today. Hard-wiring the route instead
-  // would point every screenshot at a model that is not there — a 502 per image
-  // rather than the graceful "no aux vision configured" the wheel already handles.
+  // '' OMITS only the local `auxiliary.vision` override. Hermes' native vision
+  // tool remains available and uses the active main model through the existing
+  // shim; `model.supports_vision` below declares that native path explicitly.
   localVisionModelRef = '',
   // Only an exact signed Resources verification may select the native sh
   // launchers. Synchronous seat provisioning omits it; the pre-backend
@@ -10949,6 +10860,7 @@ function writeHermesRuntimeFiles(
           scriptPath: managedImageScriptPath,
           shimBaseUrl: manifest.local_runtime.egress_proxy_url,
           authTokenFile: managedImageTokenFile,
+          userDataPath: paths.userDataPath,
         })
       : undefined;
   // MAT-1747 — the app-owned artifact capability. Same three preconditions as
@@ -10966,22 +10878,12 @@ function writeHermesRuntimeFiles(
           scriptPath: artifactCapabilityScriptPath,
           shimBaseUrl: manifest.local_runtime.egress_proxy_url,
           bearerFile: artifactCapabilityBearerFile,
-          // POLICY F — one decision, every surface. The child publishes the
-          // paid tool only when the SAME resolver the paid handler and the
-          // envelope ask says this seat may be told: eligible (licence wire
-          // readable from THIS userData root) by default since 1.820.2, `'0'`
-          // kill-switches, no wire fails closed. `paths.userDataPath` is the
-          // resolved userData root `readLicenseWire` expects — the same root
-          // the bearer file above and every `readLicenseWire(getDataPath())`
-          // caller resolve against.
-          videoEditEnabled: isAgentVideoEditAdvertisingEnabled(paths.userDataPath),
+          // Native Hermes approval is the user authority. Paid managed video is
+          // disabled until its native request/replay identity is wired end to end.
+          videoEditEnabled: false,
           // 1.820.3 — the image half of POLICY F, from ITS OWN resolver.
           imageEditEnabled: isAgentImageEditAdvertisingEnabled(paths.userDataPath),
-          // CEVE-18205-FLAG — the GENERATE third. NOT resolved here: this writer is
-          // synchronous and the release is a per-seat config value behind an async
-          // backend read, so the answer is threaded in by whichever caller could
-          // await it. Absent ⇒ false ⇒ no carrier ⇒ the child never advertises it.
-          videoGenerateEnabled: agentVideoGenerateSeatEnabled,
+          videoGenerateEnabled: false,
         })
       : undefined;
   // COMPA-624 Inc.3 — the per-seat Honcho MCP server, or undefined when Honcho is
@@ -10991,12 +10893,12 @@ function writeHermesRuntimeFiles(
   const honchoMcpServer = honchoMcpServerForSeat(honcho.cfg, honcho.ready, honcho.launcher);
   // ONE list, used by BOTH the emitted config and the reconciliation receipt, so
   // the two cannot disagree about what this seat is running.
-  const emittedMcpServers = [
-    managedImageMcpServer,
-    artifactContextMcpServer,
-    honchoMcpServer,
-    ...vettedMcpServers,
-  ].filter((server): server is CommandEveHermesMcpServer => Boolean(server));
+  const emittedMcpServers = composeCommandEveHermesMcpServers({
+    managedImage: managedImageMcpServer,
+    artifactContext: artifactContextMcpServer,
+    appOwned: honchoMcpServer ? [honchoMcpServer] : [],
+    vettedExternal: vettedMcpServers,
+  });
   writeCommandEveRuntimeReconciliation(
     paths,
     capabilityPack,
@@ -11020,6 +10922,10 @@ function writeHermesRuntimeFiles(
     `  context_length: ${contextLength}`,
     `  ollama_num_ctx: ${ollamaNumCtx}`,
     `  max_tokens: ${maxTokens}`,
+    // A detected MiniCPM stays the explicit local auxiliary override below.
+    // Without it, Hermes' native vision tool uses the active main model instead
+    // of disappearing from the toolset merely because this Mac has no extra model.
+    ...(localVisionModelRef ? [] : ['  supports_vision: true']),
     // CLI-Keystone CODEX wiring: `model.openai_runtime` switches the MAIN TURN
     // runtime to `codex app-server` (Hermes' CodexAppServerClient, gated >=0.125;
     // seam proven 2026-06-30). Emitted ONLY when the operator assigned a
@@ -11041,15 +10947,9 @@ function writeHermesRuntimeFiles(
     // fixed 150s request-idle deadline. Three identical 504 attempts used to
     // consume ~7.5 minutes without creating a new chance of success.
     `  api_max_retries: ${DEFAULT_COMMAND_EVE_API_MAX_RETRIES}`,
-    // `hermes-acp` already includes the native vision tool. Hide it when no
-    // verified local vision model exists instead of adding a second resolver.
-    ...(localVisionModelRef ? [] : ['  disabled_toolsets:', '    - vision']),
-    // How images ENTER the turn — not whether the vision toolset exists. Routine
-    // image/PPTX input is prepared by AionUI's managed, consent-gated presentation
-    // lane before the turn starts, and `native` keeps that prepared form intact.
-    // `disabled_toolsets: [vision]` is emitted only when the probe found no local
-    // model. With a verified model it is omitted, allowing the explicit auxiliary
-    // route below to take effect (disabled_toolsets is applied last by Hermes).
+    // How images enter the turn. The native Hermes vision tool is always present;
+    // `native` keeps its structured tool-result image parts intact for either the
+    // optional local auxiliary override or the active main model.
     '  image_input_mode: native',
     // T4 YOU-ARE-HERE: `agent.environment_hint` is appended VERBATIM to the system
     // prompt's environment-hints block (FACT prompt_builder.py:989-1000
@@ -11102,16 +11002,7 @@ function writeHermesRuntimeFiles(
     // could make a per-operation decision. Re-emitting an explicit empty list on
     // every boot and seat provisioning pass revokes those legacy class-wide
     // grants without relying on the currently installed profile being clean.
-    // Was an unconditional `command_allowlist: []`. It still is whenever the seat
-    // has granted nothing. What it must NEVER become is Hermes' own "always"
-    // unit: `approve_permanent` stores `pattern_key`, which `detect_dangerous_command`
-    // sets to the DESCRIPTION of a regex category — so one click on
-    // `rm /tmp/picture.png` granted "delete in root path" for every future
-    // command in that class, across sessions. Nothing in this projection can
-    // write such an entry: `buildCommandAllowlistYaml` emits literal command
-    // text only, which Hermes matches by exact string
-    // (FACT wheel tools/approval.py `_command_matches_permanent_allowlist`).
-    ...buildCommandAllowlistYaml(rememberedCommands),
+    'command_allowlist: []',
     // 1.820: Hermes must ALWAYS ask, and must never decide by itself.
     //
     // AionCore is the only authority in this product: `command_eve_transport_mode`
@@ -11262,21 +11153,14 @@ function writeHermesRuntimeFiles(
     // (overrides the env). (A network-only timeout via curl --max-time is a wheel item.)
     'terminal:',
     `  timeout: ${DEFAULT_COMMAND_EVE_TERMINAL_TIMEOUT_S}`,
-    // KEYLESS WEB BACKEND — pin ddgs explicitly so search resolution is DETERMINISTIC
-    // and never depends on the registry's implicit fallback walk. The active provider is
-    // chosen by config precedence (FACT agent/web_search_registry.py get_active_search_provider:
-    // reads web.search_backend, then web.backend) and the toolset gate (FACT
-    // tools/web_tools.py check_web_api_key -> _load_web_config().get("backend") /
-    // _is_backend_available("ddgs") -> _ddgs_package_importable()). Both read this `web:`
-    // map. ddgs is the ONLY keyless backend (DuckDuckGo, no API key — product doctrine never
-    // asks the operator for one). It is SEARCH-ONLY (supports_extract()==False), so we set
-    // search_backend + the shared backend to ddgs but deliberately DO NOT set extract_backend:
-    // the registry's capability filter then lets web_extract fall through (web_extract also
-    // round-trips through the auxiliary summarizer below). Emitting the key is a no-op unless
-    // the ddgs package is importable in the venv (vendored at build/installed at bootstrap);
-    // when it is, web_search is enabled in the toolset AND routes to ddgs.
+    // KEYLESS WEB SEARCH — pin ddgs only for the capability it actually implements.
+    // DDGS is SEARCH-ONLY (Hermes provider supports_extract()==False). Setting the
+    // shared web.backend to ddgs made Hermes' broad check_web_api_key predicate expose
+    // web_extract too, even though every call then failed. The provider shim replaces
+    // only web_extract's check with Hermes' native get_active_extract_provider truth.
+    // Leaving the shared backend unset also lets a separately configured, available
+    // extract provider route correctly instead of being shadowed by DDGS.
     'web:',
-    '  backend: ddgs',
     '  search_backend: ddgs',
     // Bound the web_extract summarizer (it round-trips back through the shim to the
     // chat model, so a slow inference makes the tool slow). Wheel default ~30s.
@@ -11297,7 +11181,7 @@ function writeHermesRuntimeFiles(
     '    fallback_chain: []',
     '  web_extract:',
     `    timeout: ${DEFAULT_COMMAND_EVE_WEB_EXTRACT_TIMEOUT_S}`,
-    // 1.821.0 — THE AUX VISION ROUTE. With this key present, Hermes sends every
+    // 1.821.0 — THE OPTIONAL LOCAL AUX VISION ROUTE. With this key present, Hermes sends every
     // image to the auxiliary model and hands the MAIN model text (FACT
     // tools/computer_use/vision_routing.py:1-46, which decides fail-closed toward
     // aux; agent/image_routing.py:361-385 `_explicit_aux_vision_override` treats
@@ -11308,8 +11192,9 @@ function writeHermesRuntimeFiles(
     // load-bearing: the shim recognises this model ref and forces the local lane
     // (FACT ollamaOpenAiShim.ts `isCommandEveLocalVisionModel` -> forceLocalVision
     // -> eveRoute {active:false}), so no CEVE bearer is attached and no credits are
-    // spent — AND it is the only path on which the image survives redaction instead
-    // of being replaced by COMMAND_EVE_IMAGE_OMITTED_TEXT.
+    // spent. Without this override Hermes uses the active main model via its native
+    // `vision_analyze` path; the shim preserves only that tool's structured image
+    // result, never an unapproved raw user image.
     //
     // Emitted ONLY when the model is actually installed; see the parameter note.
     ...(localVisionModelRef
@@ -11559,8 +11444,9 @@ function streamOllamaPull(
  *
  * REJECT, never repair. A candidate with a control byte is not a model name that
  * needs tidying; it is a value nobody should be acting on. Both callers fall back
- * to '' — the same answer as "no vision model installed" — so the failure mode is
- * an omitted key, which the bootstrap already reports as VISION_OMITTED.
+ * to '' — the same answer as "no local auxiliary model installed" — so the
+ * failure mode is an omitted optional key, which the bootstrap reports through
+ * its legacy-compatible VISION_OMITTED receipt code.
  */
 function hasControlCharacters(value: string): boolean {
   // eslint-disable-next-line no-control-regex -- rejecting C0/DEL is the whole point.
@@ -11821,8 +11707,6 @@ export type ProvisionSeatRuntimeFilesOptions = {
   codexRuntime?: string;
   claudeDelegate?: RuntimeBootstrapOptions['claudeDelegate'];
   teamRoles?: RuntimeBootstrapOptions['teamRoles'];
-  /** 1.820: this seat's remembered command grants. Absent/[] -> `command_allowlist: []`. */
-  rememberedCommands?: RuntimeBootstrapOptions['rememberedCommands'];
   /** Test seam; production derives this from os.totalmem(). */
   totalMemoryBytes?: number;
   /** Test seam; production reads the copied native runner's architecture directly. */
@@ -12050,11 +11934,6 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
       // resolved above). Same seat as `paths`, so no active-seat drift on switch.
       resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId, hermesVenv: paths.hermesVenv }),
       commandEveDelegationConcurrency(options.totalMemoryBytes ?? os.totalmem()),
-      options.rememberedCommands ?? [],
-      // CEVE-18205-FLAG — deliberately `false` on this synchronous path: the paid
-      // generate release lives behind an async backend read this writer cannot
-      // await, and false is the SAFE direction (see the parameter doc).
-      false,
       // CEVE-1821 B2 — last-known-good instead of ''. This synchronous path
       // cannot probe, but the async bootstrap persists the ref it actually
       // emitted (seat-independent runtimeRoot side file), so a seat switch keeps
@@ -13097,7 +12976,12 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       return commitReceipt();
     }
 
-    const installArgs = commandEvePresentationPythonInstallArgs(bundle.directory);
+    const installArgs = commandEvePresentationPythonInstallArgs(bundle.directory, {
+      resourcesPath: options.resourcesPath,
+      platform,
+      architecture: process.arch,
+      pythonVersion: python.version,
+    });
     const install = await runner(pythonBinary(paths), installArgs, {
       env,
       timeoutMs: DEFAULT_LONG_STAGE_TIMEOUT_MS,
@@ -13249,7 +13133,9 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   if (requireBundledPython) {
     pushStage(
       makeStage('web', 'pass', {
-        detail: 'Keyless web backend (ddgs) is verified in the signed offline dependency site.',
+        code: 'WEB_SEARCH_ONLY',
+        detail:
+          'Keyless web_search backend (ddgs) is verified in the signed offline dependency site. DDGS is search-only; this stage does not attest web_extract.',
         command: `${pythonBinary(paths)} -B -I -P -S -c <packaged-hermes-origin-probe>`,
       })
     );
@@ -13290,8 +13176,9 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
         : '';
       pushStage(
         makeStage('web', ddgsInstall.ok ? 'pass' : 'skip', {
+          code: ddgsInstall.ok ? 'WEB_SEARCH_ONLY' : undefined,
           detail: ddgsInstall.ok
-            ? `Keyless web backend (ddgs) installed${installedOffline ? ' from the bundled offline wheels' : ` from the network${networkNote}`} — EVE can web_search/web_extract.`
+            ? `Keyless web_search backend (ddgs) installed${installedOffline ? ' from the bundled offline wheels' : ` from the network${networkNote}`}. DDGS is search-only; this stage does not attest web_extract.`
             : `Keyless web backend (ddgs) unavailable${
                 noBundledWheels ? ' — no network on this fresh install and no bundled wheels' : ''
               }; web search stays off until a later (online) run: ${scrubOutput(ddgsInstall.stderr || ddgsInstall.error)}`,
@@ -13304,13 +13191,6 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
 
   const bundledSkillsDir = resolveBundledSkillsDir(env, options.resourcesPath);
   const founderOpsSkillsDir = resolveFounderOpsSkillsDir(env);
-  // CEVE-18205-FLAG — resolve the per-seat generate release HERE, where awaiting is
-  // possible, and hand the answer to the synchronous writer below. The gate is
-  // injectable so a bootstrap test can drive both directions without a backend; the
-  // production default is the real fail-closed gate.
-  const agentVideoGenerateSeatEnabled = await (
-    options.resolveAgentVideoGenerateRelease ?? productionAgentVideoGenerateGate
-  )();
   // 1.821.0 — same "await here, hand the answer to the synchronous writer" shape:
   // probe the local runtime for an installed vision model so `auxiliary.vision` is
   // emitted only where it can actually resolve. Fail-safe: '' on any trouble.
@@ -13359,12 +13239,6 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       // Honcho is emitted (byte-identical). Same-seat: paths was resolved with no seatId.
       resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId: undefined, hermesVenv: paths.hermesVenv }),
       commandEveDelegationConcurrency(totalMemoryBytes),
-      options.rememberedCommands ?? [],
-      // CEVE-18205-FLAG — THE one path that can await the per-seat release, so it is
-      // the one path that may advertise the paid generate tool. The gate itself is
-      // fail-closed in every direction (kill-switch, licence, config, backend error),
-      // so a `false` here is always the deliberate answer and never a missing one.
-      agentVideoGenerateSeatEnabled,
       // 1.821.0 — the resolved local vision model, or '' when this box has none.
       // Read at CALL time (this is a closure over the `let` above), so the
       // post-Ollama-ready re-emit picks up the re-probed value.
@@ -13606,9 +13480,8 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   // `ollama serve` spawn above, so a cold start answered '' while the model was
   // merely not awake yet. Now that Ollama is (or is not) ready, settle vision for
   // real: one re-probe, one re-emit through the SAME closure the first write
-  // used, and — either way — a receipt line whenever vision ends up omitted. A
-  // silent omission was the actual defect: the config simply lacked a key, and
-  // nothing anywhere said so.
+  // used, and — either way — a receipt line whenever the optional local auxiliary
+  // ends up omitted. Native main-model vision remains enabled independently.
   if (!localVisionModelRef && ollamaReady) {
     localVisionModelRef = await resolveLocalVisionModelRef(manifest.local_runtime.base_url);
     if (localVisionModelRef) {
@@ -13624,8 +13497,8 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
       makeStage('vision', 'skip', {
         code: 'VISION_OMITTED',
         detail: ollamaReady
-          ? 'auxiliary.vision omitted: no local vision model is installed (ollama has no minicpm-v tag).'
-          : 'auxiliary.vision omitted: the local runtime is not reachable, so no vision model could be resolved.',
+          ? 'Optional local auxiliary.vision omitted: no minicpm-v tag is installed; native main-model vision remains enabled.'
+          : 'Optional local auxiliary.vision omitted: the local runtime is not reachable; native main-model vision remains enabled.',
       })
     );
   }

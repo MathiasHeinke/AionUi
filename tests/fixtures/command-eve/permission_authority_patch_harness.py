@@ -18,7 +18,11 @@ from urllib.request import Request, urlopen
 
 
 PROVIDER_PATH = Path(sys.argv[1]).resolve()
+WHEEL_PATH = Path(sys.argv[2]).resolve()
 SOURCE = PROVIDER_PATH.read_text(encoding="utf-8")
+sys.path.insert(0, str(WHEEL_PATH))
+from tools import tool_search as hermes_tool_search  # type: ignore[import-not-found]  # noqa: E402
+from tools.registry import registry as hermes_tool_registry  # type: ignore[import-not-found]  # noqa: E402
 
 
 def load_patch() -> Any:
@@ -30,6 +34,7 @@ def load_patch() -> Any:
     wanted_functions = {
         "_install_command_eve_permission_authority_patch",
         "_install_command_eve_approval_class_patch",
+        "_install_command_eve_execute_code_authority",
         "_command_eve_mark_patch",
         "_command_eve_command_inside_workspace",
         # CEVE-1821: the edit policy now comes from the seat's grant, so the whole
@@ -91,6 +96,29 @@ class HermesACPAgent:
 disabled_sessions: list[str] = []
 manual_approval_calls: list[tuple[str, str]] = []
 factory_calls: list[dict[str, object]] = []
+BRIDGE_TOOL_NAME = "mcp__aionui_eve_artifacts__eve_image_edit"
+
+
+def bridge_tool_handler(**_kwargs: object) -> str:
+    return "unused"
+
+
+hermes_tool_registry.register(
+    name=BRIDGE_TOOL_NAME,
+    toolset="mcp-aionui-eve-artifacts",
+    schema={
+        "type": "function",
+        "function": {
+            "name": BRIDGE_TOOL_NAME,
+            "description": "Harness-only deferred image edit",
+            "parameters": {
+                "type": "object",
+                "properties": {"action": {"type": "string"}},
+            },
+        },
+    },
+    handler=bridge_tool_handler,
+)
 
 
 def original_make_approval_callback(*_args: object, **_kwargs: object) -> object:
@@ -105,12 +133,31 @@ def original_make_approval_callback(*_args: object, **_kwargs: object) -> object
 
 approval_module = types.ModuleType("tools.approval")
 approval_module.disable_session_yolo = lambda session_id: disabled_sessions.append(session_id)
+original_execute_code_guard_calls: list[dict[str, object]] = []
+
+
+def original_execute_code_guard(code: str, env_type: str, has_host_access: bool = False) -> dict[str, object]:
+    original_execute_code_guard_calls.append(
+        {"code": code, "env_type": env_type, "has_host_access": has_host_access}
+    )
+    return {
+        "approved": False,
+        "status": "pending_approval",
+        "approval_pending": True,
+        "pattern_key": "execute_code",
+        "description": "execute_code script execution",
+        "message": "Asking the user for approval.",
+    }
+
+
+approval_module.check_execute_code_guard = original_execute_code_guard
 terminal_module = types.ModuleType("tools.terminal_tool")
 current_tool_approval_callback: object | None = None
 terminal_module._get_approval_callback = lambda: current_tool_approval_callback
 tools_module = types.ModuleType("tools")
 tools_module.approval = approval_module
 tools_module.terminal_tool = terminal_module
+tools_module.tool_search = hermes_tool_search
 permissions_module = types.ModuleType("acp_adapter.permissions")
 permissions_module.make_approval_callback = original_make_approval_callback
 server_module = types.ModuleType("acp_adapter.server")
@@ -124,6 +171,7 @@ adapter_module.permissions = permissions_module
 sys.modules["tools"] = tools_module
 sys.modules["tools.approval"] = approval_module
 sys.modules["tools.terminal_tool"] = terminal_module
+sys.modules["tools.tool_search"] = hermes_tool_search
 sys.modules["acp_adapter"] = adapter_module
 sys.modules["acp_adapter.server"] = server_module
 sys.modules["acp_adapter.permissions"] = permissions_module
@@ -131,6 +179,7 @@ sys.modules["acp_adapter.permissions"] = permissions_module
 namespace = load_patch()
 install_patch = namespace["_install_command_eve_permission_authority_patch"]
 install_approval_patch = namespace["_install_command_eve_approval_class_patch"]
+install_execute_code_authority = namespace["_install_command_eve_execute_code_authority"]
 emitted_ask_tool_authority = namespace["_command_eve_ask_tool_authority"]
 install_patch()
 install_patch()
@@ -187,6 +236,48 @@ approval_callback = server_module.make_approval_callback(None, None, "session-au
 assert factory_calls[-1].get("timeout") == 300.0
 assert approval_callback("curl -s https://example.com", "Read a public page") == "once"
 assert manual_approval_calls == []
+
+# 5b) The wheel-internal execute_code guard must honor the SAME authority
+# answer as the structured tool gate. Otherwise a rung-5 desktop turn keeps
+# writing a gateway pending record that no ACP card ever renders (the live
+# Word/DOCX blocker). A hard block remains untouched.
+namespace["_command_eve_ask_tool_authority"] = lambda tool_name, action="": {
+    "decision": "allow",
+    "ladder": 5,
+}
+install_execute_code_authority()
+install_execute_code_authority()
+allowed_guard = approval_module.check_execute_code_guard(
+    "from docx import Document", "local", has_host_access=False
+)
+execute_code_authority_reconciled = (
+    allowed_guard.get("approved") is True
+    and allowed_guard.get("authority_approved") is True
+    and allowed_guard.get("user_approved") is True
+)
+assert execute_code_authority_reconciled, allowed_guard
+assert len(original_execute_code_guard_calls) == 1
+
+
+def blocked_execute_code_guard(code: str, env_type: str, has_host_access: bool = False) -> dict[str, object]:
+    return {
+        "approved": False,
+        "pattern_key": "execute_code",
+        "message": "BLOCKED by smart approval",
+        "outcome": "denied",
+    }
+
+
+approval_module.check_execute_code_guard = blocked_execute_code_guard
+install_execute_code_authority()
+blocked_guard = approval_module.check_execute_code_guard("os.system('rm -rf /')", "local")
+execute_code_hard_block_preserved = blocked_guard == {
+    "approved": False,
+    "pattern_key": "execute_code",
+    "message": "BLOCKED by smart approval",
+    "outcome": "denied",
+}
+assert execute_code_hard_block_preserved, blocked_guard
 
 # 6) A closed decision still reaches the native human approval card.
 namespace["_command_eve_ask_authority"] = lambda command, inside: {
@@ -277,11 +368,13 @@ assert missing_revision_directive is not None
 assert missing_revision_directive["rule_key"].startswith("command-eve:U")
 assert missing_revision_directive["rule_key"].endswith(":L2:eve_image_edit:replace")
 
-# 11) The Tool-Search bridge is invisible to authority: a `tool_call` is
+# 11) The Tool-Search bridge is invisible to authority: a valid `tool_call` is
 #     classified by its UNDERLYING tool — including MCP-enveloped names and
-#     JSON-string arguments — and the memory quarantine keeps holding through
-#     the bridge. (The quarantine function itself is covered by the attachment
-#     memory gate harness; here a stub proves only the ORDERING.)
+#     JSON-object string arguments. Every missing, malformed or non-object
+#     argument envelope blocks before authority is queried; otherwise a rung-5
+#     allow for the bridge could become an unclassified underlying execution.
+#     (The quarantine function itself is covered by the attachment memory gate
+#     harness; here a stub proves only the ORDERING.)
 seen_tool_queries: list[tuple[str, str]] = []
 
 
@@ -294,22 +387,74 @@ namespace["_command_eve_ask_tool_authority"] = recording_tool_authority
 namespace["_command_eve_turn_memory_quarantined"] = lambda session_id: False
 assert namespace["_command_eve_authority_pre_tool_call"](
     "tool_call",
-    {"name": "mcp__aionui_eve_artifacts__eve_image_edit", "arguments": {"action": "replace"}},
+    {"name": BRIDGE_TOOL_NAME, "arguments": {"action": "replace"}},
     session_id="session-auto",
 ) is None
-assert seen_tool_queries[-1] == ("mcp__aionui_eve_artifacts__eve_image_edit", "replace")
+assert seen_tool_queries[-1] == (BRIDGE_TOOL_NAME, "replace")
 
 assert namespace["_command_eve_authority_pre_tool_call"](
     "tool_call",
-    {"name": "todo", "arguments": "{\"todos\": []}"},
+    {"name": BRIDGE_TOOL_NAME, "arguments": "{\"action\": \"archive\"}"},
     session_id="session-auto",
 ) is None
-assert seen_tool_queries[-1] == ("todo", "write")
+assert seen_tool_queries[-1] == (BRIDGE_TOOL_NAME, "archive")
+
+valid_query_count = len(seen_tool_queries)
+invalid_argument_cases = {
+    "missing": {"name": BRIDGE_TOOL_NAME},
+    "json_array": {"name": BRIDGE_TOOL_NAME, "arguments": "[]"},
+    "json_scalar": {"name": BRIDGE_TOOL_NAME, "arguments": "42"},
+    "malformed_json": {"name": BRIDGE_TOOL_NAME, "arguments": '{"action":'},
+    "non_object": {"name": BRIDGE_TOOL_NAME, "arguments": []},
+}
+for case, envelope in invalid_argument_cases.items():
+    blocked = namespace["_command_eve_authority_pre_tool_call"](
+        "tool_call",
+        envelope,
+        session_id="session-auto",
+    )
+    assert blocked is not None, case
+    assert blocked["action"] == "block", (case, blocked)
+    assert blocked["rule_key"] == "command-eve:tool-call-envelope-invalid", (case, blocked)
+    assert "JSON-object arguments" in blocked["message"], (case, blocked)
+assert len(seen_tool_queries) == valid_query_count
+
+# A non-object outer bridge envelope cannot be normalised to an empty mapping
+# either; there is no underlying name or arguments whose authority can be
+# proven.
+outer_non_object = namespace["_command_eve_authority_pre_tool_call"](
+    "tool_call",
+    None,
+    session_id="session-auto",
+)
+assert outer_non_object is not None
+assert outer_non_object["action"] == "block"
+assert len(seen_tool_queries) == valid_query_count
+
+# A policy-level ASK is still labelled and keyed by the underlying operation,
+# never by the bridge. This is what renders a meaningful native approval card.
+namespace["_command_eve_ask_tool_authority"] = lambda tool_name, action="": {
+    "decision": "ask",
+    "ladder": 2,
+    "authority_revision": verified_revision,
+}
+bridge_ask = namespace["_command_eve_authority_pre_tool_call"](
+    "tool_call",
+    {"name": BRIDGE_TOOL_NAME, "arguments": {"action": "replace"}},
+    session_id="session-auto",
+)
+assert bridge_ask is not None
+assert bridge_ask["action"] == "approve"
+assert bridge_ask["message"] == (
+    f"Command EVE requires your approval for {BRIDGE_TOOL_NAME}:replace at this authority level."
+)
+assert bridge_ask["rule_key"] == f"command-eve:A{verified_revision}:L2:{BRIDGE_TOOL_NAME}:replace"
 
 namespace["_command_eve_turn_memory_quarantined"] = lambda session_id: True
+namespace["_command_eve_ask_tool_authority"] = recording_tool_authority
 quarantine_block = namespace["_command_eve_authority_pre_tool_call"](
-    "tool_call",
-    {"name": "memory", "arguments": {"operations": [{"action": "remove", "id": "m1"}]}},
+    "memory",
+    {"operations": [{"action": "remove", "id": "m1"}]},
     session_id="session-auto",
 )
 assert quarantine_block is not None
@@ -354,9 +499,21 @@ print(
             "ask_becomes_native_approve_directive": True,
             "directive_contract_owns_fail_closed": True,
             "full_tool_authority_skips_card": True,
+            "execute_code_authority_reconciled": execute_code_authority_reconciled,
+            "execute_code_hard_block_preserved": execute_code_hard_block_preserved,
             "authority_timeout_is_distinct_and_visible": True,
             "tool_call_bridge_resolves_underlying": True,
-            "bridge_quarantine_still_blocks": True,
+            "bridge_object_arguments_classified": True,
+            "bridge_json_object_arguments_classified": True,
+            "bridge_missing_arguments_fail_closed": True,
+            "bridge_json_array_arguments_fail_closed": True,
+            "bridge_json_scalar_arguments_fail_closed": True,
+            "bridge_malformed_json_arguments_fail_closed": True,
+            "bridge_non_object_arguments_fail_closed": True,
+            "bridge_outer_non_object_fail_closed": True,
+            "bridge_ask_uses_underlying_label": True,
+            "exact_wheel_bridge_parser_executed": True,
+            "memory_quarantine_still_blocks": True,
             "idempotent_install": True,
         }
     )

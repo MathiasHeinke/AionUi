@@ -83,6 +83,7 @@ describe('bundled-skills build content gate', () => {
       'eve-doctrine',
       'presentation-studio',
       'office-studio',
+      'editorial-pdf-design',
       'lead-magnet-pdf',
       'autor-studio',
       'essay-writer',

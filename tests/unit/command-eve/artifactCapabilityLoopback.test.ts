@@ -300,19 +300,12 @@ describe('the read half works', () => {
 });
 
 describe('the spending half follows the one resolver decision', () => {
-  it('the MCP CHILD surface still opens only for exactly "1" — the value Main emits after deciding', () => {
-    // `isAgentVideoEditEnabled` is the CHILD's read of the env Main populated.
-    // Main itself decides via the resolver (tested in agentVideoEditFlag.test.ts):
-    // eligible seat → Main emits '1'; kill-switched or ineligible → it emits
-    // nothing. So for the child an absent key must stay closed, whatever the
-    // 1.820.2 default-on posture is on Main's side.
+  it('the MCP CHILD surface stays closed even when a stale carrier says "1"', () => {
     expect(isAgentVideoEditEnabled({})).toBe(false);
     expect(isAgentVideoEditEnabled({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '' })).toBe(false);
     expect(isAgentVideoEditEnabled({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: 'true' })).toBe(false);
     expect(isAgentVideoEditEnabled({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '0' })).toBe(false);
-    // The POSITIVE control — the child surface CAN be opened, so the refusals
-    // above are about the value and not about a flag that never reads.
-    expect(isAgentVideoEditEnabled({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' })).toBe(true);
+    expect(isAgentVideoEditEnabled({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' })).toBe(false);
   });
 
   it('never reaches the edit path on a kill-switched or ineligible seat', async () => {

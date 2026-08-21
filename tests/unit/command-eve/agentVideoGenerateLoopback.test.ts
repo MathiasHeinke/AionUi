@@ -27,11 +27,9 @@
  *
  * WHAT ACTUALLY BOUNDS THIS LANE, then, and what this file pins:
  *
- *   1. THE GATE. Default-off and, since CEVE-18205-FLAG, a PER-SEAT config
- *      release read fresh on every call (kill-switch + licence + persisted
- *      consent — see `agentVideoGenerateSeatResolver.test.ts` for the resolver
- *      itself). It is the whole containment, so it is tested in both directions
- *      AND across a revocation mid-session.
+ *   1. THE GATE. The native release fence stays closed until stable request
+ *      identity and native Hermes approval cover the complete call. It is the
+ *      whole containment, so the closed direction is tested directly.
  *   2. THE GRANT. The conversation is read off OUR grant, never off a
  *      `conversation_id` the model supplies — the handle store's own rule.
  *   3. THE PINNED AXES. Tier and duration are chosen app-side; a model that

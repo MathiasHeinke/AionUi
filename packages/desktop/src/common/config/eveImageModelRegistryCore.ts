@@ -340,9 +340,7 @@ export function parseCommandEveImageModelRegistry(raw: unknown): CommandEveImage
   if (!Array.isArray(raw.tiers)) return null;
   // Per-tier proof: an unparseable entry is dropped, so one bad row cannot
   // take the priceable ones down with it.
-  const parsed = raw.tiers
-    .map(parseTierSpec)
-    .filter((tier): tier is CommandEveImageModelTierSpec => tier !== null);
+  const parsed = raw.tiers.map(parseTierSpec).filter((tier): tier is CommandEveImageModelTierSpec => tier !== null);
   if (parsed.length === 0) return null;
   const seen = new Set(parsed.map((tier) => tier.id));
   // A duplicate id means one id carries two prices: the wire is untrustworthy,
@@ -519,9 +517,7 @@ export function effectiveImageReferenceCeiling(
   if (!Number.isInteger(laneCap) || laneCap <= 0) return null;
   const modelCeiling = imageModelReferenceCeiling(registry, tierId);
   if (modelCeiling === null) return null;
-  return modelCeiling < laneCap
-    ? { ceiling: modelCeiling, boundBy: 'model' }
-    : { ceiling: laneCap, boundBy: 'lane' };
+  return modelCeiling < laneCap ? { ceiling: modelCeiling, boundBy: 'model' } : { ceiling: laneCap, boundBy: 'lane' };
 }
 /**
  * What any read of the registry yields. Shared by Main (fetch), the bridge,
@@ -542,5 +538,5 @@ export type CommandEveImageModelRegistryUnavailableReason =
   | 'capabilities_failed';
 
 export type CommandEveImageModelRegistryResult =
-  | { ok: true; registry: CommandEveImageModelRegistry; reason?: never }
+  | { ok: true; registry: CommandEveImageModelRegistry; revision: string; reason?: never }
   | { ok: false; registry?: never; reason: CommandEveImageModelRegistryUnavailableReason };

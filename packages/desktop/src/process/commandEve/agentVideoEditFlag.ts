@@ -4,65 +4,27 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { readLicenseWire } from '@/common/config/licenseWireAtRest';
-
 /**
- * MAT-1747 — the one place that answers "may this seat spend on a video edit?".
+ * MAT-1747 — the one place that answers whether legacy video edit is offered.
  *
- * It lives in its own module for a boring reason with an expensive history: the
- * first build put this check in the MCP loopback only, so the renderer IPC lane
- * — the same paid handler, registered a few lines away — had no gate at all. A
- * lane without the check is the whole vulnerability, so the check has to sit
- * somewhere BOTH lanes can import without an import cycle, and the paid handler
- * itself has to be the thing that asks.
+ * 1.823.6 ships no legacy paid video create or edit path. The native Hermes
+ * authority migration is not complete, so this shared release fence keeps every
+ * legacy video-edit surface closed: Main, the renderer bridge and the MCP child
+ * all consume one false answer. An environment variable or licence wire cannot
+ * reopen a retired release surface.
  *
- * THE CONTRACT, AND ITS HISTORY. 1.820.1 shipped this DEFAULT-OFF behind an
- * opt-in env flag: nothing advertised `eve_video_edit` unless
- * `COMMAND_EVE_ENABLE_AGENT_VIDEO_EDIT` was exactly `'1'`, because an MCP tool
- * call does not pass through Hermes' approval prompt and the feature had not
- * yet earned default-on. Two proofs earned it: the packaged emitted-config
- * proof (the shipping asarUnpack list puts the MCP script where an external
- * node can execute it, the packaged layout emits `aionui-eve-artifacts`, and
- * every fail-closed precondition survives) and the bounded no-paid dry proof
- * (context → tool surface → loopback, with zero debit and zero egress). With
- * both green, 1.820.2 flips the POSTURE, not the spend authority:
- *
- *   - an ELIGIBLE seat — one whose CEVE licence wire is present and readable
- *     via the real `readLicenseWire(dataPath)` — advertises `eve_video_edit`
- *     BY DEFAULT, with no env var involved;
- *   - exactly `'0'` (trimmed) is the emergency kill-switch and forces OFF even
- *     on an eligible seat;
- *   - `'1'` is now a NO-OP. Default-on made it redundant, and it must NOT
- *     bypass eligibility: advertising a paid capability on an unauthenticated
- *     seat is forbidden, whatever the env says;
- *   - no licence wire, or a wire that will not read, is OFF — fail closed, as
- *     every other credential read on this path already is.
- *
- * What did NOT change: the server-side gates. Licence verify, entitlement,
- * debit-before-provider and idempotency all re-verify everything per request,
- * exactly as before. This flip changes ADVERTISEMENT and permit minting; it
- * spends nothing by itself.
+ * Keep the historical carrier constant while the bundled MCP configuration
+ * still imports it. The reader intentionally ignores it; deleting that
+ * compatibility surface belongs to the native-authority migration, not this
+ * release fence.
  */
 
-/** Env flag carrying the kill-switch (and, to the MCP child, Main's decision). */
+/** Historical MCP-child carrier. It cannot enable legacy video edit. */
 export const COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG = 'COMMAND_EVE_ENABLE_AGENT_VIDEO_EDIT';
 
-/**
- * Exactly `'1'`. Not "truthy", not `'true'`, not `'yes'`.
- *
- * A spending flag that accepts several spellings is a spending flag that gets
- * turned on by accident — by a stray `=true` in a shell profile, or by a value
- * someone assumed was ignored.
- *
- * WHO READS THIS, post-flip: the MCP CHILD, and only the child. Main resolves
- * eligibility itself (see {@link resolveAgentVideoEditAdvertisement}) and emits
- * exactly `'1'` into the child environment when — and only when — the seat may
- * be told about the paid tool, so for the child this exact-`'1'` read IS the
- * whole decision. Main never decides from this function: on Main's side `'1'`
- * is a no-op and `'0'` is the kill-switch, both judged by the resolver below.
- */
-export function isAgentVideoEditEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return (env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] || '').trim() === '1';
+/** The MCP child must not advertise a retired legacy paid tool. */
+export function isAgentVideoEditEnabled(_env: NodeJS.ProcessEnv = process.env): boolean {
+  return false;
 }
 
 export interface AgentVideoEditAdvertisementInput {
@@ -72,35 +34,18 @@ export interface AgentVideoEditAdvertisementInput {
 }
 
 /**
- * THE advertisement decision, pure and in one place.
- *
- * Kill-switch first: exactly `'0'` (trimmed) closes the seat even when a
- * licence wire reads fine — an emergency off that does not require deleting
- * credentials. Otherwise the seat advertises iff it is eligible, i.e. the
- * licence wire is present and readable. Every other value of the flag —
- * including `'1'` — changes nothing: default-on made `'1'` redundant, and a
- * redundant spelling that could ALSO override the eligibility check would be
- * an opt-out seat's way to advertise a capability it cannot pay for.
+ * The Main-side release decision, pure and in one place.
  */
-export function resolveAgentVideoEditAdvertisement(input: AgentVideoEditAdvertisementInput): boolean {
-  if ((input.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] || '').trim() === '0') return false;
-  return input.licenseWirePresent === true;
+export function resolveAgentVideoEditAdvertisement(_input: AgentVideoEditAdvertisementInput): boolean {
+  return false;
 }
 
 /**
- * The production half of the decision: reads the licence wire at rest through
- * the REAL `readLicenseWire` (keychain ref, decrypt, well-formedness check —
- * any failure is `ok: false` and therefore ineligible) and folds it into the
- * resolver above. Every Main-side consumer — the context envelope, the shared
- * paid handler, the loopback and the MCP-child env emission — asks HERE, so
- * the four surfaces cannot drift apart about what this seat offers.
+ * The production half of the release decision. It deliberately does not read
+ * entitlement state: no credential can make a retired surface available.
  */
-export function isAgentVideoEditAdvertisingEnabled(dataPath: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  const wire = readLicenseWire(dataPath);
-  return resolveAgentVideoEditAdvertisement({
-    env,
-    licenseWirePresent: wire.ok === true && typeof wire.wire === 'string' && wire.wire.length > 0,
-  });
+export function isAgentVideoEditAdvertisingEnabled(_dataPath: string, _env: NodeJS.ProcessEnv = process.env): boolean {
+  return false;
 }
 
 // ---------------------------------------------------------------------------

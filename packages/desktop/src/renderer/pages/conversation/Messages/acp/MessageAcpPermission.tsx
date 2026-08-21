@@ -12,10 +12,7 @@ import {
   isPermissionClassificationUnverified,
   normalizePermissionOptions,
 } from './permissionCardPolicy';
-import { configService } from '@/common/config/configService';
-import { answerAllowsExecution, canOfferRemember } from '@/common/config/eveRememberedCommandsCore';
-import { resolveStoredGrant, withRememberedCommand } from '@/common/config/eveAuthorityStoreCore';
-import { Button, Card, Checkbox, Radio, Typography } from '@arco-design/web-react';
+import { Button, Card, Radio, Typography } from '@arco-design/web-react';
 import { Book, CheckOne, Edit, Lightning, Link, Lock } from '@renderer/components/icons';
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -29,10 +26,9 @@ interface MessageAcpPermissionProps {
 }
 
 const COMMAND_EVE_CLARIFY_CALL_ID = /^clarify-[0-9a-f]{32}$/;
-const COMMAND_EVE_ARTIFACT_FOLLOWUP_MODES = new Set(['image', 'video', 'word', 'excel']);
 const AIONCORE_UNKNOWN_CLASSIFICATION_TITLE_PREFIX = '[classification=unknown] ';
 
-const isExactCommandEveClarifyMessage = (message: IMessageAcpPermission, isCommandEve: boolean): boolean => {
+function isCommandEveClarifyMessage(message: IMessageAcpPermission, isCommandEve: boolean): boolean {
   if (!isCommandEve) return false;
   const content = message.content;
   const toolCall = content?.tool_call;
@@ -48,12 +44,11 @@ const isExactCommandEveClarifyMessage = (message: IMessageAcpPermission, isComma
   if (!COMMAND_EVE_CLARIFY_CALL_ID.test(String(toolCall.tool_call_id ?? '')) || toolCall.kind !== 'execute')
     return false;
 
-  const interactionKind = metadata.interaction_kind;
-  if (interactionKind !== 'clarify' && interactionKind !== 'artifact_followup') return false;
   const question = metadata.question;
   const choices = metadata.choices;
   const sourceUserTurn = metadata.source_user_turn;
   if (
+    metadata.interaction_kind !== 'clarify' ||
     typeof question !== 'string' ||
     !question ||
     question.length > 4000 ||
@@ -67,17 +62,8 @@ const isExactCommandEveClarifyMessage = (message: IMessageAcpPermission, isComma
   if (!Array.isArray(rawInput.choices) || rawInput.choices.length !== choices.length) return false;
   if (!rawInput.choices.every((choice, index) => choice === choices[index])) return false;
   if (typeof sourceUserTurn !== 'string' || sourceUserTurn.length > 8000) return false;
-
-  const expectedMetadataKeys =
-    interactionKind === 'artifact_followup'
-      ? ['artifact_mode', 'choices', 'interaction_kind', 'question', 'source_user_turn']
-      : ['choices', 'interaction_kind', 'question', 'source_user_turn'];
-  if (Object.keys(metadata).toSorted().join('|') !== expectedMetadataKeys.join('|')) return false;
+  if (Object.keys(metadata).toSorted().join('|') !== 'choices|interaction_kind|question|source_user_turn') return false;
   if (Object.keys(rawInput).toSorted().join('|') !== 'choices|metadata|question') return false;
-  if (interactionKind === 'artifact_followup') {
-    if (!COMMAND_EVE_ARTIFACT_FOLLOWUP_MODES.has(String(metadata.artifact_mode ?? '')) || !sourceUserTurn) return false;
-    if (choices.length !== 1) return false;
-  }
 
   const options = Array.isArray(content.options) ? content.options : [];
   if (options.length !== choices.length + 1) return false;
@@ -93,7 +79,7 @@ const isExactCommandEveClarifyMessage = (message: IMessageAcpPermission, isComma
   }
   const cancel = options.at(-1);
   return cancel?.option_id === 'clarify_cancel' && cancel.kind === 'reject_once' && cancel.name === 'Cancel';
-};
+}
 
 const MessageAcpSecurityPermission: React.FC<MessageAcpPermissionProps> = React.memo(
   ({ message, isCommandEve = false }) => {
@@ -160,40 +146,6 @@ const MessageAcpSecurityPermission: React.FC<MessageAcpPermissionProps> = React.
     const [isResponding, setIsResponding] = useState(false);
     const [hasResponded, setHasResponded] = useState(false);
     const [responseError, setResponseError] = useState<string | null>(null);
-    const [rememberChecked, setRememberChecked] = useState(false);
-
-    /**
-     * The literal command this card is about, when there is one.
-     *
-     * "Remember this" is offered only for a real, storable command — never for a
-     * compound one Hermes could never match, and never as a category. That is the
-     * whole difference to Hermes' own "always" button, which stores the NAME of a
-     * regex class and hands over everything that class matches.
-     */
-    const commandText = typeof rawInput?.command === 'string' ? rawInput.command : '';
-    const canRemember = isCommandEve && canOfferRemember(commandText);
-
-    /**
-     * Persist the grant AFTER the answer was accepted, and only for an answer that
-     * actually lets the command run. Writing it first would leave a standing yes
-     * behind if the authority rejected the response.
-     */
-    const persistRemember = async (): Promise<void> => {
-      if (!rememberChecked || !canRemember || !answerAllowsExecution(selected)) return;
-      try {
-        const [stored, legacy] = await Promise.all([
-          configService.get('commandEve.authority'),
-          configService.get('acp.config'),
-        ]);
-        const grant = resolveStoredGrant(stored, legacy);
-        const next = withRememberedCommand(grant, commandText, new Date().toISOString());
-        if (next !== grant) await configService.set('commandEve.authority', next);
-      } catch (error) {
-        // A failed remember must never fail the approval the user just gave: the
-        // command still runs this once, EVE simply asks again next time.
-        console.error('Could not remember command grant:', error);
-      }
-    };
 
     const handleConfirm = async () => {
       // `isResponding` too, not just `hasResponded`: the latter is only set after
@@ -216,7 +168,6 @@ const MessageAcpSecurityPermission: React.FC<MessageAcpPermissionProps> = React.
 
         const result = (await conversation.confirmMessage.invoke(invokeData)) as unknown;
         if (isExplicitPermissionFailure(result)) throw new Error('Permission authority rejected the response.');
-        await persistRemember();
         setHasResponded(true);
       } catch (error) {
         console.error('Error confirming permission:', error);
@@ -305,13 +256,6 @@ const MessageAcpSecurityPermission: React.FC<MessageAcpPermissionProps> = React.
                   <Text type='secondary'>{t('messages.noOptionsAvailable')}</Text>
                 )}
               </Radio.Group>
-              {canRemember && answerAllowsExecution(selected) && (
-                <div className='pl-20px' data-testid='message-acp-permission-remember'>
-                  <Checkbox checked={rememberChecked} disabled={inactive || isResponding} onChange={setRememberChecked}>
-                    <Text className='text-xs'>{t('messages.rememberThisCommand')}</Text>
-                  </Checkbox>
-                </div>
-              )}
               <div className='flex justify-start pl-20px'>
                 <Button
                   type='primary'
@@ -358,7 +302,7 @@ const MessageAcpSecurityPermission: React.FC<MessageAcpPermissionProps> = React.
 );
 
 const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo((props) => {
-  if (isExactCommandEveClarifyMessage(props.message, props.isCommandEve === true)) {
+  if (isCommandEveClarifyMessage(props.message, props.isCommandEve === true)) {
     return <MessageAcpClarify message={props.message} />;
   }
   return <MessageAcpSecurityPermission {...props} />;

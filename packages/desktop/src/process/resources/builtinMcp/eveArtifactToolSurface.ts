@@ -88,7 +88,7 @@ const VIDEO_EDIT: EveArtifactToolDescriptor = {
 const IMAGE_EDIT: EveArtifactToolDescriptor = {
   name: EVE_ARTIFACT_TOOL_IMAGE_EDIT,
   description:
-    'Edit an image the user already has. Takes the capability handle for the SOURCE image (an `edit_handle` from a kind=image entry in your context), the single-use image spend permit from this request, and a plain instruction ("make the sky overcast"). The result is a NEW image — the original is never overwritten — returned as a fresh staged reference (`img_h_…`) you may show the user. Quality and format are inherited from the source and cannot be chosen. This spends the user\'s credits, ONCE: the permit is consumed, and a second edit — including a different variation of the same one — needs the user to ask again.',
+    'Edit an image the user already has. Takes the capability handle for the SOURCE image (an `edit_handle` from a kind=image entry in your context) and a plain instruction ("make the sky overcast"). The result is a NEW image — the original is never overwritten — returned as a fresh staged reference (`img_h_…`) you may show the user. Command EVE uses the current native Hermes ACP permission mode for this paid tool; never ask for, invent or expose an internal permit, quote or billing receipt.',
   spends: true,
 };
 

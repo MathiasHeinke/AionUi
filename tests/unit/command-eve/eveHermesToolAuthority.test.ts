@@ -69,20 +69,25 @@ describe('Hermes structured tool authority route', () => {
     await expect(decision(baseUrl, 'computer_use', 'capture')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
   });
 
-  it('keeps product-managed image and video generation popup-free at rung 0', async () => {
+  it('routes product-managed image and video generation through native approval below Full', async () => {
     const baseUrl = await startAt(0);
-    await expect(decision(baseUrl, 'image_generate')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
-    await expect(decision(baseUrl, 'video_generate')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
+    await expect(decision(baseUrl, 'image_generate')).resolves.toMatchObject({ decision: 'ask', ladder: 0 });
+    await expect(decision(baseUrl, 'video_generate')).resolves.toMatchObject({ decision: 'ask', ladder: 0 });
+
+    await stopCommandEveOllamaOpenAiShimForTest();
+    const fullBaseUrl = await startWith(fullRelease());
+    await expect(decision(fullBaseUrl, 'image_generate')).resolves.toMatchObject({ decision: 'allow', ladder: 5 });
+    await expect(decision(fullBaseUrl, 'video_generate')).resolves.toMatchObject({ decision: 'allow', ladder: 5 });
   });
 
-  it('keeps the tool-search bridge reads and builtin product MCP tools popup-free at every rung', async () => {
+  it('keeps builtin reads and surfaces open while paid MCP tools use native approval below Full', async () => {
     const baseUrl = await startAt(0);
     await expect(decision(baseUrl, 'tool_search')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
     await expect(decision(baseUrl, 'tool_describe')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
     await expect(decision(baseUrl, 'read_window_below')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
     await expect(decision(baseUrl, 'video_analyze')).resolves.toMatchObject({ decision: 'allow', ladder: 0 });
     await expect(decision(baseUrl, 'mcp__aionui_image_generation__aionui_image_generation')).resolves.toMatchObject({
-      decision: 'allow',
+      decision: 'ask',
       ladder: 0,
     });
     await expect(decision(baseUrl, 'mcp__aionui_eve_artifacts__eve_artifact_get')).resolves.toMatchObject({
@@ -98,15 +103,15 @@ describe('Hermes structured tool authority route', () => {
       ladder: 0,
     });
     await expect(decision(baseUrl, 'mcp__aionui_eve_artifacts__eve_image_edit')).resolves.toMatchObject({
-      decision: 'allow',
+      decision: 'ask',
       ladder: 0,
     });
     await expect(decision(baseUrl, 'mcp__aionui_eve_artifacts__eve_video_edit')).resolves.toMatchObject({
-      decision: 'allow',
+      decision: 'ask',
       ladder: 0,
     });
     await expect(decision(baseUrl, 'mcp__aionui_eve_artifacts__eve_video_generate')).resolves.toMatchObject({
-      decision: 'allow',
+      decision: 'ask',
       ladder: 0,
     });
   });

@@ -142,7 +142,7 @@ describe('Command EVE permission card policy', () => {
     confirmMessageMock.mockResolvedValue(undefined);
   });
 
-  it('filters durable options but preserves the exact-session UI intent only for EVE', () => {
+  it('preserves native options and marks the exact-session UI intent only for EVE', () => {
     const options = [
       { id: 'allow_once', kind: 'allow_once', label: 'Allow once' },
       { id: 'allow_session', kind: 'allow_always', label: 'Allow for session' },
@@ -151,7 +151,7 @@ describe('Command EVE permission card policy', () => {
     ];
 
     const eve = normalizePermissionOptions(options, true);
-    expect(eve.map((option) => option.id)).toEqual(['allow_once', 'allow_session']);
+    expect(eve.map((option) => option.id)).toEqual(['allow_once', 'allow_session', 'allow_always', 'reject_always']);
     expect(eve.find((option) => option.id === 'allow_session')?.exactSessionIntent).toBe(true);
     expect(normalizePermissionOptions(options, false)).toHaveLength(4);
   });
@@ -164,7 +164,7 @@ describe('Command EVE permission card policy', () => {
     expect(isPermissionCardInactive('pending')).toBe(false);
   });
 
-  it('renders an honest EVE ACP card and removes durable Always options', () => {
+  it('renders an honest EVE ACP card with native session and durable options', () => {
     render(<MessageAcpPermission message={makeAcpPermission()} isCommandEve />);
 
     expect(screen.getByTestId('message-acp-permission-unverified')).toBeTruthy();
@@ -172,8 +172,8 @@ describe('Command EVE permission card policy', () => {
     expect(screen.getByTestId('message-acp-permission-option-allow_session')).toHaveTextContent(
       'Allow this exact operation in this session'
     );
-    expect(screen.queryByTestId('message-acp-permission-option-allow_always')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('message-acp-permission-option-reject_always')).not.toBeInTheDocument();
+    expect(screen.getByTestId('message-acp-permission-option-allow_always')).toBeTruthy();
+    expect(screen.getByTestId('message-acp-permission-option-reject_always')).toBeTruthy();
   });
 
   it('does not change the option set for another ACP backend', () => {

@@ -23,4 +23,10 @@ describe('desktop shell input boundary', () => {
     expect(() => parseDesktopAbsolutePath('/tmp/report\0.pdf')).toThrow('absolute');
     expect(() => parseDesktopAbsolutePath(`/tmp/${'x'.repeat(33 * 1024)}`)).toThrow('absolute');
   });
+
+  it('rejects launcher/script extensions even when the path is absolute and bounded', () => {
+    for (const extension of ['.app', '.command', '.scpt', '.workflow', '.sh', '.py', '.jar']) {
+      expect(() => parseDesktopAbsolutePath(`/tmp/payload${extension}`)).toThrow('absolute');
+    }
+  });
 });

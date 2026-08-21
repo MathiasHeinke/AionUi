@@ -109,11 +109,11 @@ export interface EveAuthorityGrant {
   /** ISO timestamp recording when the user explicitly enabled opaque UI auto-run. */
   opaqueUiAutoRunGrantedAt?: string;
   /**
-   * The literal commands this seat's human said EVE may always run.
+   * Historical literal command records retained for settings migration and the
+   * user-visible revoke path.
    *
-   * Lives on the grant so the whole approval posture of a seat is ONE record —
-   * one thing to read, one thing to show, one thing to revoke. The seat's Hermes
-   * `command_allowlist` is a projection of this, never the other way round.
+   * These rows are not runtime authority and are never projected into Hermes'
+   * `command_allowlist`; native ACP remains authoritative.
    */
   rememberedCommands?: readonly EveRememberedCommand[];
   capabilities: Readonly<Partial<Record<EveSealedCapability, boolean>>>;

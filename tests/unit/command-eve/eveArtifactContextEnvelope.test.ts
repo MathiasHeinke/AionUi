@@ -41,7 +41,6 @@ import {
   composeCommandEvePreparedContext,
   stripCommandEvePreparedContext,
 } from '@/common/config/evePreparedContextCore';
-import { renderComposerArtifactFollowupRoutingContext } from '@/common/config/composerArtifactReferenceCore';
 
 function entry(overrides: Partial<EveArtifactEnvelopeEntry> = {}): EveArtifactEnvelopeEntry {
   return {
@@ -214,19 +213,6 @@ describe('the turn the agent actually receives', () => {
     // assertion above is about composition and not about a missing string.
     expect(buildCommandEvePreparedAgentInput(USER_TEXT, 'evidence')).toContain('This is a file-analysis task');
   });
-
-  it('adds a bounded follow-up route without changing the displayed turn', () => {
-    const artifactFollowupContext = renderComposerArtifactFollowupRoutingContext(
-      ['image', 'video', 'word', 'excel'].map((mode, index) => ({ artifactId: `artifact-${index}`, mode }))
-    );
-    const agentInput = buildCommandEveAgentTurnInput({ userInput: USER_TEXT, artifactFollowupContext });
-
-    expect(agentInput).toContain('candidate=artifact_id:artifact-1;mode:video');
-    expect(agentInput).toContain('[command_eve:artifact_followup:<mode>][command_eve:artifact_target:<artifact_id>]');
-    expect(agentInput).toContain('Never infer a target from keywords');
-    expect(agentInput).not.toContain('This is a file-analysis task');
-    expect(stripCommandEvePreparedContext(agentInput)).toBe(USER_TEXT);
-  });
 });
 
 const PERMIT = `evespend_${'d'.repeat(64)}`;
@@ -253,7 +239,7 @@ describe('the spend permit in the envelope', () => {
     });
     expect(envelope).not.toContain(PERMIT);
     expect(envelope).not.toContain('evespend_');
-    expect(envelope).toContain('No artifact capabilities are enabled');
+    expect(envelope).toContain('No managed MCP artifact capabilities are enabled');
   });
 
   it('never reaches the displayed message', () => {

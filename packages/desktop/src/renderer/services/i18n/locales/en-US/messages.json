@@ -111,8 +111,13 @@
   "permissionUnverifiedDescription": "EVE could not verify this operation's safety class, so it asks by design. Review the exact operation before allowing it.",
   "permissionResponseFailed": "The permission response could not be applied. The operation remains unapproved.",
   "clarify": {
+    "cancel": "Cancel",
     "selected": "Selected: {{choice}}",
-    "responseFailed": "The selection could not be applied. Nothing was executed."
+    "responseFailed": "The selection could not be applied. Nothing was executed.",
+    "allowAlwaysImage": "Always allow",
+    "imageAutoConfirmed": "Approved automatically — remembered decision. Revocable in Settings under “Permissions”.",
+    "imageRememberFailed": "The decision could not be remembered — approved this time only.",
+    "imageRememberedSelected": "Selected: {{choice}} — remembered. Revocable in Settings under “Permissions”."
   },
   "permissionStatus": {
     "expired": "This permission request has expired.",

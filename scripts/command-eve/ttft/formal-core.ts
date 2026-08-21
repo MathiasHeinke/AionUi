@@ -824,7 +824,16 @@ export function buildCommandEveTtftFormalReceipt(input: CommandEveTtftFormalInpu
   requireChronology('warmup disposition -> warmup settled', warmupDisposition?.atEpochMs, warmupSettled?.atEpochMs);
   requireChronology('warmup settled -> turn_admitted', warmupSettled?.atEpochMs, admission?.atEpochMs);
   requireChronology('submit_started -> turn_admitted', submit?.atEpochMs, admission?.atEpochMs);
-  requireChronology('turn_admitted -> task ready', admission?.atEpochMs, input.runtimeReadiness?.taskReadyAtEpochMs);
+  // AionCore schedules background work before returning the 202, while
+  // `turn_admitted` is the renderer's later observation of that response.
+  // Task start and response delivery therefore race across process boundaries;
+  // both must follow submit/warmup, but neither orders the other.
+  requireChronology('submit_started -> task ready', submit?.atEpochMs, input.runtimeReadiness?.taskReadyAtEpochMs);
+  requireChronology(
+    'warmup settled -> task ready',
+    warmupSettled?.atEpochMs,
+    input.runtimeReadiness?.taskReadyAtEpochMs
+  );
   requireChronology(
     'turn_admitted -> provider turn binding',
     admission?.atEpochMs,

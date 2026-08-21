@@ -950,6 +950,53 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
     expect(forwarded).not.toContain('/Users/mathias/private.png');
   });
 
+  it('passes only a native vision tool-result image to the active local Ollama model', async () => {
+    let upstreamBody: Record<string, unknown> | undefined;
+    const baseUrl = await startFakeOpenAiServer((bodySeen) => {
+      upstreamBody = bodySeen;
+    });
+    const onePixelPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: baseUrl,
+      eveRouting: () => buildEveCloudRoute({ isEveSelection: false }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'inspect the rendered page' },
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,RAW_USER_IMAGE' } },
+            ],
+          },
+          {
+            role: 'tool',
+            content: [
+              { type: 'text', text: 'Rendered page 1' },
+              { type: 'image_url', image_url: { url: `data:image/png;base64,${onePixelPng}` } },
+            ],
+          },
+        ],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const forwarded = JSON.stringify(upstreamBody?.messages);
+    expect(forwarded).toContain(onePixelPng);
+    expect(forwarded).toContain('"images"');
+    expect(forwarded).not.toContain('RAW_USER_IMAGE');
+    expect(forwarded).not.toContain('image_url');
+  });
+
   it('rejects URL-backed or malformed images instead of fetching or silently dropping them in local vision', async () => {
     let upstreamHits = 0;
     const baseUrl = await startFakeOpenAiServer(() => {
@@ -1588,6 +1635,107 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(forwarded).not.toContain('image_url');
     expect(forwarded).not.toContain('SECRET_IMAGE_BYTES');
     expect(forwarded).not.toContain('/Users/mathias/private.png');
+  });
+
+  it('passes only an authorized native vision tool-result image to the EVE cloud lane', async () => {
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    const onePixelPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    let policyChecks = 0;
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => ({
+        active: true,
+        functionUrl: fnUrl,
+        license: FAKE_LICENSE,
+        tier: 'standard',
+        authorizeManagedVisualEgress: () => {
+          policyChecks += 1;
+          return true;
+        },
+      }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'inspect the rendered page' },
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,RAW_USER_IMAGE' } },
+            ],
+          },
+          {
+            role: 'tool',
+            content: [
+              { type: 'text', text: 'Rendered page 1' },
+              { type: 'image_url', image_url: { url: `data:image/png;base64,${onePixelPng}` } },
+            ],
+          },
+        ],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(policyChecks).toBe(1);
+    const forwarded = JSON.stringify(fnSeen.body?.messages);
+    expect(forwarded).toContain(onePixelPng);
+    expect(forwarded).toContain('image_url');
+    expect(forwarded).not.toContain('RAW_USER_IMAGE');
+  });
+
+  it('refuses a native vision tool-result image when final cloud visual policy is revoked', async () => {
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => ({
+        active: true,
+        functionUrl: fnUrl,
+        license: FAKE_LICENSE,
+        tier: 'standard',
+        authorizeManagedVisualEgress: () => false,
+      }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        eve_operation: 'user_chat_turn',
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [
+          {
+            role: 'tool',
+            content: [
+              { type: 'text', text: 'Rendered page 1' },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+                },
+              },
+            ],
+          },
+        ],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(422);
+    expect(fnSeen.attempts ?? 0).toBe(0);
   });
 
   it('rewrites a 429 fair-use cap into a friendly German message that promises nothing free', async () => {

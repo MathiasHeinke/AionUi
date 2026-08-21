@@ -193,15 +193,14 @@ import {
 import { listVideoArtifactRecords } from '@process/commandEve/videoArtifactStore';
 import {
   handleCommandEveImageArtifactBindBridge,
+  handleCommandEveImageArtifactInputResolveBridge,
   handleCommandEveImageArtifactImportLegacyBridge,
   handleCommandEveImageArtifactPreviewBridge,
   handleCommandEveImageArtifactsListBridge,
-  handleCommandEveImageGenerateBridge,
 } from '@process/bridge/commandEveImageArtifactBridge';
 import { handleCommandEvePresentationPrepare } from '@process/bridge/commandEvePresentationBridge';
 import { consumeCommandEveFileSelectionPathGrant } from '@process/commandEve/fileSelectionGrantCore';
 import { authorizeCommandEveManagedVisualTurn } from '@process/commandEve/managedVisualTurnAuthorizationCore';
-import type { CommandEveImageGenerateRequest } from '@/common/config/eveManagedImageGenerationCore';
 import {
   issueCommandEveCloudVisualPolicyReceipt,
   readCommandEveCloudVisualPolicy,
@@ -585,20 +584,9 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
   claudeDelegate: import('@/common/config/eveWorkerAssignmentCore').ResolvedClaudeDelegate | null;
   /** 1.6.3 Team-Realität: roster + live status + worker for the SOUL team directive. */
   teamRoles: import('@/common/config/eveWorkerAssignmentCore').EveTeamDirectiveRole[];
-  /**
-   * 1.820: the TARGET seat's remembered command grants.
-   *
-   * P1 (final integrator audit, Codex): the boot path was fixed to read these and
-   * this one was not, so a seat SWITCH re-provisioned the target seat with an
-   * empty allowlist and silently dropped every grant that seat's human had given.
-   * Same defect as the boot path, second call site — which is exactly why the
-   * first fix should have been checked against every caller, not one.
-   */
-  rememberedCommands: readonly import('@/common/config/eveRememberedCommandsCore').EveRememberedCommand[];
 }> {
   try {
     const { readCommandEveSettingsFromBackend } = await import('@process/commandEve/commandEveBackendSettingsRead');
-    const { rememberedCommandsFromSettings } = await import('@/common/config/eveAuthorityStoreCore');
     const { buildTeamDirectiveRoles, codexRuntimeForConfig, resolveAssignedClaudeDelegate } =
       await import('@/common/config/eveWorkerAssignmentCore');
     const { applyLauncherWiring } = await import('@process/commandEve/eveWorkerLauncherCore');
@@ -622,7 +610,6 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
     const bag = await readCommandEveSettingsFromBackend([
       'commandEve.workerAssignments',
       'commandEve.teamWorkerStatus',
-      'commandEve.authority',
     ]);
     const assignmentsRaw = bag['commandEve.workerAssignments'];
     const statusesRaw = bag['commandEve.teamWorkerStatus'];
@@ -651,8 +638,6 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
         honcho: resolveActiveSeatHonchoRenderForBridge(),
       }),
       teamRoles: buildTeamDirectiveRoles(assignments, statuses),
-      // Seat-scoped: this is the TARGET seat's record, never a sibling's.
-      rememberedCommands: rememberedCommandsFromSettings(bag),
     };
   } catch (error) {
     clearHermesDelegateTransportEnv(process.env);
@@ -662,9 +647,7 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
       '[Command EVE] seat-switch worker-runtime input read UNREACHABLE; last-known-good runtime files will be kept (no re-provision):',
       error
     );
-    // Fail-CLOSED on the grants too: an unreadable store must never be read as
-    // "everything this seat once allowed is still allowed".
-    return { reachable: false, codexRuntime: '', claudeDelegate: null, teamRoles: [], rememberedCommands: [] };
+    return { reachable: false, codexRuntime: '', claudeDelegate: null, teamRoles: [] };
   }
 }
 
@@ -2819,14 +2802,6 @@ export function initCommandEveBridge(): void {
   // spend permit can be retired when the person corrects a run in flight.
   bridge.buildProvider('command-eve.artifact-turn-steer').provider(handleCommandEveArtifactTurnSteerBridge);
   bridge.buildProvider('command-eve.video-edit').provider(handleCommandEveVideoEditBridge);
-  bridge.buildProvider('command-eve.image-generate').provider((request?: CommandEveImageGenerateRequest) =>
-    handleCommandEveImageGenerateBridge(request, {
-      getDataPath,
-      getActiveSeatId,
-      getActiveSeatContextRevision,
-      onFreshBind: (conversationId) => getImageArtifactsChangedEmitter().emit({ conversation_id: conversationId }),
-    })
-  );
   // 1.820.3 — the managed IMAGE artifact lane (staged-handle contract): bind
   // (display authority at turn end), list + preview (durable, path-free),
   // legacy import (strictly confined one-time adoption).
@@ -2864,6 +2839,7 @@ export function initCommandEveBridge(): void {
       return { success: true, data: { ok: true, summary } };
     });
   bridge.buildProvider('command-eve.image-artifact-preview').provider(handleCommandEveImageArtifactPreviewBridge);
+  bridge.buildProvider('command-eve.artifact-input-resolve').provider(handleCommandEveImageArtifactInputResolveBridge);
   bridge
     .buildProvider('command-eve.image-artifact-import-legacy')
     .provider(handleCommandEveImageArtifactImportLegacyBridge);

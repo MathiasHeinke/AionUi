@@ -22,11 +22,8 @@
  * model to keep trying a door that will never open on its own, and it puts an
  * offer in the transcript that the product does not honour.
  *
- * POST-1.820.2 FRAMING: the flag this file passes around is the MCP CHILD's
- * env, which Main populates from its eligibility resolver
- * (`agentVideoEditFlag.ts` — default-ON for an eligible seat, `'0'`
- * kill-switch, no licence wire fails closed). An ABSENT key here therefore
- * means "Main decided this seat is closed", not "the product ships off".
+ * 1.823.6 FRAMING: legacy video edit is release-fenced. The historical carrier
+ * may still occur in old config, but it cannot advertise a tool.
  *
  * The flag is passed as an explicit env object per assertion; nothing here
  * mutates `process.env`, so the default stays default even inside this file.
@@ -63,12 +60,8 @@ describe('the MCP tool list is gated on the SAME flag as the envelope', () => {
     expect(names({})).not.toContain(EVE_ARTIFACT_TOOL_VIDEO_EDIT);
   });
 
-  it('advertises the paid tool only for the exact value `1`', () => {
-    // POSITIVE CONTROL: the probe above is not simply always-false.
-    expect(names({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' })).toContain(EVE_ARTIFACT_TOOL_VIDEO_EDIT);
-    // A spending flag that accepts several spellings gets switched on by
-    // accident, so every near-miss stays off.
-    for (const spelling of ['0', 'true', 'yes', 'on', '', ' ']) {
+  it('never advertises the retired video tool, including with a stale carrier', () => {
+    for (const spelling of ['1', ' 1 ', '0', 'true', 'yes', 'on', '', ' ']) {
       expect(names({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: spelling })).not.toContain(EVE_ARTIFACT_TOOL_VIDEO_EDIT);
     }
   });
@@ -111,23 +104,31 @@ describe('the MCP tool list is gated on the SAME flag as the envelope', () => {
     const imageOnly = names({ [COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]: '1' });
     expect(imageOnly).toContain(EVE_ARTIFACT_TOOL_IMAGE_EDIT);
     expect(imageOnly).not.toContain(EVE_ARTIFACT_TOOL_VIDEO_EDIT);
-    // Video only: unchanged from the pre-image surface.
+    // A stale video carrier stays dark.
     const videoOnly = names({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' });
-    expect(videoOnly).toContain(EVE_ARTIFACT_TOOL_VIDEO_EDIT);
+    expect(videoOnly).not.toContain(EVE_ARTIFACT_TOOL_VIDEO_EDIT);
     expect(videoOnly).not.toContain(EVE_ARTIFACT_TOOL_IMAGE_EDIT);
-    // Both: both paid tools, free tools still first.
+    // Both carriers: only native image edit is offered.
     const both = names({ [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1', [COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]: '1' });
     expect(both).toEqual([
       EVE_ARTIFACT_TOOL_ARTIFACT_GET,
       EVE_ARTIFACT_TOOL_ARTIFACT_LIST,
       EVE_ARTIFACT_TOOL_TYPED_UI_PUBLISH,
-      EVE_ARTIFACT_TOOL_VIDEO_EDIT,
       EVE_ARTIFACT_TOOL_IMAGE_EDIT,
     ]);
     // Near-miss spellings stay off for the image flag too.
     for (const spelling of ['0', 'true', 'yes', '']) {
       expect(names({ [COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]: spelling })).not.toContain(EVE_ARTIFACT_TOOL_IMAGE_EDIT);
     }
+  });
+
+  it('describes the native Hermes permission boundary instead of a model-visible spend permit', () => {
+    const description = buildEveArtifactToolSurface({ [COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]: '1' }).find(
+      (tool) => tool.name === EVE_ARTIFACT_TOOL_IMAGE_EDIT
+    )!.description;
+    expect(description).toContain('current native Hermes ACP permission mode');
+    expect(description).toContain('never ask for, invent or expose an internal permit');
+    expect(description).not.toContain('Quality and format are inherited from the source');
   });
 });
 

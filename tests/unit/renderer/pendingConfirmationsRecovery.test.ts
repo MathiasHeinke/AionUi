@@ -179,11 +179,9 @@ describe('pending confirmations recovery', () => {
               question: 'Should I make the artifact blue?',
               choices: ['Make it blue'],
               metadata: {
-                interaction_kind: 'artifact_followup',
-                artifact_mode: 'image',
+                interaction_kind: 'clarify',
                 question: 'Should I make the artifact blue?',
                 choices: ['Make it blue'],
-                source_user_turn: 'Please make the image blue.',
               },
             },
           },
@@ -200,8 +198,8 @@ describe('pending confirmations recovery', () => {
       expect(result[0].content.options[0]?.option_id).toBe('clarify_choice_0');
       expect(result[0].content.tool_call.raw_input).toMatchObject({
         metadata: {
-          artifact_mode: 'image',
-          source_user_turn: 'Please make the image blue.',
+          interaction_kind: 'clarify',
+          question: 'Should I make the artifact blue?',
         },
       });
       expect((result[0].content as Record<string, unknown>).authority).toMatchObject({

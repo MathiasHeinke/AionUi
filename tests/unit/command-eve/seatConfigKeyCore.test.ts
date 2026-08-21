@@ -104,14 +104,11 @@ describe('(c) the allowlist is explicit + auditable', () => {
     // (11 → 12): the one-time in-chat decline marker is per seat, so one client
     // seat's "Nicht jetzt" never silences the prompt in a sibling seat.
     //
-    // CEVE-18205 adds `commandEve.agentVideoGenerateEnabled` (12 → 13): the release
-    // that lets the MODEL start a paid render on its own. It is the sharpest of the
-    // three security switches in this list — a founder seat's `true` reaching a
-    // client seat would let the agent spend that client's credits — so it is also
-    // listed in `NO_LEGACY_INHERIT_KEYS` (see commandEveBackendSettingsRead).
+    // 1.823.6 removes `commandEve.agentVideoGenerateEnabled` (13 → 12): paid
+    // video follows native Hermes permission mode rather than a second per-seat
+    // spend-consent store.
     expect([...SEAT_SCOPED_CONFIG_KEYS].toSorted()).toEqual(
       [
-        'commandEve.agentVideoGenerateEnabled',
         'commandEve.authority',
         'commandEve.clientSeedDismissed',
         'commandEve.cloudVisualAnalysisEnabled',

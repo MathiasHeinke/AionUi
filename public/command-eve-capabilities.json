@@ -1,6 +1,6 @@
 {
   "version": "command-eve-capability-pack/v0",
-  "release": "1.823.4",
+  "release": "1.823.6",
   "policy": {
     "default_mode": "proposal_only",
     "secret_rule": "Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.",
@@ -328,6 +328,13 @@
       "tier": "department",
       "source": "Command EVE supervised local delegation skill",
       "default_state": "gated"
+    },
+    {
+      "id": "editorial-pdf-design",
+      "name": "Editorial PDF Design",
+      "tier": "department",
+      "source": "Command EVE general PDF production skill",
+      "default_state": "active"
     },
     {
       "id": "lead-magnet-pdf",

@@ -164,6 +164,7 @@ function parsePermitRecord(value: unknown): VideoEditSpendPermitRecord | undefin
     return undefined;
   }
   for (const sha of record.allowed_artifact_sha256) if (!isSha256Hex(sha)) return undefined;
+  if (record.allowed_artifact_sha256.length === 0 || Object.hasOwn(record, 'allowed_request_sha256')) return undefined;
   return record as unknown as VideoEditSpendPermitRecord;
 }
 
@@ -1088,7 +1089,8 @@ export function consumeVideoEditSpendPermit(
     conversationId: string;
     userTurnSha256: string;
     instructionSha256: string;
-    artifactSha256: string;
+    artifactSha256?: string;
+    requestSha256?: string;
     nowMs?: number;
   }
 ): VideoEditSpendConsumption {
@@ -1100,6 +1102,13 @@ export function consumeVideoEditSpendPermit(
     return { ok: false, reason: 'permit-turn-unknown' };
   }
   if (!isSha256Hex(input.userTurnSha256)) return { ok: false, reason: 'permit-turn-unknown' };
+  const requestSha256 = isSha256Hex(input.requestSha256) ? input.requestSha256 : undefined;
+  const artifactSha256 = isSha256Hex(input.artifactSha256) ? input.artifactSha256 : undefined;
+  const consumesRequest = requestSha256 !== undefined;
+  if (consumesRequest === (artifactSha256 !== undefined)) {
+    return { ok: false, reason: consumesRequest ? 'permit-consume-failed' : 'permit-artifact-not-covered' };
+  }
+  const targetClaim = consumesRequest ? { request_sha256: requestSha256 } : { artifact_sha256: artifactSha256 };
 
   const permitKey = digest(input.permit);
   const turnFile = turnSpentFile(dataPath, input.conversationId, input.userTurnSha256);
@@ -1107,7 +1116,7 @@ export function consumeVideoEditSpendPermit(
     !createExclusive(turnFile, {
       permit_sha256: permitKey,
       instruction_sha256: input.instructionSha256,
-      artifact_sha256: input.artifactSha256,
+      ...targetClaim,
       consumed_at_ms: input.nowMs ?? Date.now(),
     })
   ) {
@@ -1124,7 +1133,7 @@ export function consumeVideoEditSpendPermit(
   const files = permitFiles(dataPath, input.permit);
   const claim = {
     instruction_sha256: input.instructionSha256,
-    artifact_sha256: input.artifactSha256,
+    ...targetClaim,
     consumed_at_ms: input.nowMs ?? Date.now(),
   };
   if (createExclusive(files.consumed, claim)) return { ok: true };
@@ -1136,7 +1145,12 @@ export function consumeVideoEditSpendPermit(
     return { ok: false, reason: 'permit-consume-failed' };
   }
   const claimed = prior as Record<string, unknown>;
-  if (claimed.instruction_sha256 !== input.instructionSha256 || claimed.artifact_sha256 !== input.artifactSha256) {
+  if (
+    claimed.instruction_sha256 !== input.instructionSha256 ||
+    (consumesRequest
+      ? claimed.request_sha256 !== requestSha256 || Object.hasOwn(claimed, 'artifact_sha256')
+      : claimed.artifact_sha256 !== artifactSha256 || Object.hasOwn(claimed, 'request_sha256'))
+  ) {
     // THE varied-instruction loop, refused. One permit, one edit — a different
     // instruction is a different edit and needs a different user turn.
     return { ok: false, reason: 'permit-consumed' };

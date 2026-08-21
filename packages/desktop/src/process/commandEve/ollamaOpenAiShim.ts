@@ -1286,7 +1286,7 @@ function messageText(message: unknown): string {
 }
 
 const COMMAND_EVE_IMAGE_OMITTED_TEXT =
-  '[Image attachment omitted: Command EVE vision is disabled until a vetted vision lane is configured.]';
+  '[Image attachment omitted from raw chat input: use the native Hermes vision tool for image inspection.]';
 const COMMAND_EVE_LOCAL_VISION_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const COMMAND_EVE_LOCAL_VISION_MODEL = /^minicpm-v(?::[^/]+)?$/i;
 
@@ -1296,6 +1296,23 @@ function stripNativeImageHintText(text: string): string {
 
 function isNativeImageContentPart(part: Record<string, unknown>): boolean {
   return part.type === 'image_url' || Object.prototype.hasOwnProperty.call(part, 'image_url');
+}
+
+function isNativeVisionToolResultMessage(message: unknown): boolean {
+  if (!message || typeof message !== 'object') return false;
+  const record = message as Record<string, unknown>;
+  return (
+    record.role === 'tool' &&
+    Array.isArray(record.content) &&
+    record.content.some(
+      (part) => Boolean(part) && typeof part === 'object' && isNativeImageContentPart(part as Record<string, unknown>)
+    )
+  );
+}
+
+/** True only for structured images Hermes' native vision tool returned. */
+export function commandEveMessagesContainNativeVisionToolResult(messages: unknown): boolean {
+  return Array.isArray(messages) && messages.some(isNativeVisionToolResultMessage);
 }
 
 function stripNativeImageHintsOnly(message: unknown): unknown {
@@ -1949,7 +1966,23 @@ async function handleEveCloudCompletions(
   // credentials/health/finance — the DSGVO grantee the operator cannot switch off.
   // S11's structure (fresh per-request read, receipt stamp, off-badge header) is
   // untouched; only the wholesale 'allow' is replaced by the gate.
-  let outboundMessages = asMessages(body.messages).map((message) => stripUnsupportedImageContent(message));
+  const hasNativeVisionToolResult = commandEveMessagesContainNativeVisionToolResult(body.messages);
+  let nativeVisionToolResultAuthorized = false;
+  if (hasNativeVisionToolResult && route.authorizeManagedVisualEgress) {
+    const authorized = await route.authorizeManagedVisualEgress();
+    if (authorized === false) {
+      throw new CommandEveManagedVisualAuthorizationError('POLICY_STALE');
+    }
+    if (authorized !== true) {
+      throw new Error('Managed visual policy callback returned a non-boolean result.');
+    }
+    nativeVisionToolResultAuthorized = true;
+  }
+  let outboundMessages = asMessages(body.messages).map((message) =>
+    nativeVisionToolResultAuthorized && isNativeVisionToolResultMessage(message)
+      ? stripNativeImageHintsOnly(message)
+      : stripUnsupportedImageContent(message)
+  );
   const egressBoundary = await evaluateCommandEveEgressBoundary({
     text: outboundMessages.map(messageText).join('\n\n'),
     provider: {
@@ -1998,7 +2031,13 @@ async function handleEveCloudCompletions(
     // from the toggle keeps the messages and the boundary decision consistent —
     // we never over-redact a waived S1/S2 nor under-redact an S3.
     const messageRedactThreshold: CommandEveSensitivityClass = redactionDisabledByOperator ? 'S3' : 'S1';
-    outboundMessages = outboundMessages.map((message) => redactMessageContent(message, messageRedactThreshold));
+    outboundMessages = outboundMessages.map((message) =>
+      redactMessageContent(
+        message,
+        messageRedactThreshold,
+        nativeVisionToolResultAuthorized && isNativeVisionToolResultMessage(message)
+      )
+    );
   }
 
   // MAXIMUM EXECUTION PROFILE. This is injected at the trusted Main-process
@@ -2116,7 +2155,7 @@ async function handleEveCloudCompletions(
     ...(body.response_format !== undefined ? { response_format: body.response_format } : {}),
   };
 
-  if (route.authorizeManagedVisualEgress) {
+  if (route.authorizeManagedVisualEgress && !nativeVisionToolResultAuthorized) {
     // A boolean `false` is the deliberate final policy revocation. Do not
     // collapse callback faults into that deterministic claim: unknown faults
     // must reach the generic redacted 500 boundary and must not mint a stale
@@ -2864,6 +2903,7 @@ async function handleChatCompletions(
   const model = String(body.model || '');
   const stream = Boolean(body.stream);
   const forceLocalVision = isCommandEveLocalVisionModel(model);
+  const hasNativeVisionToolResult = commandEveMessagesContainNativeVisionToolResult(body.messages);
   const providerRequestId = newTypedUIProviderRequestId();
   let seatContext: CommandEveActiveSeatContext;
   try {
@@ -2982,9 +3022,11 @@ async function handleChatCompletions(
     return;
   }
 
-  const useLocalOllamaVision = !localOpenAiRoute?.active && forceLocalVision;
+  const useLocalOllamaVision = !localOpenAiRoute?.active && (forceLocalVision || hasNativeVisionToolResult);
   let localMessages = asMessages(body.messages).map((message) =>
-    useLocalOllamaVision ? stripNativeImageHintsOnly(message) : stripUnsupportedImageContent(message)
+    forceLocalVision || (useLocalOllamaVision && isNativeVisionToolResultMessage(message))
+      ? stripNativeImageHintsOnly(message)
+      : stripUnsupportedImageContent(message)
   );
   body.messages = localMessages;
 
@@ -3019,7 +3061,13 @@ async function handleChatCompletions(
       // Local lane never egresses and never carries a toggle context, so it always
       // redacts at the full S1 threshold (legacy behaviour). Wrap so Array.map's
       // (value,index,array) never leaks the index into the minClass parameter.
-      localMessages = localMessages.map((message) => redactMessageContent(message, 'S1', useLocalOllamaVision));
+      localMessages = localMessages.map((message) =>
+        redactMessageContent(
+          message,
+          'S1',
+          forceLocalVision || (useLocalOllamaVision && isNativeVisionToolResultMessage(message))
+        )
+      );
       body.messages = localMessages;
     }
 

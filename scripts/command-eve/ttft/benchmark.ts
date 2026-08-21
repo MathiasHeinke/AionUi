@@ -65,6 +65,7 @@ import {
   requireCommandEvePackagedQaAttachment,
   type CommandEvePackagedQaAttachmentProof,
 } from './packaged-qa-attachment';
+import { resolveCommandEveTtftRuntimeRoot } from './profile-core';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '../../..');
 const GUID_INPUT = '.guid-input-card-shell textarea';
@@ -895,17 +896,10 @@ async function runMeasuredTurn(input: {
     await page.locator(EXISTING_INPUT).waitFor({ state: 'visible', timeout: 30_000 });
   }
   const logOffset = input.logOffset ?? fileSize(input.handle.logPath);
-  const upstreamHistoryPath = path.join(
-    input.args.userDataDir,
-    'command-eve-runtime',
-    'upstream-outcome-history.jsonl'
-  );
+  const runtimeRoot = resolveCommandEveTtftRuntimeRoot(input.args.userDataDir);
+  const upstreamHistoryPath = path.join(runtimeRoot, 'upstream-outcome-history.jsonl');
   const upstreamHistoryOffset = fileSize(upstreamHistoryPath);
-  const providerTurnBindingHistoryPath = path.join(
-    input.args.userDataDir,
-    'command-eve-runtime',
-    'provider-turn-binding-history.jsonl'
-  );
+  const providerTurnBindingHistoryPath = path.join(runtimeRoot, 'provider-turn-binding-history.jsonl');
   const providerTurnBindingHistoryOffset = fileSize(providerTurnBindingHistoryPath);
   await resetRendererCollector(page);
   const textarea = page.locator(input.surface === 'start_chat' ? GUID_INPUT : EXISTING_INPUT).last();

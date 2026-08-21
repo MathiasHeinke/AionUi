@@ -9,6 +9,16 @@ const mocks = vi.hoisted(() => {
   return {
     providers,
     emitters,
+    listActiveImageArtifacts: vi.fn(() => []),
+    materializeManagedImage: vi.fn(async () => ({
+      status: 'ready',
+      agentFilePath: '/tmp/project/bilder/image.png',
+    })),
+    resolveProjectRuntimeSnapshot: vi.fn(async () => ({
+      seat_id: 'seat-1',
+      backend_port: 4173,
+      project_path: '/tmp/project',
+    })),
     getDataPath: vi.fn((): string => {
       throw new Error('getDataPath not initialized');
     }),
@@ -39,6 +49,21 @@ vi.mock('@process/bridge/commandEveBridge', () => ({
   isCommandEveSeatSwitchInFlight: () => false,
 }));
 
+vi.mock('@process/commandEve/imageArtifactStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@process/commandEve/imageArtifactStore')>()),
+  listActiveImageArtifacts: (...args: unknown[]) => mocks.listActiveImageArtifacts(...args),
+}));
+
+vi.mock('@process/commandEve/managedArtifactInputResolver', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@process/commandEve/managedArtifactInputResolver')>()),
+  materializeCommandEveManagedImageInProject: (...args: unknown[]) => mocks.materializeManagedImage(...args),
+}));
+
+vi.mock('@process/services/project-workspace/runtime/projectRuntimeResolver', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@process/services/project-workspace/runtime/projectRuntimeResolver')>()),
+  resolveTrustedProjectRuntimeSnapshot: (...args: unknown[]) => mocks.resolveProjectRuntimeSnapshot(...args),
+}));
+
 const EXPECTED_PROVIDER_CHANNELS = [
   'project-workspace.list',
   'project-workspace.listConversationArtifacts',
@@ -66,6 +91,19 @@ describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
   beforeEach(async () => {
     dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-service-bridge-'));
     mocks.getDataPath.mockImplementation(() => dataRoot);
+    mocks.listActiveImageArtifacts.mockReset();
+    mocks.listActiveImageArtifacts.mockReturnValue([]);
+    mocks.materializeManagedImage.mockReset();
+    mocks.materializeManagedImage.mockResolvedValue({
+      status: 'ready',
+      agentFilePath: '/tmp/project/bilder/image.png',
+    });
+    mocks.resolveProjectRuntimeSnapshot.mockReset();
+    mocks.resolveProjectRuntimeSnapshot.mockImplementation(async () => ({
+      seat_id: 'seat-1',
+      backend_port: 4173,
+      project_path: path.join(dataRoot, 'projects', 'private', 'project-1'),
+    }));
     (globalThis as { __backendPort?: number }).__backendPort = 4173;
     vi.stubGlobal(
       'fetch',
@@ -165,6 +203,152 @@ describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
     });
     recoverAll.mockRestore();
     consoleError.mockRestore();
+  });
+
+  it('materializes existing managed images after a completed project assignment', async () => {
+    const { ProjectWorkspaceFacade } = await import('@process/services/project-workspace/ProjectWorkspaceFacade');
+    vi.spyOn(ProjectWorkspaceFacade.prototype, 'commitAssignment').mockResolvedValue({
+      receipt_id: '11111111-1111-4111-8111-111111111111',
+      outcome: 'completed',
+      completed_at: 1,
+      assignment: 'project',
+      project: { project_id: 'project-1' },
+      artifact: { conversation_id: 'conversation-1' },
+      safe_follow_ups: [],
+    } as never);
+    mocks.listActiveImageArtifacts.mockReturnValue([{ id: 'img-1' }]);
+
+    const { initProjectWorkspaceServiceBridge } = await import('@process/bridge/projectWorkspaceServiceBridge');
+    initProjectWorkspaceServiceBridge();
+    const record = mocks.providers.find((entry) => entry.key === 'project-workspace.commitAssignment');
+    if (!record) throw new Error('project-workspace.commitAssignment provider not registered');
+    await (record.provider as (input: unknown) => Promise<unknown>)({
+      preview_id: 'preview-1',
+      expected_preview_revision: 1,
+      seat_context_revision: 0,
+      idempotency_key: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(mocks.listActiveImageArtifacts).toHaveBeenCalledWith(dataRoot, 'conversation-1', 'seat-1');
+    expect(mocks.materializeManagedImage).toHaveBeenCalledWith(
+      { conversationId: 'conversation-1', artifactId: 'img-1' },
+      {
+        status: 'ready',
+        backendPort: 4173,
+        workspace: path.join(dataRoot, 'projects', 'private', 'project-1'),
+        seatId: 'seat-1',
+        seatContextRevision: 0,
+      }
+    );
+  });
+
+  it('materializes existing managed images after a completed conversation bind', async () => {
+    const { ProjectWorkspaceFacade } = await import('@process/services/project-workspace/ProjectWorkspaceFacade');
+    vi.spyOn(ProjectWorkspaceFacade.prototype, 'bindConversation').mockResolvedValue({
+      receipt_id: '11111111-1111-4111-8111-111111111111',
+      outcome: 'completed',
+      completed_at: 1,
+      safe_follow_ups: [],
+    });
+    mocks.listActiveImageArtifacts.mockReturnValue([{ id: 'img-1' }]);
+
+    const { initProjectWorkspaceServiceBridge } = await import('@process/bridge/projectWorkspaceServiceBridge');
+    initProjectWorkspaceServiceBridge();
+    const record = mocks.providers.find((entry) => entry.key === 'project-workspace.bindConversation');
+    if (!record) throw new Error('project-workspace.bindConversation provider not registered');
+    await (record.provider as (input: unknown) => Promise<unknown>)({
+      conversation_id: 'conversation-1',
+      seat_context_revision: 0,
+      idempotency_key: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(mocks.materializeManagedImage).toHaveBeenCalledWith(
+      { conversationId: 'conversation-1', artifactId: 'img-1' },
+      expect.objectContaining({ status: 'ready', workspace: path.join(dataRoot, 'projects', 'private', 'project-1') })
+    );
+  });
+
+  it('materializes existing managed images after automatic project creation', async () => {
+    const { ProjectWorkspaceFacade } = await import('@process/services/project-workspace/ProjectWorkspaceFacade');
+    vi.spyOn(ProjectWorkspaceFacade.prototype, 'ensureAfterSuccessfulTurn').mockResolvedValue({
+      status: 'created',
+      project_id: 'project-1',
+      project_title: 'Palmen',
+    });
+    mocks.listActiveImageArtifacts.mockReturnValue([{ id: 'img-1' }]);
+
+    const { initProjectWorkspaceServiceBridge } = await import('@process/bridge/projectWorkspaceServiceBridge');
+    initProjectWorkspaceServiceBridge();
+    const record = mocks.providers.find((entry) => entry.key === 'project-workspace.ensureAfterSuccessfulTurn');
+    if (!record) throw new Error('project-workspace.ensureAfterSuccessfulTurn provider not registered');
+    await (record.provider as (input: unknown) => Promise<unknown>)({
+      conversation_id: 'conversation-1',
+      turn_id: 'turn-1',
+    });
+
+    expect(mocks.materializeManagedImage).toHaveBeenCalledWith(
+      { conversationId: 'conversation-1', artifactId: 'img-1' },
+      expect.objectContaining({ status: 'ready', workspace: path.join(dataRoot, 'projects', 'private', 'project-1') })
+    );
+  });
+
+  it('preserves a completed assignment receipt when image materialization fails afterward', async () => {
+    const { ProjectWorkspaceFacade } = await import('@process/services/project-workspace/ProjectWorkspaceFacade');
+    vi.spyOn(ProjectWorkspaceFacade.prototype, 'commitAssignment').mockResolvedValue({
+      receipt_id: '11111111-1111-4111-8111-111111111111',
+      outcome: 'completed',
+      completed_at: 1,
+      assignment: 'project',
+      project: { project_id: 'project-1' },
+      artifact: { conversation_id: 'conversation-1' },
+      safe_follow_ups: [],
+    } as never);
+    mocks.listActiveImageArtifacts.mockImplementation(() => {
+      throw new Error('simulated copy failure');
+    });
+
+    const { initProjectWorkspaceServiceBridge } = await import('@process/bridge/projectWorkspaceServiceBridge');
+    initProjectWorkspaceServiceBridge();
+    const record = mocks.providers.find((entry) => entry.key === 'project-workspace.commitAssignment');
+    if (!record) throw new Error('project-workspace.commitAssignment provider not registered');
+    const result = (await (record.provider as (input: unknown) => Promise<unknown>)({
+      preview_id: 'preview-1',
+      expected_preview_revision: 1,
+      seat_context_revision: 0,
+      idempotency_key: '11111111-1111-4111-8111-111111111111',
+    })) as { outcome: string };
+
+    expect(result.outcome).toBe('completed');
+  });
+
+  it('returns a handled chat intent without waiting for image materialization', async () => {
+    const { ProjectWorkspaceFacade } = await import('@process/services/project-workspace/ProjectWorkspaceFacade');
+    vi.spyOn(ProjectWorkspaceFacade.prototype, 'chatIntent').mockResolvedValue({
+      decision: 'handled',
+      artifact_id: 'assignment-1',
+    });
+    mocks.listActiveImageArtifacts.mockReturnValue([{ id: 'img-1' }]);
+    let materializationStarted = false;
+    mocks.materializeManagedImage.mockImplementation(() => {
+      materializationStarted = true;
+      return new Promise(() => {});
+    });
+
+    const { initProjectWorkspaceServiceBridge } = await import('@process/bridge/projectWorkspaceServiceBridge');
+    initProjectWorkspaceServiceBridge();
+    const record = mocks.providers.find((entry) => entry.key === 'project-workspace.chat-intent');
+    if (!record) throw new Error('project-workspace.chat-intent provider not registered');
+    const result = await (record.provider as (input: unknown) => Promise<unknown>)({
+      conversation_id: 'conversation-1',
+      input: 'use project',
+      seat_context_revision: 0,
+      idempotency_key: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(result).toEqual({ decision: 'handled', artifact_id: 'assignment-1' });
+    expect(materializationStarted).toBe(false);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(materializationStarted).toBe(true);
   });
 
   describe('IPC error mapping (Kimi F1): providers never throw across the boundary', () => {

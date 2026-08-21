@@ -101,8 +101,8 @@ describe('MAT-1747 round 6 — the app registers every provider the renderer cal
     expect(registered.size).toBeGreaterThan(10);
   });
 
-  it('registers the turn-bound managed image generation provider beside the artifact lane', () => {
-    expect(registered.has('command-eve.image-generate')).toBe(true);
+  it('keeps the native artifact lane but does not register the retired paid renderer generation provider', () => {
+    expect(registered.has('command-eve.image-generate')).toBe(false);
     expect(registered.has('command-eve.image-artifact-bind')).toBe(true);
   });
 
@@ -145,21 +145,10 @@ describe('MAT-1747 round 6 — the REGISTERED paid route follows the one resolve
     expect(process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]).toBeUndefined();
   });
 
-  it('DISCRIMINATING CONTROL: on an ELIGIBLE seat with env UNSET (the 1.820.2 default) the identical request is refused for a DIFFERENT reason', async () => {
-    // Without this, `video-edit-disabled` could be a catch-all this provider
-    // returns for any bad request, and the gate would be proving nothing. The
-    // licence-wire mock reads fine and the env carries nothing — the default-on
-    // posture itself — so the flag gate PASSES and the refusal comes from the
-    // authority checks behind it (here: the spend store this process never
-    // reconciled), still before the network, exactly as
-    // `commandEveVideoEditBridge.test.ts` pins them. Nothing is spent here.
-    //
-    // This is also the inversion of the pre-1.820.2 contract: the same request
-    // with the same env used to refuse as `video-edit-disabled`. If someone
-    // restores the old env-only gate, THIS test goes red.
+  it('refuses even with a stale explicit carrier and readable licence wire', async () => {
     const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchSpy);
-    expect(process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]).toBeUndefined();
+    process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] = '1';
 
     const provider = registered.get('command-eve.video-edit')!;
     const result = (await provider({
@@ -169,7 +158,7 @@ describe('MAT-1747 round 6 — the REGISTERED paid route follows the one resolve
     })) as EditEnvelope;
 
     expect(result.data?.ok).toBe(false);
-    expect(result.data?.reasonCode).not.toBe('video-edit-disabled');
+    expect(result.data?.reasonCode).toBe('video-edit-disabled');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

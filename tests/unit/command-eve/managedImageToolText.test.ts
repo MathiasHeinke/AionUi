@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildManagedImageToolText,
+  isSafeManagedImageWorkspaceRelativePath,
   isWellFormedImageStagedHandle,
   mintImageStagedHandle,
   parseManagedImageArtifactRecord,
@@ -13,7 +14,7 @@ const HANDLE = `img_h_${'ab'.repeat(32)}`;
 /** The P0 leak tokens the pre-contract lane shipped into model-visible text. */
 const FORBIDDEN_TOKENS = ['/Users/', 'file:', 'MEDIA:', 'data:image'];
 
-describe('the managed tool text is PATH-FREE and carries no edit instruction', () => {
+describe('the managed tool text is ABSOLUTE-PATH-FREE and carries no edit instruction', () => {
   it('names the staged handle and human metadata only', () => {
     const text = buildManagedImageToolText({
       artifactHandle: HANDLE,
@@ -51,6 +52,36 @@ describe('the managed tool text is PATH-FREE and carries no edit instruction', (
     expect(text).not.toContain('data:image/png;base64,');
     expect(text).toContain('unbekannt');
     expect(extractImageStagedHandle(text)).toBe(HANDLE);
+  });
+
+  it('carries only a validated workspace-relative image path for same-turn composition', () => {
+    const text = buildManagedImageToolText({
+      artifactHandle: HANDLE,
+      resolution: '1K',
+      aspectRatio: '16:9',
+      bytesCount: 1,
+      model: 'GPT Image 2',
+      workspaceRelativePath: 'bilder/cover.png',
+    });
+    expect(text).toContain('Projektrelative Arbeitsdatei: bilder/cover.png');
+    expect(text).toContain('erzeuge keine Ersatzgrafik');
+    for (const token of FORBIDDEN_TOKENS) expect(text).not.toContain(token);
+  });
+
+  it('refuses absolute, escaping and non-image workspace paths', () => {
+    expect(isSafeManagedImageWorkspaceRelativePath('bilder/cover.png')).toBe(true);
+    expect(isSafeManagedImageWorkspaceRelativePath('/Users/alice/cover.png')).toBe(false);
+    expect(isSafeManagedImageWorkspaceRelativePath('bilder/../escape.png')).toBe(false);
+    expect(isSafeManagedImageWorkspaceRelativePath('dokumente/cover.pdf')).toBe(false);
+    const text = buildManagedImageToolText({
+      artifactHandle: HANDLE,
+      resolution: '1K',
+      aspectRatio: '16:9',
+      bytesCount: 1,
+      workspaceRelativePath: '/Users/alice/cover.png',
+    });
+    expect(text).toContain('Keine projektrelative Arbeitsdatei verfügbar');
+    expect(text).not.toContain('/Users/alice/cover.png');
   });
 
   it('degrades overlong and control-char metadata instead of leaking it', () => {
@@ -205,12 +236,18 @@ describe('parseManagedImageArtifactRecord validates EVERY typed field', () => {
     }
   });
 
-  it('never exposes a blob path: the writers put no path key into the payload type', () => {
-    // Structural proof of the privacy invariant rather than a runtime one: the
-    // payload type has no path field at all, so no record this lane writes can
-    // carry one. A hand-forged path key is inert extra data, never read back.
+  it('never exposes an absolute or escaping blob path', () => {
+    // The only accepted payload path is the canonical workspace-relative
+    // `bilder/…` placement. Absolute paths, backslashes and traversal are
+    // refused by the parser.
     const record = parseManagedImageArtifactRecord(valid);
-    expect(record && 'path' in record.payload).toBe(false);
+    expect(record).toBeDefined();
+    expect(
+      parseManagedImageArtifactRecord({
+        ...valid,
+        payload: { ...valid.payload, path: '/Users/alice/escape.png' },
+      })
+    ).toBeUndefined();
   });
 
   it('a staged record with null conversation is valid', () => {

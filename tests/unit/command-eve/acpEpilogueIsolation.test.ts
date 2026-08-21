@@ -42,7 +42,10 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { provisionSeatRuntimeFiles, resolveCommandEveRuntimeBootstrapPaths } from '@/process/commandEve/runtimeBootstrapCore';
+import {
+  provisionSeatRuntimeFiles,
+  resolveCommandEveRuntimeBootstrapPaths,
+} from '@/process/commandEve/runtimeBootstrapCore';
 import { __resetActiveSeatForTests, clearActiveSeat, setActiveSeatId } from '@/process/commandEve/seatContextCore';
 
 const REAL_UUID = 'a1b2c3d4-e5f6-4789-aabb-ccddeeff0011';
@@ -279,7 +282,9 @@ describe('CEVE-18232 — an answered turn stays answered', () => {
     const payload = runProbe();
     // The reproduction runs both shapes against identical data, so the assertions
     // rest on measured behaviour rather than on reading the code.
-    expect(payload.generator_reproduces_the_bug, 'the generator shape must still reproduce the reported error').toBe(true);
+    expect(payload.generator_reproduces_the_bug, 'the generator shape must still reproduce the reported error').toBe(
+      true
+    );
     expect(payload.materialised_is_correct, 'materialising must remove exactly the same bindings').toBe(true);
     const shapes = payload.shapes as Record<string, number>;
     expect(shapes.calls, 'the cleanup call vanished — this test would pass vacuously').toBe(1);

@@ -197,12 +197,34 @@ const REFERENCE_KIND_SET = new Set<string>(COMPOSER_WORK_PRODUCT_REFERENCE_KINDS
 const IMAGE_ASPECT_RATIO_SET = new Set<string>(COMPOSER_IMAGE_ASPECT_RATIOS);
 const IMAGE_RESOLUTION_SET = new Set<string>(COMPOSER_IMAGE_RESOLUTIONS);
 
-export const COMPOSER_OFFICE_STUDIO_SKILL_ID = 'office-studio';
+/**
+ * Modes whose agentic workflow may create one managed raster image as part of
+ * the selected work product. Video owns a separate media contract; chat owns
+ * none. Keeping this predicate in the authority core prevents the start and
+ * conversation composers from drifting onto different model/quote surfaces.
+ */
+export function composerWorkProductModeSupportsImageGeneration(value: unknown): boolean {
+  const mode = parseComposerWorkProductMode(value);
+  return mode === 'image' || mode === 'presentation' || mode === 'pdf' || mode === 'word' || mode === 'excel';
+}
 
-/** Explicit Word/Excel selections bind the app-owned Office workflow to this turn. */
+function selectionCarriesImageOptions(mode: ComposerWorkProductModeOption, hasSelectedReference: boolean): boolean {
+  return (
+    mode === 'image' ||
+    (!hasSelectedReference && mode !== 'video' && composerWorkProductModeSupportsImageGeneration(mode))
+  );
+}
+
+export const COMPOSER_OFFICE_STUDIO_SKILL_ID = 'office-studio';
+export const COMPOSER_PRESENTATION_STUDIO_SKILL_ID = 'presentation-studio';
+export const COMPOSER_PDF_STUDIO_SKILL_ID = 'editorial-pdf-design';
+
+/** Explicit document selections bind the app-owned workflow to this turn. */
 export function resolveComposerWorkProductInjectedSkills(value: unknown): readonly string[] {
   const mode = parseComposerWorkProductMode(value);
-  return mode === 'word' || mode === 'excel' ? [COMPOSER_OFFICE_STUDIO_SKILL_ID] : [];
+  if (mode === 'word' || mode === 'excel') return [COMPOSER_OFFICE_STUDIO_SKILL_ID];
+  if (mode === 'presentation') return [COMPOSER_PRESENTATION_STUDIO_SKILL_ID];
+  return mode === 'pdf' ? [COMPOSER_PDF_STUDIO_SKILL_ID] : [];
 }
 
 /**
@@ -274,7 +296,9 @@ export function parseComposerWorkProductSelection(value: unknown): ComposerWorkP
     selectedReferenceKind: hasSelectedReference
       ? parseComposerWorkProductReferenceKind(candidate.selectedReferenceKind)
       : null,
-    imageOptions: mode === 'image' ? parseComposerImageOptions(candidate.imageOptions) : null,
+    imageOptions: selectionCarriesImageOptions(mode, hasSelectedReference)
+      ? parseComposerImageOptions(candidate.imageOptions)
+      : null,
   });
 }
 
@@ -296,7 +320,9 @@ export function selectExplicitComposerWorkProductMode(
     authority: 'explicit_user_selection',
     hasSelectedReference,
     selectedReferenceKind: hasSelectedReference ? parseComposerWorkProductReferenceKind(reference?.kind) : null,
-    imageOptions: mode === 'image' ? parseComposerImageOptions(imageOptions) : null,
+    imageOptions: selectionCarriesImageOptions(mode, hasSelectedReference)
+      ? parseComposerImageOptions(imageOptions)
+      : null,
   });
 }
 
@@ -327,16 +353,18 @@ function normalizeExplicitSelection(
   const selectedReferenceKind = hasSelectedReference
     ? parseComposerWorkProductReferenceKind(candidate.selectedReferenceKind)
     : null;
-  const action = hasSelectedReference && !(mode === 'video' && selectedReferenceKind === 'image') ? 'edit' : 'create';
+  const action = hasSelectedReference && selectedReferenceKind === mode ? 'edit' : 'create';
   return {
     mode,
-    // A selected image in VIDEO mode is an image-to-video CREATE source. A
-    // same-medium reference remains an immutable edit iteration.
+    // A cross-medium reference is an immutable CREATE input. Only an exact
+    // same-medium reference is an edit target and may mint edit authority.
     action,
     authority: 'explicit_user_selection',
     hasSelectedReference,
     selectedReferenceKind,
-    imageOptions: mode === 'image' && action === 'create' ? parseComposerImageOptions(candidate.imageOptions) : null,
+    imageOptions: selectionCarriesImageOptions(mode, hasSelectedReference)
+      ? parseComposerImageOptions(candidate.imageOptions)
+      : null,
   };
 }
 
@@ -357,6 +385,8 @@ export function renderComposerWorkProductPreparedContext(value: unknown): string
         `image_resolution=${request.imageOptions.resolution}`,
         `image_aspect_ratio=${request.imageOptions.aspectRatio}`,
         'image_option_statement=Pass the exact selected resolution and aspect ratio to the image-generation tool.',
+        'image_prompt_statement=Build a self-contained English image prompt from the established conversation intent plus this turn; never forward only a short follow-up sentence.',
+        'image_authority_statement=These fields describe the app selection. Tool execution follows the current Hermes permission mode; never request, invent or expose an internal billing receipt.',
       ]
     : [];
 

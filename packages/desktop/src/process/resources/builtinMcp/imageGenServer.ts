@@ -16,9 +16,12 @@ import fs from 'fs';
 import path from 'path';
 import { z } from 'zod';
 import { BUILTIN_IMAGE_GEN_ID, BUILTIN_IMAGE_GEN_NAME } from './constants';
+import { readCommandEveManagedImageRequestId } from './managedImageRequestIdentityCore';
 import { executeImageGeneration } from '@/common/chat/imageGenCore';
 import { COMMAND_EVE_MANAGED_IMAGE_PLATFORM } from '@/common/config/eveManagedImageGenerationCore';
 import type { TProviderWithModel } from '@/common/config/storage';
+import { NodePlatformServices } from '@/common/platform/NodePlatformServices';
+import { registerPlatformServices } from '@/common/platform';
 
 function readManagedLoopbackApiKey(platform: string, baseUrl: string): string {
   if (platform !== COMMAND_EVE_MANAGED_IMAGE_PLATFORM) return '';
@@ -62,6 +65,12 @@ function getProviderFromEnv(): TProviderWithModel | null {
 }
 
 async function main() {
+  // This entry is spawned by Hermes as a standalone Node process, so it never
+  // passes through Electron's normal platform-service registration. DATA_DIR
+  // is injected by the managed MCP bootstrap and keeps app-owned receipts in
+  // the active seat profile rather than NodePlatformServices' server fallback.
+  registerPlatformServices(new NodePlatformServices());
+
   const server = new McpServer({
     name: BUILTIN_IMAGE_GEN_NAME,
     version: '1.0.0',
@@ -86,12 +95,11 @@ When to Use (MANDATORY):
 - User asks to "generate", "create", "draw", "make", "paint" an image
 - User asks for any visual content creation
 - User asks to edit or modify an ordinary local/remote image file on a non-managed provider
-- User mentions @filename with image extensions (.jpg, .jpeg, .png, .gif, .webp, .bmp, .tiff, .svg)
 
 Input Support:
 - Multiple local file paths in array format: ["img1.jpg", "img2.png"]
 - Multiple HTTP/HTTPS image URLs in array format
-- Text prompts for generation or analysis
+- Text prompts for generation or editing
 
 Output:
 - Managed (Command EVE) lane: the image is stored privately by the app and the
@@ -101,14 +109,17 @@ Output:
   Never pass an img_h_ reference as a local path, search the filesystem or app
   database for it, or regenerate the image merely to obtain a file path.
 - Other providers: saves generated/processed images to workspace with timestamp naming
-- Returns image path and AI description/analysis
+- Returns the generated or edited image result plus generation metadata
 
-IMPORTANT: When user provides multiple images, ALWAYS pass ALL images to the image_uris parameter as an array.`,
+Inspection boundary: For image inspection, recognition, or visual QA, use Hermes'
+native \`vision_analyze\` tool. This image-generation tool does not analyze images.
+
+IMPORTANT: When user provides multiple images, ALWAYS pass ALL images to the image_uris parameter as an array. Command EVE routes paid execution through Hermes' native tool approval; never ask the user for an opaque permit or expose an internal billing receipt.`,
     {
       prompt: z
         .string()
         .describe(
-          'The text prompt in English that must clearly specify the operation type: "Generate image: [description]" for creating new images, "Analyze image: [what to analyze]" for image recognition/analysis, or "Edit image: [modifications]" for image editing.'
+          'English image-generation or image-editing instruction. Use "Generate image: [description]" to create an image or "Edit image: [modifications]" to edit one. For inspection or visual QA, use Hermes vision_analyze instead.'
         ),
       image_uris: z
         .array(z.string())
@@ -133,7 +144,7 @@ IMPORTANT: When user provides multiple images, ALWAYS pass ALL images to the ima
           'Non-managed providers only: working directory for resolving relative paths and saving output images. The Command EVE managed lane ignores this value, returns an internal artifact, and uses native artifact export when the user wants a file.'
         ),
     },
-    async ({ prompt, image_uris, aspect_ratio, resolution, workspace_dir }) => {
+    async ({ prompt, image_uris, aspect_ratio, resolution, workspace_dir }, extra) => {
       const provider = getProviderFromEnv();
       if (!provider) {
         return {
@@ -147,11 +158,27 @@ IMPORTANT: When user provides multiple images, ALWAYS pass ALL images to the ima
         };
       }
 
+      const managedRequestId =
+        provider.platform === COMMAND_EVE_MANAGED_IMAGE_PLATFORM
+          ? readCommandEveManagedImageRequestId(extra._meta)
+          : undefined;
+      if (provider.platform === COMMAND_EVE_MANAGED_IMAGE_PLATFORM && !managedRequestId) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Error: Managed image generation requires a Hermes tool-call identity.',
+            },
+          ],
+          isError: true,
+        };
+      }
+
       const proxy = process.env.AIONUI_IMG_PROXY || undefined;
       const workspaceDir = workspace_dir || process.cwd();
 
       const result = await executeImageGeneration(
-        { prompt, image_uris, aspect_ratio, resolution },
+        { prompt, image_uris, aspect_ratio, resolution, managedRequestId },
         provider,
         workspaceDir,
         proxy

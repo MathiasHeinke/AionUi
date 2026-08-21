@@ -83,6 +83,9 @@ A hook that hasn't passed the voice guard does not proceed to Section 3.
 ### 4. Render — HTML → managed Chromium/PDF engine → PDF
 
 Write the content as a single HTML file with embedded CSS (print-optimized, A4, page breaks).
+Create both the HTML source and the rendered PDF in the active workspace's `dokumente/`
+folder. Never place a PDF beside its source image in `bilder/`: the image folder is for
+images, while PDF output belongs in `dokumente/`.
 Render through EVE's signed managed Chromium/PDF path. Do not ask the operator to
 install Chrome, WeasyPrint, PyMuPDF, or system packages. If a separately managed
 browser binary is already present, it may be used as a compatible fallback; it
@@ -273,8 +276,20 @@ Deliver the PDF + the HTML source. The operator approves before any distribution
 
 Deliver: the **PDF artifact** (ready for the operator to review and gate), the **HTML source**
 (for future edits), and a **change log** of what was integrated from real data vs. what was
-written from the client's positioning vs. what is still `[needs client input]`. The operator
-approves before distribution.
+written from the client's positioning vs. what is still `[needs client input]`. The final answer
+MUST end with exactly two machine-readable carrier lines, each on its own line and outside code
+fences or formatting:
+
+```text
+MEDIA: <absolute-path-to-the-rendered-.pdf-in-dokumente>
+MEDIA: <absolute-path-to-the-html-source-in-dokumente>
+```
+
+Relative prose paths are useful context but are not a substitute for those carrier lines. The
+operator approves before distribution. Emit that skeleton exactly once: two `MEDIA:` lines total,
+no duplicate PDF/HTML carriers, and no fourth line appended by another artifact instruction. A
+concatenated line such as `MEDIA: source.htmlMEDIA: output.pdf` is invalid because the renderer
+will not see the second source.
 
 ## Skill-Specific Safety Rules
 

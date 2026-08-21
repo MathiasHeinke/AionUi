@@ -15,6 +15,8 @@ const {
   imageArtifactsListInvokeMock,
   imageArtifactPreviewInvokeMock,
   previewOpenMock,
+  openFileInvokeMock,
+  showItemInFolderInvokeMock,
   useConversationContextSafeMock,
   getFileMetadataInvokeMock,
   readGeneratedArtifactPreviewInvokeMock,
@@ -24,6 +26,8 @@ const {
   imageArtifactsListInvokeMock: vi.fn(),
   imageArtifactPreviewInvokeMock: vi.fn(),
   previewOpenMock: vi.fn(),
+  openFileInvokeMock: vi.fn(),
+  showItemInFolderInvokeMock: vi.fn(),
   useConversationContextSafeMock: vi.fn(),
   getFileMetadataInvokeMock: vi.fn(),
   readGeneratedArtifactPreviewInvokeMock: vi.fn(),
@@ -38,6 +42,11 @@ vi.mock('@/common', () => ({
     },
     application: {
       readGeneratedArtifactPreview: { invoke: readGeneratedArtifactPreviewInvokeMock },
+    },
+    shell: {
+      openFile: { invoke: openFileInvokeMock },
+      openExternal: { invoke: vi.fn() },
+      showItemInFolder: { invoke: showItemInFolderInvokeMock },
     },
     conversation: {
       listArtifacts: { invoke: listArtifactsInvokeMock },
@@ -111,6 +120,31 @@ function managedImageArtifact(overrides: Record<string, unknown> = {}): CommandE
 
 const asConversationArtifact = (record: CommandEveActiveImageArtifact): IConversationArtifact =>
   record as unknown as IConversationArtifact;
+
+function localPdfArtifact(path: string): IConversationArtifact {
+  return {
+    id: 'pdf_generated1',
+    conversation_id: 'conv-1',
+    kind: 'file',
+    status: 'active',
+    payload: {
+      artifact_type: 'file',
+      mime_type: 'application/pdf',
+      path,
+      title: 'Report',
+    },
+    created_at: 1_754_000_000_000,
+    updated_at: 1_754_000_000_000,
+  };
+}
+
+const fileMetadata = {
+  name: 'report.pdf',
+  path: '/Users/probe/workspace/reports/report.pdf',
+  size: 1234,
+  type: 'application/pdf',
+  lastModified: 1,
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -201,6 +235,72 @@ describe('ConversationArtifactProvider merges the managed image store', () => {
   });
 });
 
+describe('generated artifact shell actions use a native authority', () => {
+  it('does not open a traversal path when AionCore rejects it', async () => {
+    useConversationContextSafeMock.mockReturnValue({ workspace: '/Users/probe/workspace' });
+    getFileMetadataInvokeMock.mockResolvedValue(undefined);
+    readGeneratedArtifactPreviewInvokeMock.mockResolvedValue(null);
+    const error = vi.spyOn(Message, 'error').mockImplementation(() => () => undefined);
+
+    render(<MessageGeneratedArtifact artifact={localPdfArtifact('../outside.pdf') as never} />);
+    fireEvent.click(screen.getByTestId('generated-artifact-open'));
+
+    await waitFor(() => expect(error).toHaveBeenCalled());
+    expect(openFileInvokeMock).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it('does not reveal an external absolute path when both native authorities reject it', async () => {
+    useConversationContextSafeMock.mockReturnValue({ workspace: '/Users/probe/workspace' });
+    getFileMetadataInvokeMock.mockResolvedValue(undefined);
+    readGeneratedArtifactPreviewInvokeMock.mockResolvedValue(null);
+    const error = vi.spyOn(Message, 'error').mockImplementation(() => () => undefined);
+
+    render(<MessageGeneratedArtifact artifact={localPdfArtifact('/Users/probe/outside.pdf') as never} />);
+    fireEvent.click(screen.getByTestId('generated-artifact-reveal'));
+
+    await waitFor(() => expect(error).toHaveBeenCalled());
+    expect(showItemInFolderInvokeMock).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it('opens a workspace artifact after AionCore metadata approves it', async () => {
+    useConversationContextSafeMock.mockReturnValue({ workspace: '/Users/probe/workspace' });
+    getFileMetadataInvokeMock.mockResolvedValue(fileMetadata);
+
+    render(<MessageGeneratedArtifact artifact={localPdfArtifact('reports/report.pdf') as never} />);
+    fireEvent.click(screen.getByTestId('generated-artifact-open'));
+
+    await waitFor(() => expect(openFileInvokeMock).toHaveBeenCalledWith('/Users/probe/workspace/reports/report.pdf'));
+    expect(getFileMetadataInvokeMock).toHaveBeenCalledWith({
+      path: '/Users/probe/workspace/reports/report.pdf',
+      workspace: '/Users/probe/workspace',
+    });
+  });
+
+  it('reveals a Downloads artifact after the generated-preview authority approves it', async () => {
+    getFileMetadataInvokeMock.mockResolvedValue(undefined);
+    readGeneratedArtifactPreviewInvokeMock.mockResolvedValue({
+      data: 'JVBERi0=',
+      encoding: 'base64',
+      mimeType: 'application/pdf',
+      size: 8,
+    });
+
+    render(<MessageGeneratedArtifact artifact={localPdfArtifact('/Users/probe/Downloads/report.pdf') as never} />);
+    await waitFor(() => expect(readGeneratedArtifactPreviewInvokeMock).toHaveBeenCalled());
+    readGeneratedArtifactPreviewInvokeMock.mockClear();
+
+    fireEvent.click(screen.getByTestId('generated-artifact-reveal'));
+
+    await waitFor(() => expect(showItemInFolderInvokeMock).toHaveBeenCalledWith('/Users/probe/Downloads/report.pdf'));
+    expect(readGeneratedArtifactPreviewInvokeMock).toHaveBeenCalledWith({
+      path: '/Users/probe/Downloads/report.pdf',
+      kind: 'pdf',
+    });
+  });
+});
+
 describe('the managed image card previews by artifact id', () => {
   it('renders generated-artifact-image from the preview IPC — never a path', async () => {
     render(<MessageGeneratedArtifact artifact={asConversationArtifact(managedImageArtifact()) as never} />);
@@ -243,6 +343,28 @@ describe('the managed image card previews by artifact id', () => {
     // fallback read.
     expect(getFileMetadataInvokeMock).not.toHaveBeenCalled();
     expect(readGeneratedArtifactPreviewInvokeMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('generated-artifact-reveal')).toBeNull();
+  });
+
+  it('opens a placed managed image in the verified workbench preview instead of its placement hint', async () => {
+    useConversationContextSafeMock.mockReturnValue({ workspace: '/Users/probe/wrong-conversation-workspace' });
+    const placed = managedImageArtifact();
+    (placed.payload as Record<string, unknown>).path = 'bilder/managed.png';
+
+    render(<MessageGeneratedArtifact artifact={asConversationArtifact(placed) as never} />);
+    await screen.findByTestId('generated-artifact-image');
+    fireEvent.click(screen.getByTestId('generated-artifact-open'));
+
+    expect(previewOpenMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^data:image\/png;base64,/),
+      'image',
+      expect.objectContaining({
+        artifact_id: 'img_generated1',
+        conversation_id: 'conv-1',
+        file_name: 'managed.png',
+      })
+    );
+    expect(openFileInvokeMock).not.toHaveBeenCalled();
   });
 
   it('downloads the verified managed preview without fetching an internal artifact handle', async () => {
@@ -258,6 +380,29 @@ describe('the managed image card previews by artifact id', () => {
     await waitFor(() => expect(createObjectUrl).toHaveBeenCalledWith(expect.any(Blob)));
     expect(click).toHaveBeenCalledTimes(1);
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:managed-image');
+
+    click.mockRestore();
+    revokeObjectUrl.mockRestore();
+    createObjectUrl.mockRestore();
+    success.mockRestore();
+  });
+
+  it('downloads verified bytes before considering a placed managed image path', async () => {
+    useConversationContextSafeMock.mockReturnValue({ workspace: '/Users/probe/wrong-conversation-workspace' });
+    const placed = managedImageArtifact();
+    (placed.payload as Record<string, unknown>).path = 'bilder/managed.png';
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:managed-placement');
+    const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const success = vi.spyOn(Message, 'success').mockImplementation(() => () => undefined);
+
+    render(<MessageGeneratedArtifact artifact={asConversationArtifact(placed) as never} />);
+    await screen.findByTestId('generated-artifact-image');
+    fireEvent.click(screen.getByTestId('generated-artifact-download'));
+
+    await waitFor(() => expect(createObjectUrl).toHaveBeenCalledWith(expect.any(Blob)));
+    expect(getFileMetadataInvokeMock).not.toHaveBeenCalled();
+    expect(readGeneratedArtifactPreviewInvokeMock).not.toHaveBeenCalled();
 
     click.mockRestore();
     revokeObjectUrl.mockRestore();

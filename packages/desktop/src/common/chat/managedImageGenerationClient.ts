@@ -14,6 +14,7 @@ import {
   type CommandEveManagedImageMimeType,
   type CommandEveManagedImageResolution,
 } from '@/common/config/eveManagedImageGenerationCore';
+import { isSafeManagedImageWorkspaceRelativePath } from '@/common/config/managedImageArtifactCore';
 import type { TProviderWithModel } from '@/common/config/storage';
 
 export type ManagedImageGenerationClientResult =
@@ -24,6 +25,8 @@ export type ManagedImageGenerationClientResult =
       mediaType: string;
       sha256: string;
       bytesCount: number;
+      /** Safe `bilder/…` path for same-turn document tools; never absolute. */
+      workspaceRelativePath?: string;
       /** Echoed from the verified request — the tool text states what was asked for. */
       resolution: string;
       aspectRatio: string;
@@ -65,11 +68,16 @@ export async function executeManagedImageGenerationViaShim(input: {
   referenceDataUrls: string[];
   aspectRatio?: string;
   resolution?: string;
+  /** Hermes-derived SHA-256 idempotency key, forwarded unchanged to Main. */
+  requestId?: string;
   signal?: AbortSignal;
 }): Promise<ManagedImageGenerationClientResult> {
   const endpoint = localImagesEndpoint(input.provider.base_url);
   if (!endpoint || !input.provider.api_key || input.provider.use_model !== COMMAND_EVE_MANAGED_IMAGE_MODEL) {
     return { ok: false, error: 'Managed image provider is not ready.' };
+  }
+  if (!/^[0-9a-f]{64}$/.test(input.requestId ?? '')) {
+    return { ok: false, error: 'Managed image request identity is missing.' };
   }
   const aspectRatio = COMMAND_EVE_MANAGED_IMAGE_ASPECT_RATIOS.includes(
     input.aspectRatio as CommandEveManagedImageAspectRatio
@@ -95,6 +103,7 @@ export async function executeManagedImageGenerationViaShim(input: {
         n: 1,
         aspect_ratio: aspectRatio,
         resolution,
+        requestId: input.requestId,
         input_references: input.referenceDataUrls.map((url) => ({
           type: 'image_url',
           image_url: { url },
@@ -138,6 +147,9 @@ export async function executeManagedImageGenerationViaShim(input: {
     }
     const sha256 = typeof artifact.sha256 === 'string' ? artifact.sha256 : '';
     const bytesCount = typeof artifact.bytes_count === 'number' ? artifact.bytes_count : 0;
+    const workspaceRelativePath = isSafeManagedImageWorkspaceRelativePath(artifact.workspace_relative_path)
+      ? artifact.workspace_relative_path
+      : undefined;
     if (!/^[0-9a-f]{64}$/.test(sha256) || !Number.isFinite(bytesCount) || bytesCount <= 0) {
       return { ok: false, error: 'Managed image response carried incomplete artifact metadata.' };
     }
@@ -150,6 +162,7 @@ export async function executeManagedImageGenerationViaShim(input: {
       mediaType: mimeType,
       sha256,
       bytesCount,
+      ...(workspaceRelativePath === undefined ? {} : { workspaceRelativePath }),
       resolution,
       aspectRatio,
       ...(typeof model === 'string' && model.trim() ? { model: model.trim() } : {}),

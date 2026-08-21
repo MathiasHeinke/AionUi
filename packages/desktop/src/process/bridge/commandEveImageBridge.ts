@@ -107,13 +107,10 @@ export async function handleCommandEveImagePrepare(
   const filePaths = Array.from(
     new Set((Array.isArray(payload?.filePaths) ? payload.filePaths : []).filter((value) => typeof value === 'string'))
   );
+  const normalFileSelectionGrantStillValid = (filePath: string): boolean =>
+    deps.areFileSelectionPathsGranted({ filePaths: [filePath], seatId: capturedSeatId, purpose: 'read' });
   const selectedFilesStillGranted = (): boolean =>
-    seatStillMatches() &&
-    deps.areFileSelectionPathsGranted({
-      filePaths,
-      seatId: capturedSeatId,
-      purpose: 'read',
-    });
+    seatStillMatches() && filePaths.every((filePath) => normalFileSelectionGrantStillValid(filePath));
   const readyDocuments: CommandEvePreparedImageDocument[] = [];
   const preparedFiles = (): string[] => readyDocuments.map((document) => document.sidecar_path);
   const failure = (
@@ -148,9 +145,9 @@ export async function handleCommandEveImagePrepare(
   const inspections: LocalImageInspection[] = [];
   for (const filePath of filePaths) {
     try {
-      const inspection = inspectLocalImage({ filePath, hermesHome });
-      inspections.push(inspection);
-      if (inspection.cachedDocument) readyDocuments.push(inspection.cachedDocument);
+      const inspected = inspectLocalImage({ filePath, hermesHome });
+      inspections.push(inspected);
+      if (inspected.cachedDocument) readyDocuments.push(inspected.cachedDocument);
     } catch (error) {
       const reasonCode =
         error instanceof CommandEveImagePreparationError ? error.reasonCode : 'EVE_IMAGE_LOCAL_EXTRACTION_FAILED';

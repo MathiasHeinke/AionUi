@@ -16,6 +16,8 @@ import React, { useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 const getCommandPreview = (input: string): string => input.replace(/\s+/g, ' ').trim();
+const isAuthorityBearingQueueItem = (item: ConversationCommandQueueItem): boolean =>
+  item.composerSelection !== undefined || item.selectedArtifactId !== undefined;
 
 const restrictQueueDragToVerticalAxis: Modifier = ({ transform }) => ({
   ...transform,
@@ -225,17 +227,21 @@ const QueueItemCard: React.FC<QueueItemCardProps> = ({
           <Tooltip
             mini
             content={
-              item.files.length > 0
-                ? t('conversation.commandQueue.promoteFilesUnsupported', {
-                    defaultValue: 'Corrections with files stay queued.',
+              isAuthorityBearingQueueItem(item)
+                ? t('conversation.commandQueue.promoteAuthorityUnsupported', {
+                    defaultValue: 'Work with an explicit artifact or work product stays queued.',
                   })
-                : t('conversation.commandQueue.promote', { defaultValue: 'Push as correction now' })
+                : item.files.length > 0
+                  ? t('conversation.commandQueue.promoteFilesUnsupported', {
+                      defaultValue: 'Corrections with files stay queued.',
+                    })
+                  : t('conversation.commandQueue.promote', { defaultValue: 'Push as correction now' })
             }
           >
             {renderQueueActionIconButton({
               ariaLabel: t('conversation.commandQueue.promote', { defaultValue: 'Push as correction now' }),
-              disabled: item.files.length > 0 || promotePending,
-              onClick: promotePending ? undefined : () => void onPromote(item),
+              disabled: isAuthorityBearingQueueItem(item) || item.files.length > 0 || promotePending,
+              onClick: promotePending || isAuthorityBearingQueueItem(item) ? undefined : () => void onPromote(item),
               icon: <CornerUpLeft size='14' />,
             })}
           </Tooltip>

@@ -29,6 +29,7 @@ import {
   parseCommandEveImageModelRegistry,
   type CommandEveImageModelRegistryResult,
 } from '@/common/config/eveImageModelRegistryCore';
+import crypto from 'node:crypto';
 import { EVE_MULTIMODAL_FUNCTION_URL } from '@/common/config/eveMultimodalGatewayCore';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 import { readCommandEveLimitedResponseText } from './limitedFetchResponse';
@@ -49,6 +50,10 @@ export type CommandEveImageCapabilitiesFetchOptions = {
 type CacheEntry = { result: CommandEveImageModelRegistryResult; expiresAtMs: number };
 
 let cache: CacheEntry | undefined;
+
+export function commandEveImageModelRegistryRevision(registry: unknown): string {
+  return crypto.createHash('sha256').update(JSON.stringify(registry)).digest('hex');
+}
 
 export function clearCommandEveImageModelRegistryCacheForTests(): void {
   cache = undefined;
@@ -94,7 +99,7 @@ async function fetchRegistryUncached(
     if (!registry) {
       return { ok: false, reason: 'capabilities_unparseable' };
     }
-    return { ok: true, registry };
+    return { ok: true, registry, revision: commandEveImageModelRegistryRevision(registry) };
   } catch (error) {
     const name = error && typeof error === 'object' && 'name' in error ? String(error.name) : '';
     return { ok: false, reason: name === 'AbortError' ? 'capabilities_timeout' : 'capabilities_failed' };

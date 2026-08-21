@@ -290,8 +290,10 @@ const HERMES_OUTWARD_TOOLS = new Set([
  * `mcp__<server>__<tool>` envelope, so the seat's authority decision has to
  * key on the inner tool name per server. The same doctrine as native tools
  * applies: reads and the typed-UI surface are open at every rung, and the
- * paid image/video calls stay popup-free because the product's credit
- * preflight (or the minted permit, for edits) is their authority seam.
+ * paid image/video calls use this same native approval path. Full authority
+ * may run them unattended; lower rungs ask through Hermes' own
+ * once/session/always/deny gate. Billing receipts are internal idempotency,
+ * never a second user-consent system.
  *
  * A NEW tool on a known builtin server — or a new aionui server — is NOT
  * covered by these tables and stays behind the one-operation card. Third-party
@@ -316,14 +318,13 @@ const HERMES_BUILTIN_MCP_TOOL_POLICIES: ReadonlyMap<
   ],
 ]);
 
-function classifyBuiltinMcpTool(toolName: string): EveCommandApprovalVerdict | null {
+function classifyBuiltinMcpTool(toolName: string, runtime: EveAuthorityRuntime): EveCommandApprovalVerdict | null {
   if (!toolName.startsWith('mcp__aionui_')) return null;
   for (const [prefix, policy] of HERMES_BUILTIN_MCP_TOOL_POLICIES) {
     if (!toolName.startsWith(prefix)) continue;
     const inner = toolName.slice(prefix.length);
-    if (policy.read.has(inner) || policy.surface.has(inner) || policy.productManaged.has(inner)) {
-      return 'allow';
-    }
+    if (policy.read.has(inner) || policy.surface.has(inner)) return 'allow';
+    if (policy.productManaged.has(inner)) return runtime.irreversible ? 'allow' : 'ask';
     // Known builtin server, unknown tool: installed, but it never inherits
     // unattended authority from its neighbours.
     return 'ask';
@@ -344,8 +345,7 @@ function classifyBuiltinMcpTool(toolName: string): EveCommandApprovalVerdict | n
  * action set may auto-run only when the user enabled the separate opaque UI
  * override; that warning is honest that a click can indirectly cross any of the
  * five effect seals. Unknown future tools never inherit that override.
- * Product-managed image/video/voice calls remain popup-free because the
- * product's credit preflight is their authority seam.
+ * Product-managed image/video calls use the native Hermes gate below Full.
  *
  * The Hermes tool's own hard blocks remain the survival floor after this
  * decision; this function can only add a user gate, never bypass an upstream
@@ -360,11 +360,13 @@ export function decideHermesToolApproval(
     .trim()
     .toLowerCase();
 
-  const builtinMcpVerdict = classifyBuiltinMcpTool(toolName);
+  const builtinMcpVerdict = classifyBuiltinMcpTool(toolName, runtime);
   if (builtinMcpVerdict) return builtinMcpVerdict;
 
   if (HERMES_ALWAYS_READ_TOOLS.has(toolName)) return 'allow';
-  if (HERMES_PRODUCT_MANAGED_TOOLS.has(toolName) || toolName.startsWith('bfl_flux3_')) return 'allow';
+  if (HERMES_PRODUCT_MANAGED_TOOLS.has(toolName) || toolName.startsWith('bfl_flux3_')) {
+    return runtime.irreversible ? 'allow' : 'ask';
+  }
   // The Tool-Search bridge executes the underlying tool with the Hermes hook
   // skipped, so the shim hook resolves and classifies the UNDERLYING name
   // before this point. A bare `tool_call` reaching here resolved to nothing —
@@ -433,3 +435,10 @@ export function decideHermesToolApproval(
   // concrete effect and the relevant independent seal.
   return 'ask';
 }
+
+export type EvePendingAcpToolCall = Readonly<{
+  tool_call_id: string;
+  kind?: string;
+  title?: string;
+  raw_input?: Record<string, unknown>;
+}>;

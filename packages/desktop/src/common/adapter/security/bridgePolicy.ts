@@ -11,14 +11,7 @@ import {
   validateEveExternalActionResumeRequest,
 } from '@/common/config/eveExternalActionExecutionCore';
 import { validateEveExternalActionPolicyMutation } from '@/common/config/eveExternalActionPolicyCore';
-import { isCommandEveImageModelTierId } from '@/common/config/eveImageModelRegistryCore';
 import { isSafeOpaqueRecordId } from '@/common/config/eveOpaqueTokenCore';
-import {
-  COMMAND_EVE_MANAGED_IMAGE_ASPECT_RATIOS,
-  COMMAND_EVE_MANAGED_IMAGE_MAX_PROMPT_CHARS,
-  COMMAND_EVE_MANAGED_IMAGE_MAX_REFERENCES,
-  COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS,
-} from '@/common/config/eveManagedImageGenerationCore';
 import {
   CUSTOMER_DEFAULT_KANBAN_PROVIDER_KEYS,
   FOUNDER_ONLY_PROVIDER_KEYS,
@@ -220,67 +213,6 @@ function assertHighRiskProviderPayload(providerKey: RendererProviderKey, payload
       }
       return;
     }
-    case 'command-eve.image-generate': {
-      const requiredKeys = ['prompt', 'conversationId', 'requestId', 'tierId', 'resolution', 'aspectRatio'] as const;
-      const allowedKeys = new Set([...requiredKeys, 'referenceImagePaths']);
-      if (!hasOnlyKeys(payload, allowedKeys) || requiredKeys.some((key) => !Object.hasOwn(payload, key))) {
-        throw new Error('Invalid image-generate payload keys.');
-      }
-      if (
-        !isNonEmptyString(payload.prompt) ||
-        payload.prompt.trim().length > COMMAND_EVE_MANAGED_IMAGE_MAX_PROMPT_CHARS
-      ) {
-        throw new Error('Invalid image-generate prompt.');
-      }
-      if (
-        typeof payload.conversationId !== 'string' ||
-        !/^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/.test(payload.conversationId)
-      ) {
-        throw new Error('Invalid image-generate conversation id.');
-      }
-      if (typeof payload.requestId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9:._-]{7,127}$/.test(payload.requestId)) {
-        throw new Error('Invalid image-generate request id.');
-      }
-      if (!isCommandEveImageModelTierId(payload.tierId)) {
-        throw new Error('Invalid image-generate tier.');
-      }
-      if (
-        typeof payload.resolution !== 'string' ||
-        !(COMMAND_EVE_MANAGED_IMAGE_RESOLUTIONS as readonly string[]).includes(payload.resolution)
-      ) {
-        throw new Error('Invalid image-generate resolution.');
-      }
-      if (
-        typeof payload.aspectRatio !== 'string' ||
-        !(COMMAND_EVE_MANAGED_IMAGE_ASPECT_RATIOS as readonly string[]).includes(payload.aspectRatio)
-      ) {
-        throw new Error('Invalid image-generate aspect ratio.');
-      }
-      if (Object.hasOwn(payload, 'referenceImagePaths')) {
-        if (
-          !Array.isArray(payload.referenceImagePaths) ||
-          payload.referenceImagePaths.length > COMMAND_EVE_MANAGED_IMAGE_MAX_REFERENCES
-        ) {
-          throw new Error('Invalid image-generate reference paths.');
-        }
-        const uniquePaths = new Set<string>();
-        for (const candidate of payload.referenceImagePaths) {
-          if (
-            typeof candidate !== 'string' ||
-            !candidate ||
-            candidate !== candidate.trim() ||
-            candidate.includes('\0') ||
-            !path.isAbsolute(candidate) ||
-            path.resolve(candidate) !== candidate ||
-            uniquePaths.has(candidate)
-          ) {
-            throw new Error('Invalid image-generate reference path.');
-          }
-          uniquePaths.add(candidate);
-        }
-      }
-      return;
-    }
     case 'command-eve.image-prepare':
     case 'command-eve.presentation-prepare': {
       const allowedKeys = new Set([
@@ -385,10 +317,7 @@ function assertHighRiskProviderPayload(providerKey: RendererProviderKey, payload
       if (Object.hasOwn(payload, 'userTurnText') && typeof payload.userTurnText !== 'string') {
         throw new Error('Invalid artifact context envelope turn text.');
       }
-      if (
-        Object.hasOwn(payload, 'requestedEditOperation') &&
-        !['video_edit', 'image_edit'].includes(String(payload.requestedEditOperation))
-      ) {
+      if (Object.hasOwn(payload, 'requestedEditOperation') && payload.requestedEditOperation !== 'video_edit') {
         throw new Error('Invalid artifact edit operation.');
       }
       if (
@@ -402,6 +331,21 @@ function assertHighRiskProviderPayload(providerKey: RendererProviderKey, payload
         !isSafeOpaqueRecordId(payload.officeOperationRequestId)
       ) {
         throw new Error('Invalid artifact Office operation request id.');
+      }
+      return;
+    }
+    case 'command-eve.artifact-input-resolve': {
+      const allowedKeys = new Set(['conversationId', 'artifactId', 'sourcePath']);
+      if (
+        !hasOnlyKeys(payload, allowedKeys) ||
+        !isSafeOpaqueRecordId(payload.conversationId) ||
+        !isSafeOpaqueRecordId(payload.artifactId) ||
+        (Object.hasOwn(payload, 'sourcePath') &&
+          (!isNonEmptyString(payload.sourcePath) ||
+            String(payload.sourcePath).length > 4096 ||
+            String(payload.sourcePath).includes('\0')))
+      ) {
+        throw new Error('Invalid managed artifact input request.');
       }
       return;
     }

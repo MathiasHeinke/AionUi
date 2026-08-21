@@ -59,6 +59,7 @@ import {
   type RuntimeBootstrapCommandResult,
   type RuntimeBootstrapRunner,
 } from '@/process/commandEve/runtimeBootstrapCore';
+import { HERMES_NATIVE_PATCH_SOURCE } from '@/process/commandEve/hermesNativePatchSource';
 import {
   COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
   COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
@@ -603,7 +604,7 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(resolved).toBe(capabilityPath);
     expect(validateCommandEveCapabilityPack(capabilityPack)).toEqual([]);
     expect(capabilityPack.skills.some((skill) => skill.id === 'content-machine')).toBe(true);
-    for (const id of ['autor-studio', 'essay-writer', 'book-publishing']) {
+    for (const id of ['autor-studio', 'essay-writer', 'book-publishing', 'editorial-pdf-design']) {
       expect(capabilityPack.skills.find((skill) => skill.id === id)?.default_state).toBe('active');
     }
     expect(capabilityPack.connectors.some((connector) => connector.id === 'codex-cli')).toBe(true);
@@ -1044,9 +1045,9 @@ describe('Command EVE runtime bootstrap core', () => {
    * 1.821.0 — THE AUX VISION ROUTE, end to end.
    *
    * This drives the REAL resolver against the REAL fake runtime (no injected
-   * stub): the probe reads /api/tags, and what it finds decides whether the key
-   * is emitted. Without a verified model the native tool is disabled; with one,
-   * the explicit local auxiliary route is enabled.
+   * stub): the probe reads /api/tags, and what it finds decides whether the local
+   * auxiliary override is emitted. Without one, native main-model vision remains
+   * enabled; with one, the explicit local auxiliary route is preferred.
    */
   it('resolves the installed local vision model from /api/tags, deterministically and fail-safe', () => {
     expect(pickCommandEveLocalVisionModel('{"models":[{"name":"minicpm-v:8b"}]}')).toBe('minicpm-v:8b');
@@ -1110,9 +1111,9 @@ describe('Command EVE runtime bootstrap core', () => {
           .filter(Boolean);
       };
 
-      // No verified local vision model is installed in this fixture, so Hermes'
-      // native vision tool must not be advertised. Everything else comes from the
-      // guarded capability list.
+      // No verified local auxiliary model is installed in this fixture. The full
+      // Hermes toolset still ships; its native vision tool uses the active main
+      // model instead of disappearing from the product.
       expect(lane('acp')).toEqual([...COMMAND_EVE_ACP_PLATFORM_TOOLSETS]);
       expect(lane('cli')).toEqual([...COMMAND_EVE_CLI_PLATFORM_TOOLSETS]);
       expect(lane('acp')).not.toContain('image_generate');
@@ -1142,7 +1143,8 @@ describe('Command EVE runtime bootstrap core', () => {
         expect(lane('acp'), `the ACP lane lost ${toolset}`).toContain(toolset);
       }
       expect(lane('acp')).not.toContain('vision');
-      expect(configYaml).toMatch(/disabled_toolsets:\s*\n\s*- vision/);
+      expect(configYaml).toContain('supports_vision: true');
+      expect(configYaml).not.toMatch(/disabled_toolsets:\s*\n\s*- vision/);
     });
   });
 
@@ -1174,13 +1176,14 @@ describe('Command EVE runtime bootstrap core', () => {
         );
         // THE MONEY CLAIM: the route points at the loopback SHIM, which is what
         // forces the local lane (eveRoute {active:false} — no CEVE bearer, no
-        // credits). Pointing it straight at Ollama would work too, but only that
-        // detour keeps the image out of COMMAND_EVE_IMAGE_OMITTED_TEXT redaction.
+        // credits). The native main-model path is separate and uses the active
+        // picker lane only when this optional override is absent.
         expect(configYaml).toMatch(/\n {2}vision:\n {4}provider: custom\n {4}model: \S+\n {4}base_url: \S+\/v1\n/);
         expect(isCommandEveLocalVisionModel('minicpm-v:8b')).toBe(true);
         // A screenshot needs far more than the 14s text-compression budget.
         const timeout = Number(/\n {2}vision:[\s\S]*?\n {4}timeout: (\d+)\n/.exec(configYaml)?.[1]);
         expect(timeout).toBeGreaterThanOrEqual(60);
+        expect(configYaml).not.toContain('supports_vision: true');
         expect(configYaml).not.toMatch(/disabled_toolsets:\s*\n\s*- vision/);
         const reconciliation = JSON.parse(fs.readFileSync(paths.runtimeReconciliation, 'utf8')) as {
           hermes_config: { platform_toolsets: { acp: string[] } };
@@ -1266,10 +1269,11 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).toMatch(/max_turns: \d+/);
       expect(configYaml).toMatch(/max_turns: ([1-9]\d?)\b/); // bounded well under Hermes' 90 default
       expect(configYaml).toContain('image_input_mode: native');
-      // This box has no verified local vision model, so Hermes must not advertise
-      // a native tool that would route screenshots into the text model.
-      expect(configYaml).toMatch(/disabled_toolsets:\s*\n\s*- vision/);
-      // The auxiliary route is omitted as well.
+      // This box has no optional local auxiliary model. Hermes keeps its native
+      // vision tool and routes its structured result through the active main model.
+      expect(configYaml).toContain('supports_vision: true');
+      expect(configYaml).not.toMatch(/disabled_toolsets:\s*\n\s*- vision/);
+      // Only the optional local auxiliary route is omitted.
       expect(configYaml).not.toMatch(/^ {2}vision:$/m);
       // Context auto-compaction threshold: the dynamic provider patch raises
       // cloud turns to 256K and compacts at 75% (196608), while local turns keep
@@ -1279,13 +1283,13 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).toMatch(/delegation:\s*\n\s*max_concurrent_children: 3\s*\n\s*max_async_children: 3/);
       expect(configYaml).toContain('max_spawn_depth: 1');
       expect(configYaml).toMatch(/terminal:\s*\n\s*timeout: \d+/);
-      // Keyless web backend pinned EXPLICITLY: web.search_backend + the shared
-      // web.backend must both resolve to ddgs so search resolution is deterministic
-      // (web_search_registry get_active_search_provider) and the toolset gate
-      // (web_tools check_web_api_key) reads a concrete backend instead of relying on
-      // the implicit fallback walk. ddgs is search-only, so extract_backend is left
-      // unset on purpose (registry capability-filter falls through for web_extract).
-      expect(configYaml).toMatch(/web:\s*\n\s*backend: ddgs\s*\n\s*search_backend: ddgs/);
+      // Keyless DDGS is pinned only as the search capability. A shared
+      // web.backend would shadow a separately configured extract provider and,
+      // in Hermes 0.20, falsely advertise web_extract through the broad shared
+      // availability predicate even though DDGS is search-only.
+      expect(configYaml).toMatch(/web:\s*\n\s*search_backend: ddgs/);
+      expect(configYaml).not.toMatch(/^ {2}backend: ddgs$/m);
+      expect(configYaml).not.toMatch(/^ {2}extract_backend: ddgs$/m);
       expect(configYaml).toMatch(/web_extract:\s*\n\s*timeout: \d+/);
       expect(configYaml).toContain('skills:');
       expect(configYaml).toContain('external_dirs:');
@@ -1448,7 +1452,7 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(reconciliation.hermes_config.mcp_servers).toEqual([]);
       expect(reconciliation.hermes_config.platform_toolsets).toEqual({
         cli: ['hermes-cli'],
-        acp: ['hermes-acp', 'computer_use', 'clarify', 'command-eve-desktop'],
+        acp: ['hermes-acp', 'computer_use', 'clarify'],
       });
       expect(reconciliation.hermes_config.kanban_dispatch_in_gateway).toBe(false);
       expect(reconciliation.hermes_config.kanban_auto_decompose).toBe(true);
@@ -1614,6 +1618,24 @@ describe('Command EVE runtime bootstrap core', () => {
         negative_controls_passed: true,
       });
       expect(providerOverride).toContain('def _install_command_eve_permission_authority_patch()');
+      expect(providerOverride).toContain('def _install_command_eve_execute_code_authority()');
+      expect(providerOverride).toContain(HERMES_NATIVE_PATCH_SOURCE.webCapabilityTruth.join('\n'));
+      expect(providerOverride).toContain(HERMES_NATIVE_PATCH_SOURCE.executeCodeAuthority.join('\n'));
+      expect(providerOverride).toContain(HERMES_NATIVE_PATCH_SOURCE.clarify.contextDeclaration.join('\n'));
+      expect(providerOverride).toContain(HERMES_NATIVE_PATCH_SOURCE.clarify.bindAndUnbind.join('\n'));
+      expect(providerOverride).toContain(HERMES_NATIVE_PATCH_SOURCE.clarify.promptBinding.join('\n'));
+      expect(providerOverride).toContain(HERMES_NATIVE_PATCH_SOURCE.clarify.requirePatch.join('\n'));
+      expect(providerOverride.indexOf(HERMES_NATIVE_PATCH_SOURCE.webCapabilityTruth.join('\n'))).toBeLessThan(
+        providerOverride.indexOf('def _command_eve_shim_token()')
+      );
+      expect(providerOverride.indexOf(HERMES_NATIVE_PATCH_SOURCE.executeCodeAuthority.join('\n'))).toBeLessThan(
+        providerOverride.indexOf('def _command_eve_context_policy_url(')
+      );
+      expect(providerOverride.indexOf(HERMES_NATIVE_PATCH_SOURCE.clarify.bindAndUnbind.join('\n'))).toBeLessThan(
+        providerOverride.indexOf('def _command_eve_read_preview_result(')
+      );
+      expect(providerOverride).not.toContain('[command_eve:work_product_followup:');
+      expect(providerOverride).not.toContain('metadata["target_mode"] = target_mode');
       expect(providerOverride).toContain(
         'HermesACPAgent._edit_approval_policy_for_state = command_eve_edit_approval_policy'
       );
@@ -1749,7 +1771,11 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(compressionBudgets.budget_never_probed).toEqual(compressionBudgets.budget_eve_shim);
       const permissionAuthorityHarness = spawnSync(
         'python3',
-        [path.resolve('tests/fixtures/command-eve/permission_authority_patch_harness.py'), providerOverridePath],
+        [
+          path.resolve('tests/fixtures/command-eve/permission_authority_patch_harness.py'),
+          providerOverridePath,
+          path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+        ],
         { encoding: 'utf8', timeout: 30_000 }
       );
       expect(
@@ -1774,9 +1800,21 @@ describe('Command EVE runtime bootstrap core', () => {
         ask_becomes_native_approve_directive: true,
         directive_contract_owns_fail_closed: true,
         full_tool_authority_skips_card: true,
+        execute_code_authority_reconciled: true,
+        execute_code_hard_block_preserved: true,
         authority_timeout_is_distinct_and_visible: true,
         tool_call_bridge_resolves_underlying: true,
-        bridge_quarantine_still_blocks: true,
+        bridge_object_arguments_classified: true,
+        bridge_json_object_arguments_classified: true,
+        bridge_missing_arguments_fail_closed: true,
+        bridge_json_array_arguments_fail_closed: true,
+        bridge_json_scalar_arguments_fail_closed: true,
+        bridge_malformed_json_arguments_fail_closed: true,
+        bridge_non_object_arguments_fail_closed: true,
+        bridge_outer_non_object_fail_closed: true,
+        bridge_ask_uses_underlying_label: true,
+        exact_wheel_bridge_parser_executed: true,
+        memory_quarantine_still_blocks: true,
         idempotent_install: true,
       });
       const nativeApprovalContractHarness = spawnSync(
@@ -1784,6 +1822,7 @@ describe('Command EVE runtime bootstrap core', () => {
         [
           path.resolve('tests/fixtures/command-eve/hermes_native_approval_contract_harness.py'),
           path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+          providerOverridePath,
         ],
         { encoding: 'utf8', timeout: 30_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
       );
@@ -1793,13 +1832,21 @@ describe('Command EVE runtime bootstrap core', () => {
       ).toBe(0);
       expect(JSON.parse(nativeApprovalContractHarness.stdout)).toEqual({
         exact_wheel_function_executed: true,
+        exact_wheel_acp_callback_executed: true,
+        exact_wheel_async_bridge_executed: true,
+        exact_wheel_server_wiring_observed: true,
+        acp_request_call_shape_exact: true,
         always_persists_exact_plugin_rule_key: true,
         same_key_skips_human: true,
         changed_key_asks_again: true,
         once_does_not_persist: true,
         session_persists_only_in_session: true,
         timeout_fails_closed: true,
+        missing_acp_loop_fails_closed: true,
         missing_human_fails_closed: true,
+        callback_option_scope_respected: true,
+        acp_uses_native_interactive_callback: true,
+        gateway_routing_preserved: true,
       });
       const browserUseUvXReceiptHarness = spawnSync(
         'python3',
@@ -3154,6 +3201,23 @@ describe('Command EVE runtime bootstrap core', () => {
       command.includes('COMMAND_EVE_PACKAGED_HERMES_RUNTIME_READY')
     );
     expect(receipt.status).toBe('ready');
+    const steadyStateReceipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: root,
+      canonicalUserDataPath: root,
+      resourcesPath,
+      requireBundledPython: true,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+    });
+    expect(steadyStateReceipt.stages.find((stage) => stage.id === 'web')).toMatchObject({
+      status: 'pass',
+      code: 'WEB_SEARCH_ONLY',
+    });
+    expect(steadyStateReceipt.stages.find((stage) => stage.id === 'web')?.detail).toContain(
+      'DDGS is search-only; this stage does not attest web_extract.'
+    );
     expect(originProbe).toContain('untrusted distribution origin');
     expect(originProbe).toContain('"ddgs"');
     expect(originProbe).toContain('"primp"');
@@ -3413,12 +3477,6 @@ describe('Command EVE runtime bootstrap core', () => {
             outcome: 'Must not reach the target seat',
             status: 'active',
             worker: 'boot-seat-worker',
-          },
-        ],
-        rememberedCommands: [
-          {
-            command: 'must-not-reach-target',
-            grantedAt: '2026-08-15T00:00:00.000Z',
           },
         ],
       } satisfies RuntimeBootstrapOptions;

@@ -34,8 +34,9 @@ describe('Hermes desktop bridge', () => {
     prepareCommandEveRuntimeProcessEnv(userData, env, 'darwin');
     expect(env.HERMES_DESKTOP).toBe('1');
     expect(COMMAND_EVE_ACP_PLATFORM_TOOLSETS).toEqual(
-      expect.arrayContaining(['hermes-acp', 'computer_use', 'clarify', 'command-eve-desktop'])
+      expect.arrayContaining(['hermes-acp', 'computer_use', 'clarify'])
     );
+    expect(COMMAND_EVE_ACP_PLATFORM_TOOLSETS).not.toContain('command-eve-desktop');
     // Vision is exposed only after a verified local-VLM receipt. Unknown text
     // models must not inherit Hermes' optimistic vision fallback.
     expect(COMMAND_EVE_ACP_PLATFORM_TOOLSETS).not.toContain('vision');
@@ -53,11 +54,13 @@ describe('Hermes desktop bridge', () => {
       'utf8'
     );
 
-    expect(config).toContain('    - command-eve-desktop');
+    expect(config).not.toContain('    - command-eve-desktop');
     expect(config).toContain('    - hermes-acp');
     expect(shim).toContain('"tools": ["open_preview", "read_preview", "focus_pane"]');
     expect(shim).toContain('acp_toolset = toolsets.TOOLSETS.get("hermes-acp")');
-    expect(shim).toContain('for tool_name in ("open_preview", "read_preview", "focus_pane", "read_terminal")');
+    expect(shim).toContain('for tool_name in (');
+    expect(shim).toContain('"open_preview", "read_preview", "focus_pane", "read_terminal",');
+    expect(shim).toContain('"computer_use", "clarify",');
     expect(shim).toContain('clear_tool_cache = getattr(model_tools, "_clear_tool_defs_cache", None)');
     expect(shim).toContain('get_session_env("HERMES_SESSION_KEY", "")');
     expect(shim).toContain('SessionInfoUpdate(');
@@ -163,6 +166,30 @@ describe('Hermes desktop bridge', () => {
     });
   });
 
+  it('keeps overlapping native clarify calls isolated by turn for the same session and agent', () => {
+    const userData = root();
+    setActiveSeatId(SEAT_ID);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(userData, SEAT_ID);
+    expect(provisionSeatRuntimeFiles({ userDataPath: userData, seatId: SEAT_ID }).ok).toBe(true);
+    const providerOverridePath = path.join(paths.hermesHome, 'plugins', 'model-providers', 'custom', '__init__.py');
+
+    const harness = spawnSync(
+      'python3',
+      [path.resolve('tests/fixtures/command-eve/hermes_clarify_context_concurrency_harness.py'), providerOverridePath],
+      { encoding: 'utf8', timeout: 15_000 }
+    );
+
+    expect(harness.status, harness.stderr || harness.stdout).toBe(0);
+    expect(JSON.parse(harness.stdout)).toEqual({
+      both_callbacks_completed: true,
+      cleared_context_fails_closed: true,
+      final_cleanup_restores_original_callback: true,
+      first_cleanup_preserves_active_owner: true,
+      owner_registry_cleared: true,
+      same_session_clarify_metadata_isolated: true,
+    });
+  });
+
   it('keeps the app-owned tools eager while the bridge stays armed for third-party MCP', () => {
     const userData = root();
     setActiveSeatId(SEAT_ID);
@@ -184,20 +211,23 @@ describe('Hermes desktop bridge', () => {
     expect(harness.status, harness.stderr || harness.stdout).toBe(0);
     const result = JSON.parse(harness.stdout);
 
+    expect(result.clarify_in_acp_surface).toBe(true);
+    expect(result.computer_use_in_acp_surface).toBe(true);
+
     // 1. Command EVE's own surface must never sit behind tool_search. Every one
     //    of these was deferrable before the always-visible seam existed, which
     //    is what made a trivial artifact request cost extra model rounds — each
     //    one a fully buffered wait on the metered lane.
     expect(result.product_tools_deferrable).toEqual([]);
     expect(result.product_tools_in_assembled_array).toEqual([
-      'aionui_image_generation',
-      'eve_artifact_get',
-      'eve_artifact_list',
-      'eve_image_edit',
-      'eve_typed_ui_publish',
-      'eve_video_edit',
-      'eve_video_generate',
       'focus_pane',
+      'mcp__aionui_eve_artifacts__eve_artifact_get',
+      'mcp__aionui_eve_artifacts__eve_artifact_list',
+      'mcp__aionui_eve_artifacts__eve_image_edit',
+      'mcp__aionui_eve_artifacts__eve_typed_ui_publish',
+      'mcp__aionui_eve_artifacts__eve_video_edit',
+      'mcp__aionui_eve_artifacts__eve_video_generate',
+      'mcp__aionui_image_generation__aionui_image_generation',
       'open_preview',
       'read_preview',
       'read_terminal',
@@ -223,6 +253,49 @@ describe('Hermes desktop bridge', () => {
     expect(result.shared_core_toolset_count).toBeGreaterThanOrEqual(10);
   });
 
+  it('keeps DDGS search-only and exposes web_extract only for a real extract provider', () => {
+    const userData = root();
+    setActiveSeatId(SEAT_ID);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(userData, SEAT_ID);
+    expect(provisionSeatRuntimeFiles({ userDataPath: userData, seatId: SEAT_ID }).ok).toBe(true);
+    const config = fs.readFileSync(path.join(paths.hermesHome, 'config.yaml'), 'utf8');
+    const providerOverridePath = path.join(paths.hermesHome, 'plugins', 'model-providers', 'custom', '__init__.py');
+    const bundledWheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.20.0-py3-none-any.whl');
+
+    expect(config).toMatch(/web:\s*\n\s*search_backend: ddgs/);
+    expect(config).not.toMatch(/^ {2}backend: ddgs$/m);
+    expect(config).not.toMatch(/^ {2}extract_backend: ddgs$/m);
+
+    const harness = spawnSync(
+      'python3',
+      [
+        path.resolve('tests/fixtures/command-eve/hermes_web_capability_truth_harness.py'),
+        providerOverridePath,
+        bundledWheelPath,
+      ],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
+        timeout: 15_000,
+      }
+    );
+
+    expect(harness.status, harness.stderr || harness.stdout).toBe(0);
+    expect(JSON.parse(harness.stdout)).toEqual({
+      configured_extract_surface: ['web_extract', 'web_search'],
+      ddgs_extract_provider_absent: true,
+      ddgs_search_only: true,
+      ddgs_surface: ['web_search'],
+      exact_wheel_ddgs_provider_executed: true,
+      exact_wheel_registry_executed: true,
+      idempotent_install: true,
+      ledger_marked: true,
+      search_check_unchanged: true,
+      tool_cache_cleared: true,
+      unavailable_extract_surface: ['web_search'],
+    });
+  });
+
   it('binds Hermes 0.20 clarify to exact visible ACP choices without widening authority', () => {
     const userData = root();
     setActiveSeatId(SEAT_ID);
@@ -233,12 +306,16 @@ describe('Hermes desktop bridge', () => {
 
     expect(shim).toContain('def _command_eve_acp_clarify_callback(');
     expect(shim).toContain('def _install_command_eve_acp_clarify_patch() -> None:');
+    expect(shim).toContain('def _require_command_eve_acp_clarify_patch() -> None:');
+    expect(shim).toContain('_require_command_eve_acp_clarify_patch()');
     expect(shim).toContain('getattr(acp_server, "HERMES_VERSION", "") or "") != "0.20.0"');
-    expect(shim).toContain('artifact_followup:(image|video|word|excel)');
-    expect(shim).toContain('"artifact_followup" if artifact_mode else "clarify"');
-    expect(shim).toContain('metadata["artifact_mode"] = artifact_mode');
-    expect(shim).toContain('"source_user_turn": source_user_turn');
-    expect(shim).toContain('artifact follow-up clarify requires exactly one action choice');
+    expect(shim).toContain('"computer_use", "clarify"');
+    expect(shim).toContain('"interaction_kind": "clarify"');
+    expect(shim).not.toContain('work_product_followup');
+    expect(shim).toContain('_COMMAND_EVE_ACP_CLARIFY_CONTEXT: ContextVar[');
+    expect(shim).not.toContain('_COMMAND_EVE_ACP_CLARIFY_CONTEXTS:');
+    expect(shim).not.toContain('artifact_followup');
+    expect(shim).not.toContain('source_user_turn');
     expect(shim).toContain('clarify_entry.schema = {');
     expect(shim).toContain('"required": ["question", "choices"]');
     expect(shim).toContain('"additionalProperties": False');
@@ -246,16 +323,18 @@ describe('Hermes desktop bridge', () => {
     expect(shim).toContain('kind="allow_once"');
     expect(shim).toContain('kind="reject_once", name="Cancel"');
     expect(shim).not.toContain('clarify_callback=approval_cb');
+    expect(shim).toContain('raise RuntimeError("Command EVE ACP clarify binding failed") from exc');
+    expect(shim).toContain('raise RuntimeError("Command EVE ACP clarify binding unavailable")');
 
     const callback = shim.slice(
       shim.indexOf('def _command_eve_acp_clarify_callback('),
-      shim.indexOf('def _command_eve_visible_source_user_turn(')
+      shim.indexOf('def _command_eve_bind_acp_clarify(')
     );
     expect(callback).not.toMatch(/allow_always|spend_permit|tool_authority|capability_handle/);
     expect(callback).toContain('"interaction_kind"');
     expect(callback).toContain('"question"');
     expect(callback).toContain('"choices"');
-    expect(callback).toContain('"source_user_turn"');
+    expect(callback).not.toContain('"source_user_turn"');
 
     const compiled = spawnSync('python3', ['-m', 'py_compile', shimPath], { encoding: 'utf8' });
     expect(compiled.status, compiled.stderr).toBe(0);

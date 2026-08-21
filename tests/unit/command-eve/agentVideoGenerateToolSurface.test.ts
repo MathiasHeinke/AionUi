@@ -71,7 +71,7 @@ describe('the child tool surface', () => {
     }
   });
 
-  it('is independent of the two edit tools in both directions', () => {
+  it('keeps generate fenced and image edit independent while legacy video edit stays dark', () => {
     const generateOnly = buildEveArtifactToolSurface({ [COMMAND_EVE_AGENT_VIDEO_GENERATE_FLAG]: '1' });
     expect(isToolAdvertised(generateOnly, EVE_ARTIFACT_TOOL_VIDEO_EDIT)).toBe(false);
     expect(isToolAdvertised(generateOnly, EVE_ARTIFACT_TOOL_IMAGE_EDIT)).toBe(false);
@@ -81,7 +81,8 @@ describe('the child tool surface', () => {
       [COMMAND_EVE_AGENT_IMAGE_EDIT_FLAG]: '1',
     });
     expect(isToolAdvertised(editsOnly, EVE_ARTIFACT_TOOL_VIDEO_GENERATE)).toBe(false);
-    expect(isToolAdvertised(editsOnly, EVE_ARTIFACT_TOOL_VIDEO_EDIT)).toBe(true);
+    expect(isToolAdvertised(editsOnly, EVE_ARTIFACT_TOOL_VIDEO_EDIT)).toBe(false);
+    expect(isToolAdvertised(editsOnly, EVE_ARTIFACT_TOOL_IMAGE_EDIT)).toBe(true);
   });
 
   it('keeps the paid generate descriptor unreachable in the 1.823.0 child surface', () => {

@@ -175,16 +175,6 @@ function validProviderPayload(providerKey: RendererProviderKey): string {
       return providerPayload(providerKey, { expectedSeatId: 'seat-1', enabled: false });
     case 'command-eve.image-prepare':
       return providerPayload(providerKey, { filePaths: ['/tmp/image.png'] });
-    case 'command-eve.image-generate':
-      return providerPayload(providerKey, {
-        prompt: 'Ein ruhiges Editorial-Motiv',
-        conversationId: 'conversation-1',
-        requestId: 'image-request-1',
-        tierId: 'quality',
-        resolution: '2K',
-        aspectRatio: '16:9',
-        referenceImagePaths: ['/tmp/reference.png'],
-      });
     case 'command-eve.presentation-prepare':
       return providerPayload(providerKey, { filePaths: ['/tmp/deck.pptx'] });
     case 'command-eve.managed-visual-turn-authorize':
@@ -206,6 +196,11 @@ function validProviderPayload(providerKey: RendererProviderKey): string {
         userTurnText: 'Revise this document',
         requestedOfficeMode: 'word',
         officeOperationRequestId: 'queue-item-1',
+      });
+    case 'command-eve.artifact-input-resolve':
+      return providerPayload(providerKey, {
+        conversationId: 'conversation-1',
+        artifactId: 'img_0123456789abcdef',
       });
     case 'update-system-info':
       return providerPayload(providerKey, { cacheDir: '/tmp/cache', workDir: '/tmp/work' });
@@ -439,6 +434,17 @@ describe('main adapter IPC trust boundary', () => {
     expect(() =>
       handler(
         event,
+        providerPayload('command-eve.image-prepare', {
+          filePaths: ['/tmp/image.png'],
+          conversationId: 'conversation-1',
+          managedArtifactInputReceipts: [`eveartifactinput_${'r'.repeat(43)}`],
+          managedArtifactInputTarget: 'image',
+        })
+      )
+    ).toThrow('payload keys');
+    expect(() =>
+      handler(
+        event,
         providerPayload('command-eve.managed-visual-turn-authorize', {
           consentVersion: 'command-eve-managed-visual-turn-consent/v1',
           sourceCount: 1,
@@ -448,97 +454,52 @@ describe('main adapter IPC trust boundary', () => {
     expect(state.emitter.emit).toHaveBeenCalledTimes(5);
   });
 
-  it('dispatches an exact managed image-generation request to Main', async () => {
+  it('does not expose the retired direct paid image-generation provider to the renderer', async () => {
     const { webContents, handler } = await setup();
     const event = { sender: webContents, senderFrame: webContents.mainFrame };
-    const payload = validProviderPayload('command-eve.image-generate');
+
+    expect(() =>
+      handler(
+        event,
+        providerPayload('command-eve.image-generate', {
+          prompt: 'Ein ruhiges Editorial-Motiv',
+          conversationId: 'conversation-1',
+          requestId: 'image-request-1',
+          tierId: 'quality',
+          resolution: '2K',
+          aspectRatio: '16:9',
+        })
+      )
+    ).toThrow('Blocked unknown adapter bridge event.');
+    expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('dispatches only a bounded managed artifact-input request to Main', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+    const payload = providerPayload('command-eve.artifact-input-resolve', {
+      conversationId: 'conversation-1',
+      artifactId: 'pdf_0123456789abcdef',
+      sourcePath: 'dokumente/palmen-report.pdf',
+    });
     const expectedEnvelope = (JSON.parse(payload) as { data: unknown }).data;
 
     await handler(event, payload);
 
-    expect(state.emitter.emit).toHaveBeenCalledWith('subscribe-command-eve.image-generate', expectedEnvelope);
-  });
+    expect(state.emitter.emit).toHaveBeenCalledWith('subscribe-command-eve.artifact-input-resolve', expectedEnvelope);
 
-  it.each([
-    [
-      'an extra provider selector',
-      {
-        prompt: 'Editorial',
-        conversationId: 'conversation-1',
-        requestId: 'image-request-1',
-        tierId: 'quality',
-        resolution: '2K',
-        aspectRatio: '16:9',
-        providerSlug: 'forged/provider',
-      },
-      'payload keys',
-    ],
-    [
-      'a missing request identity',
-      {
-        prompt: 'Editorial',
-        conversationId: 'conversation-1',
-        tierId: 'quality',
-        resolution: '2K',
-        aspectRatio: '16:9',
-      },
-      'payload keys',
-    ],
-    [
-      'an unknown image tier',
-      {
-        prompt: 'Editorial',
-        conversationId: 'conversation-1',
-        requestId: 'image-request-1',
-        tierId: 'ultra',
-        resolution: '2K',
-        aspectRatio: '16:9',
-      },
-      'tier',
-    ],
-    [
-      'a non-string conversation identity',
-      {
-        prompt: 'Editorial',
-        conversationId: 42,
-        requestId: 'image-request-1',
-        tierId: 'quality',
-        resolution: '2K',
-        aspectRatio: '16:9',
-      },
-      'conversation id',
-    ],
-    [
-      'an unsupported resolution',
-      {
-        prompt: 'Editorial',
-        conversationId: 'conversation-1',
-        requestId: 'image-request-1',
-        tierId: 'quality',
-        resolution: '4K',
-        aspectRatio: '16:9',
-      },
-      'resolution',
-    ],
-    [
-      'a relative reference path',
-      {
-        prompt: 'Editorial',
-        conversationId: 'conversation-1',
-        requestId: 'image-request-1',
-        tierId: 'quality',
-        resolution: '2K',
-        aspectRatio: '16:9',
-        referenceImagePaths: ['reference.png'],
-      },
-      'reference path',
-    ],
-  ] as const)('rejects %s before managed image-generation dispatch', async (_case, data, error) => {
-    const { webContents, handler } = await setup();
-    const event = { sender: webContents, senderFrame: webContents.mainFrame };
-
-    expect(() => handler(event, providerPayload('command-eve.image-generate', data))).toThrow(error);
-    expect(state.emitter.emit).not.toHaveBeenCalled();
+    for (const invalid of [
+      { conversationId: '../conversation', artifactId: 'img_0123456789abcdef' },
+      { conversationId: 'conversation-1', artifactId: 'img_0123456789abcdef', target: 'pdf' },
+      { conversationId: 'conversation-1', artifactId: 'img_0123456789abcdef', path: '/tmp/a.png' },
+      { conversationId: 'conversation-1', artifactId: 'pdf_0123456789abcdef', sourcePath: '' },
+      { conversationId: 'conversation-1', artifactId: 'pdf_0123456789abcdef', sourcePath: 'x'.repeat(4097) },
+      { conversationId: 'conversation-1', artifactId: 'pdf_0123456789abcdef', sourcePath: 'source\0.pdf' },
+    ]) {
+      expect(() => handler(event, providerPayload('command-eve.artifact-input-resolve', invalid))).toThrow(
+        'managed artifact input request'
+      );
+    }
   });
 
   it('rejects secret-bearing or stale-shape external-action payloads before Main dispatch', async () => {

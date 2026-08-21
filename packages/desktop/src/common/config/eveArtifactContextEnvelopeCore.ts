@@ -207,13 +207,12 @@ export function buildEveArtifactContextEnvelope(input: EveArtifactContextEnvelop
     if (value) advisorySet.add(value);
   }
   const advisories = [...advisorySet].slice(0, 3);
-  if (entries.length === 0 && advisories.length === 0) return '';
-
   const capabilities = input.allowedCapabilities.map(scalar).filter(Boolean);
   // The permit is emitted only when a capability that can spend it is actually
   // advertised. A permit with no enabled capability is a live spending
   // credential sitting in a transcript for no reason at all.
   const spendPermit = capabilities.length > 0 && input.spendPermit ? scalar(input.spendPermit) : '';
+  if (entries.length === 0 && advisories.length === 0 && !spendPermit) return '';
   const header = [
     ARTIFACT_ENVELOPE_HEADING,
     'These artifacts already exist. They were produced by the app, not by you, and they are real.',
@@ -228,13 +227,18 @@ export function buildEveArtifactContextEnvelope(input: EveArtifactContextEnvelop
     'never substitute an artifact_id, a filename, a conversation id or a guess for it.',
     'An artifact without an `edit_handle` cannot be edited; say so rather than attempting it.',
     capabilities.length > 0
-      ? `Allowed capabilities on this seat: ${capabilities.join(', ')}.`
+      ? `Managed MCP artifact capabilities advertised to tools: ${capabilities.join(', ')}.`
       : // Said explicitly rather than left to inference. `editable=true`
         // describes the CLIP — it passed the length and tier checks — and with
         // no capability enabled it is not an action that can be taken. A model
         // that reads "editable" as "you may edit" and tries would be right about
         // the word and wrong about the seat.
-        'No artifact capabilities are enabled on this seat right now. `editable` describes the clip, not something you can do.',
+        'No managed MCP artifact capabilities are enabled on this seat right now. `editable` describes the clip, not something you can do.',
+    // This list intentionally does not describe work-product creation. PDF,
+    // Word, Excel, and presentation output follow the selected composer mode,
+    // its injected skill, and Hermes' native file/terminal tools. Without this
+    // sentence a model can mistake an edit-only MCP list for "PDF is disabled".
+    'This capability list governs only managed MCP artifact operations; it is not the selected work-product surface.',
     ...(spendPermit
       ? [
           // Said plainly, because the model's behaviour is what enforces the
@@ -271,7 +275,7 @@ export function buildEveArtifactContextEnvelope(input: EveArtifactContextEnvelop
 
   // Nothing fit. Emitting a header that promises a registry and then lists
   // nothing would be worse than staying silent.
-  if (lines.length === 0) return advisories.length > 0 ? header.join('\n') : '';
+  if (lines.length === 0) return advisories.length > 0 || spendPermit ? header.join('\n') : '';
   if (truncated) lines.push('- (older artifacts omitted; ask the user to name the clip if it is not listed)');
   return [...header, ...lines].join('\n');
 }
@@ -305,12 +309,9 @@ export function buildCommandEveAgentTurnInput(input: {
   userInput: string;
   preparedContext?: string;
   artifactEnvelope?: string;
-  artifactFollowupContext?: string;
 }): string {
   const base = buildCommandEvePreparedAgentInput(input.userInput, input.preparedContext);
-  const hiddenContext = [input.artifactEnvelope?.trim(), input.artifactFollowupContext?.trim()]
-    .filter((value): value is string => Boolean(value))
-    .join('\n\n');
+  const hiddenContext = input.artifactEnvelope?.trim();
   if (!hiddenContext) return base;
   return [COMMAND_EVE_PREPARED_CONTEXT_START, hiddenContext, COMMAND_EVE_PREPARED_CONTEXT_END, base].join('\n');
 }

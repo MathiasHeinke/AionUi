@@ -183,6 +183,17 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
   const referencesOverCeiling =
     referenceCeiling !== null && referenceCount !== undefined && referenceCount > referenceCeiling.ceiling;
 
+  /**
+   * An image edit always sends one reference: the selected source image.
+   * `referenceCount` above is advisory attachment/ceiling state; those draft
+   * attachments are not inputs to `eve_image_edit` today and therefore must
+   * neither inflate nor erase the price shown for the actual paid request.
+   */
+  const quoteFor = (spec: CommandEveImageModelTierSpec, candidateResolution: CommandEveImageModelResolution): number =>
+    operation === 'edit'
+      ? spec.quotes.edit_credits[candidateResolution] + spec.quotes.per_input_reference_credits
+      : spec.quotes.generate_credits[candidateResolution];
+
   // One registry tier -> one generic dropdown row. The row's estimate is the
   // registry's OWN operation quote for the current resolution tier (the row's
   // first tier when it cannot serve the current one) — never a client number.
@@ -194,8 +205,7 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
       name: spec.display_name,
       providerKey: provider.key,
       providerLabel: provider.label,
-      estimateCredits:
-        operation === 'edit' ? spec.quotes.edit_credits[rowResolution] : spec.quotes.generate_credits[rowResolution],
+      estimateCredits: quoteFor(spec, rowResolution),
     };
   };
 
@@ -355,10 +365,7 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
                     <span className='video-quality-pill__model-estimate'>
                       {t('credits.video.modelEstimate', {
                         defaultValue: '≈ {{credits}} Credits',
-                        credits:
-                          operation === 'edit'
-                            ? selectedSpec.quotes.edit_credits[option]
-                            : selectedSpec.quotes.generate_credits[option],
+                        credits: quoteFor(selectedSpec, option),
                       })}
                     </span>
                   ) : null}
@@ -378,12 +385,10 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
           data-testid='image-model-pill-estimate'
           data-quote-state='available'
           data-operation={operation}
-          data-credits-1k={
-            operation === 'edit' ? selectedSpec.quotes.edit_credits['1K'] : selectedSpec.quotes.generate_credits['1K']
-          }
-          data-credits-2k={
-            operation === 'edit' ? selectedSpec.quotes.edit_credits['2K'] : selectedSpec.quotes.generate_credits['2K']
-          }
+          data-credits-1k={quoteFor(selectedSpec, '1K')}
+          data-credits-2k={quoteFor(selectedSpec, '2K')}
+          data-reference-surcharge={operation === 'edit' ? selectedSpec.quotes.per_input_reference_credits : undefined}
+          data-priced-reference-count={operation === 'edit' ? 1 : undefined}
           title={
             operation === 'edit'
               ? t('credits.image.editEstimateTitle', {
@@ -398,14 +403,8 @@ const ImageModelPill: React.FC<ImageModelPillProps> = ({
         >
           {t('credits.image.inlineEstimate', {
             defaultValue: 'ca. {{credits1k}} Credits (1K) · {{credits2k}} (2K)',
-            credits1k:
-              operation === 'edit'
-                ? selectedSpec.quotes.edit_credits['1K']
-                : selectedSpec.quotes.generate_credits['1K'],
-            credits2k:
-              operation === 'edit'
-                ? selectedSpec.quotes.edit_credits['2K']
-                : selectedSpec.quotes.generate_credits['2K'],
+            credits1k: quoteFor(selectedSpec, '1K'),
+            credits2k: quoteFor(selectedSpec, '2K'),
           })}
         </span>
       ) : (

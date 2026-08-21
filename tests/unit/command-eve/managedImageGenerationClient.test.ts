@@ -7,6 +7,8 @@ import {
 } from '@/common/config/eveManagedImageGenerationCore';
 import type { TProviderWithModel } from '@/common/config/storage';
 
+const REQUEST_ID = 'c'.repeat(64);
+
 const provider = (baseUrl = 'http://127.0.0.1:41235/v1'): TProviderWithModel => ({
   id: 'command-eve-managed-image',
   name: 'EVE Visual Directions',
@@ -15,7 +17,6 @@ const provider = (baseUrl = 'http://127.0.0.1:41235/v1'): TProviderWithModel => 
   api_key: 'local-process-nonce',
   use_model: COMMAND_EVE_MANAGED_IMAGE_MODEL,
 });
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -30,7 +31,15 @@ describe('managed image generation loopback client', () => {
             created: 1,
             // 1.820.3 — the staged-handle shape: opaque reference + typed
             // metadata, deliberately NO b64_json on this wire.
-            data: [{ artifact_handle: `img_h_${'b'.repeat(64)}`, media_type: 'image/png', sha256, bytes_count: 15 }],
+            data: [
+              {
+                artifact_handle: `img_h_${'b'.repeat(64)}`,
+                media_type: 'image/png',
+                sha256,
+                bytes_count: 15,
+                workspace_relative_path: 'bilder/cover.png',
+              },
+            ],
             usage: { model: 'google/gemini-3-pro-image', cost: 0.12 },
           }),
           { status: 200, headers: { 'content-type': 'application/json' } }
@@ -45,6 +54,7 @@ describe('managed image generation loopback client', () => {
         referenceDataUrls: ['data:image/png;base64,aW1hZ2UtcmVmZXJlbmNl'],
         aspectRatio: '16:9',
         resolution: '1K',
+        requestId: REQUEST_ID,
       })
     ).resolves.toMatchObject({
       ok: true,
@@ -56,6 +66,7 @@ describe('managed image generation loopback client', () => {
       aspectRatio: '16:9',
       model: 'google/gemini-3-pro-image',
       costUsd: 0.12,
+      workspaceRelativePath: 'bilder/cover.png',
     });
 
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -71,8 +82,42 @@ describe('managed image generation loopback client', () => {
       n: 1,
       aspect_ratio: '16:9',
       resolution: '1K',
+      requestId: REQUEST_ID,
       input_references: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,aW1hZ2UtcmVmZXJlbmNl' } }],
     });
+  });
+
+  it('drops an unsafe workspace path instead of forwarding it to model-visible tool text', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  artifact_handle: `img_h_${'b'.repeat(64)}`,
+                  media_type: 'image/png',
+                  sha256: 'a'.repeat(64),
+                  bytes_count: 15,
+                  workspace_relative_path: '/Users/alice/escape.png',
+                },
+              ],
+            }),
+            { status: 200 }
+          )
+      )
+    );
+
+    const result = await executeManagedImageGenerationViaShim({
+      provider: provider(),
+      prompt: 'direction',
+      referenceDataUrls: [],
+      requestId: REQUEST_ID,
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(result.ok && 'workspaceRelativePath' in result).toBe(false);
   });
 
   it('fails before fetch for remote URLs, missing nonces, or model drift', async () => {
@@ -103,6 +148,20 @@ describe('managed image generation loopback client', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('refuses a missing Hermes request identity before the loopback call', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      executeManagedImageGenerationViaShim({
+        provider: provider(),
+        prompt: 'direction',
+        referenceDataUrls: [],
+      })
+    ).resolves.toEqual({ ok: false, error: 'Managed image request identity is missing.' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('rejects a response without a staged reference or with incomplete metadata', async () => {
     // The pre-contract byte-bearing shape is REFUSED, not inflated: this client
     // exists only for the managed lane, and the managed lane carries no bytes.
@@ -116,7 +175,12 @@ describe('managed image generation loopback client', () => {
       )
     );
     await expect(
-      executeManagedImageGenerationViaShim({ provider: provider(), prompt: 'direction', referenceDataUrls: [] })
+      executeManagedImageGenerationViaShim({
+        provider: provider(),
+        prompt: 'direction',
+        referenceDataUrls: [],
+        requestId: REQUEST_ID,
+      })
     ).resolves.toEqual({ ok: false, error: 'Managed image response did not contain an image reference.' });
 
     vi.stubGlobal(
@@ -139,7 +203,12 @@ describe('managed image generation loopback client', () => {
       )
     );
     await expect(
-      executeManagedImageGenerationViaShim({ provider: provider(), prompt: 'direction', referenceDataUrls: [] })
+      executeManagedImageGenerationViaShim({
+        provider: provider(),
+        prompt: 'direction',
+        referenceDataUrls: [],
+        requestId: REQUEST_ID,
+      })
     ).resolves.toEqual({ ok: false, error: 'Managed image response carried incomplete artifact metadata.' });
   });
 });

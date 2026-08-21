@@ -5,16 +5,14 @@
  */
 
 /**
- * MAT-1747, 1.820.2 — the advertisement resolver, and the envelope that asks it.
+ * MAT-1747, 1.823.6 — legacy video edit stays release-fenced.
  *
  * The product contract being pinned:
  *
- *   (a) an ELIGIBLE seat — licence wire present and readable via the REAL
- *       readLicenseWire — advertises `eve_video_edit` BY DEFAULT, env unset;
- *   (b) exactly `'0'` (trimmed) is the kill-switch and wins over eligibility;
- *   (c) no licence wire, or one that will not read, fails CLOSED;
- *   (d) `'1'` is a no-op — it does NOT bypass the eligibility check, because
- *       advertising a paid capability on an unauthenticated seat is forbidden.
+ *   (a) legacy video edit is closed by default;
+ *   (b) no environment spelling reopens it;
+ *   (c) no readable licence wire reopens it;
+ *   (d) Main consequently emits neither tool advertisement nor spend permit.
  *
  * The first block tests the pure resolver; the second tests the production
  * helper against the real at-rest store (only the OS safeStorage primitive is
@@ -53,7 +51,7 @@ import { buildVideoConversationArtifact } from '@/common/config/videoGenerationR
 const FAKE_WIRE = 'CEVE.v2.FAKE-payload-TESTONLY.FAKE-sig-TESTONLY';
 
 const CLOSED_SEAT_SENTENCE =
-  'No artifact capabilities are enabled on this seat right now. `editable` describes the clip, not something you can do.';
+  'No managed MCP artifact capabilities are enabled on this seat right now. `editable` describes the clip, not something you can do.';
 
 function availableAdapter(): SafeStorageAdapter {
   return {
@@ -68,51 +66,14 @@ function availableAdapter(): SafeStorageAdapter {
 }
 
 describe('resolveAgentVideoEditAdvertisement — the pure decision', () => {
-  it('(a) an eligible seat advertises BY DEFAULT, env unset', () => {
-    expect(resolveAgentVideoEditAdvertisement({ env: {}, licenseWirePresent: true })).toBe(true);
-  });
-
-  it("(b) exactly '0' is the kill-switch and wins over eligibility", () => {
-    expect(
-      resolveAgentVideoEditAdvertisement({
-        env: { [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '0' },
-        licenseWirePresent: true,
-      })
-    ).toBe(false);
-    // Trimmed: whitespace around the '0' does not weaken the kill-switch.
-    expect(
-      resolveAgentVideoEditAdvertisement({
-        env: { [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: ' 0 ' },
-        licenseWirePresent: true,
-      })
-    ).toBe(false);
-  });
-
-  it('(c) no licence wire fails CLOSED, env unset', () => {
+  it('stays closed for every carrier and eligibility combination', () => {
+    expect(resolveAgentVideoEditAdvertisement({ env: {}, licenseWirePresent: true })).toBe(false);
     expect(resolveAgentVideoEditAdvertisement({ env: {}, licenseWirePresent: false })).toBe(false);
-  });
-
-  it("(d) '1' is a no-op and does NOT bypass eligibility", () => {
-    expect(
-      resolveAgentVideoEditAdvertisement({
-        env: { [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' },
-        licenseWirePresent: false,
-      })
-    ).toBe(false);
-    // POSITIVE CONTROL: on an eligible seat '1' stays harmless — the same answer
-    // as the unset default, so a stale `=1` in a shell profile changes nothing.
-    expect(
-      resolveAgentVideoEditAdvertisement({
-        env: { [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: '1' },
-        licenseWirePresent: true,
-      })
-    ).toBe(true);
-    // And no other spelling opens anything on an ineligible seat either.
-    for (const spelling of ['true', 'yes', 'on', '']) {
+    for (const spelling of ['1', ' 1 ', '0', 'true', 'yes', 'on', '']) {
       expect(
         resolveAgentVideoEditAdvertisement({
           env: { [COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG]: spelling },
-          licenseWirePresent: false,
+          licenseWirePresent: true,
         })
       ).toBe(false);
     }
@@ -167,27 +128,9 @@ describe('isAgentVideoEditAdvertisingEnabled — the production read', () => {
     fs.rmSync(dataRoot, { recursive: true, force: true });
   });
 
-  it('(a) eligible seat (wire stored via the REAL at-rest path) → ON, env unset', () => {
+  it('stays OFF for a stored readable wire, including a stale carrier', () => {
     expect(storeLicenseWire(dataRoot, FAKE_WIRE).ok).toBe(true);
-    expect(isAgentVideoEditAdvertisingEnabled(dataRoot)).toBe(true);
-  });
-
-  it("(b) kill-switch '0' + readable wire → OFF", () => {
-    expect(storeLicenseWire(dataRoot, FAKE_WIRE).ok).toBe(true);
-    process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] = '0';
     expect(isAgentVideoEditAdvertisingEnabled(dataRoot)).toBe(false);
-  });
-
-  it('(c) no licence wire → OFF; unreadable (malformed) wire → OFF', () => {
-    expect(isAgentVideoEditAdvertisingEnabled(dataRoot)).toBe(false);
-    // A malformed record on disk is a contract violation, not an eligibility.
-    const dir = path.join(dataRoot, 'command-eve-runtime', 'entitlement');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'license-wire.json'), JSON.stringify({ wire_ref: FAKE_WIRE }));
-    expect(isAgentVideoEditAdvertisingEnabled(dataRoot)).toBe(false);
-  });
-
-  it("(d) '1' without a licence wire → still OFF (no bypass)", () => {
     process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] = '1';
     expect(isAgentVideoEditAdvertisingEnabled(dataRoot)).toBe(false);
   });
@@ -258,16 +201,17 @@ describe('the context envelope asks the SAME resolver when no dep is injected', 
     fs.rmSync(dataRoot, { recursive: true, force: true });
   });
 
-  it('an ELIGIBLE seat with an editable clip advertises eve_video_edit AND mints a permit, env unset', async () => {
+  it('a stale enabled carrier and readable wire still mint no permit or tool advertisement', async () => {
     expect(storeLicenseWire(dataRoot, FAKE_WIRE).ok).toBe(true);
+    process.env[COMMAND_EVE_AGENT_VIDEO_EDIT_FLAG] = '1';
     const { envelope } = await handleCommandEveArtifactContextEnvelope(
       { conversationId: 'conv-1', requestedEditOperation: 'video_edit', userTurnText: 'gib der Aubergine ein Gesicht' },
       envelopeDepsWithoutFlag()
     );
-    expect(envelope).toContain('Allowed capabilities on this seat: eve_video_edit.');
-    expect(envelope).toMatch(/evespend_[0-9a-f]{64}/);
+    expect(envelope).toContain(CLOSED_SEAT_SENTENCE);
+    expect(envelope).not.toContain('eve_video_edit');
+    expect(envelope).not.toMatch(/evespend_[0-9a-f]{64}/);
     expect(envelope).toMatch(/edit_handle=evecap_[0-9a-f]{64}/);
-    expect(envelope).not.toContain(CLOSED_SEAT_SENTENCE);
   });
 
   it("a KILL-SWITCHED seat ('0') gets the exact closed-seat sentence and no permit", async () => {

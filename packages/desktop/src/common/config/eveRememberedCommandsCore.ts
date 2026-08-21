@@ -5,7 +5,8 @@
  */
 
 /**
- * "You may always do this" — remembered per seat, narrow enough to read.
+ * Historical remembered-command records, retained per seat for the settings
+ * migration and user-visible revoke path.
  *
  * Hermes has TWO grant units in one config list, and the dangerous one is what
  * its own "always" button writes. `detect_dangerous_command` sets
@@ -14,25 +15,15 @@
  * root path", across sessions, for every command that category matches. That is
  * the grant the 1.820 C0 containment revokes on every boot, correctly.
  *
- * The narrow unit already exists next to it and is simply never used:
- * `_command_matches_permanent_allowlist` compares the LITERAL command text (or an
- * explicit glob) and runs BEFORE any danger check. So we do not press Hermes'
- * button — we write the literal entries ourselves, from a record the desktop
- * owns.
- *
- * The consequences are the point:
- *   - Hermes asks once and then stops asking, because its own allowlist hits.
- *   - The record is per seat, so one client's grant never reaches another's.
- *   - config.yaml is a PROJECTION of the record, so revoking is deleting a row —
- *     and a grant the human cannot withdraw is not a grant, it is a leak.
- *   - A category-wide entry can never appear, because nothing here can write one.
+ * The record is intentionally no longer projected into Hermes'
+ * `command_allowlist`. Existing persisted rows remain readable and revocable, but
+ * native ACP is the only runtime authority.
  */
 
 /**
  * Mirrors `_ALLOWLIST_SHELL_OPERATOR_RE` in the bundled wheel
- * (tools/approval.py). A command containing any of these can NEVER match the
- * allowlist, so remembering it would be a promise that is silently never kept:
- * the user would click "always" and keep being asked.
+ * (tools/approval.py). Historical records still reject those commands so the
+ * retained settings data preserves its prior validity rules.
  *
  * MIRRORED CONSTANT — re-check this against the wheel on every Hermes bump.
  * `eveRememberedCommandsCore.test.ts` pins the exact source pattern.
@@ -91,9 +82,8 @@ export function canOfferRemember(command: string, existing: readonly EveRemember
 }
 
 /**
- * Add a grant. Rejected candidates leave the list untouched rather than being
- * repaired into something adjacent — a command nobody approved must never end up
- * in the allowlist because it looked close enough to one that was.
+ * Add a historical record. Rejected candidates leave the list untouched rather
+ * than being repaired into something adjacent.
  */
 export function rememberCommand(
   existing: readonly EveRememberedCommand[],
@@ -135,20 +125,6 @@ export function readRememberedCommands(value: unknown): readonly EveRememberedCo
     rows.push({ command, grantedAt });
   }
   return rows;
-}
-
-/**
- * The `command_allowlist` block for a seat's generated config.yaml.
- *
- * An empty record yields `command_allowlist: []` — byte-identical to what the C0
- * containment emits today. That is deliberate: with nothing granted, this change
- * is a no-op, and every legacy category-wide entry keeps getting revoked exactly
- * as before.
- */
-export function buildCommandAllowlistYaml(entries: readonly EveRememberedCommand[]): string[] {
-  const rows = readRememberedCommands(entries);
-  if (rows.length === 0) return ['command_allowlist: []'];
-  return ['command_allowlist:', ...rows.map((entry) => `  - ${JSON.stringify(entry.command)}`)];
 }
 
 /**

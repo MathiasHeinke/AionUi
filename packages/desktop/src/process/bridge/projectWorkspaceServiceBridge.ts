@@ -26,6 +26,8 @@ import {
   resolveSeatHome,
 } from '@process/commandEve/seatContextCore';
 import { isCommandEveSeatSwitchInFlight } from './commandEveBridge';
+import { listActiveImageArtifacts } from '@process/commandEve/imageArtifactStore';
+import { materializeCommandEveManagedImageInProject } from '@process/commandEve/managedArtifactInputResolver';
 import {
   createProjectWorkspaceFacade,
   type ProjectWorkspaceFacade,
@@ -33,6 +35,7 @@ import {
 import { ProjectWorkspaceLifecycleService } from '@process/services/project-workspace/ProjectWorkspaceLifecycleService';
 import { ProjectWorkspaceService } from '@process/services/project-workspace/ProjectWorkspaceService';
 import { createAionCoreProjectBindingClient } from '@process/services/project-workspace/runtime/conversationBindingClient';
+import { resolveTrustedProjectRuntimeSnapshot } from '@process/services/project-workspace/runtime/projectRuntimeResolver';
 import {
   createAutoProjectCompletionCoordinator,
   startMainAutoProjectTurnCompletionRelay,
@@ -200,6 +203,58 @@ export function initProjectWorkspaceServiceBridge(): void {
   });
   facadeRef = facade;
 
+  const materializeManagedImages = async (conversationId: string): Promise<void> => {
+    try {
+      const dataPath = getDataPath();
+      const seatId = getActiveSeatId();
+      const seatContextRevision = getActiveSeatContextRevision();
+      const runtime = await resolveTrustedProjectRuntimeSnapshot(conversationId, {
+        registry,
+        binding_client,
+        get_active_seat_id: getActiveSeatId,
+        is_seat_switch_in_flight: isCommandEveSeatSwitchInFlight,
+        get_backend_port: getPort,
+        get_backend_capability: getMainProcessLocalBackendCapability,
+      });
+      if (
+        runtime.seat_id !== seatId ||
+        getActiveSeatId() !== seatId ||
+        getActiveSeatContextRevision() !== seatContextRevision
+      ) {
+        return;
+      }
+      for (const image of listActiveImageArtifacts(dataPath, conversationId, seatId)) {
+        const result = await materializeCommandEveManagedImageInProject(
+          { conversationId, artifactId: image.id },
+          {
+            status: 'ready',
+            backendPort: runtime.backend_port,
+            workspace: runtime.project_path,
+            seatId,
+            seatContextRevision,
+          }
+        );
+        if (result.status !== 'ready') {
+          console.warn('[ProjectWorkspace] managed image project copy unavailable', {
+            conversationId,
+            artifactId: image.id,
+            reasonCode: result.reasonCode,
+          });
+        }
+      }
+    } catch (error) {
+      console.warn('[ProjectWorkspace] managed image project copy failed', { conversationId, error });
+    }
+  };
+
+  const ensureAfterSuccessfulTurn = async (
+    input: ProjectWorkspaceEnsureAutoProjectRequest
+  ): Promise<ProjectWorkspaceEnsureAutoProjectResult> => {
+    const result = await facade.ensureAfterSuccessfulTurn(input);
+    if (result.status === 'created') await materializeManagedImages(input.conversation_id);
+    return result;
+  };
+
   bridge.buildProvider<ProjectWorkspaceListDTO, void>('project-workspace.list').provider(async () => {
     try {
       return await facade.list();
@@ -325,7 +380,9 @@ export function initProjectWorkspaceServiceBridge(): void {
     )
     .provider(async (input) => {
       try {
-        return await facade.bindConversation(input);
+        const receipt = await facade.bindConversation(input);
+        if (receipt.outcome === 'completed') await materializeManagedImages(input.conversation_id);
+        return receipt;
       } catch (error) {
         return rejectedReceiptFor(error, input.idempotency_key);
       }
@@ -358,7 +415,11 @@ export function initProjectWorkspaceServiceBridge(): void {
     )
     .provider(async (input) => {
       try {
-        return await facade.commitAssignment(input);
+        const receipt = await facade.commitAssignment(input);
+        if (receipt.outcome === 'completed' && receipt.project && receipt.artifact) {
+          await materializeManagedImages(receipt.artifact.conversation_id);
+        }
+        return receipt;
       } catch (error) {
         return {
           receipt_id: safeReceiptId(input.idempotency_key),
@@ -376,7 +437,13 @@ export function initProjectWorkspaceServiceBridge(): void {
     )
     .provider(async (input) => {
       try {
-        return await facade.chatIntent(input);
+        const result = await facade.chatIntent(input);
+        if (result.decision === 'handled') {
+          setImmediate(() => {
+            void materializeManagedImages(input.conversation_id);
+          });
+        }
+        return result;
       } catch {
         // Defensive only — facade.chatIntent is already fail-open by contract.
         return { decision: 'pass_through' as const };
@@ -391,7 +458,7 @@ export function initProjectWorkspaceServiceBridge(): void {
     )
     .provider(async (input) => {
       try {
-        return await facade.ensureAfterSuccessfulTurn(input);
+        return await ensureAfterSuccessfulTurn(input);
       } catch (error) {
         // Defensive only — facade.ensureAfterSuccessfulTurn is already
         // catch-all by contract; keep the IPC boundary unconditionally safe.
@@ -412,7 +479,7 @@ export function initProjectWorkspaceServiceBridge(): void {
       const wire = readLicenseWire(getDataPath());
       return wire.ok ? wire.wire : undefined;
     },
-    ensure_after_successful_turn: (input) => facade.ensureAfterSuccessfulTurn(input),
+    ensure_after_successful_turn: ensureAfterSuccessfulTurn,
   });
   startMainAutoProjectTurnCompletionRelay({
     get_port: getPort,

@@ -120,7 +120,10 @@ type ResolvedImportedOfficeSource = {
 };
 
 const productionDeps: CommandEveOfficeArtifactAttachmentDeps = {
-  fetch,
+  // Main installs the local-capability fetch boundary after bridge modules are
+  // constructed. Resolve it lazily so an early import cannot retain the
+  // unwrapped fetch and turn authoritative AionCore metadata reads into 401s.
+  fetch: (input, init) => globalThis.fetch(input, init),
   getBackendPort: () => (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort,
   getDataPath,
   getActiveSeatId,

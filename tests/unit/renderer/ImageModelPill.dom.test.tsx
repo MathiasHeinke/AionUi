@@ -19,10 +19,27 @@
  * preference itself stays selectable.
  */
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
+
+const { imageCapabilitiesInvokeMock, imageModelPreferenceReadInvokeMock, imageModelPreferenceSetInvokeMock } =
+  vi.hoisted(() => ({
+    imageCapabilitiesInvokeMock: vi.fn(),
+    imageModelPreferenceReadInvokeMock: vi.fn(),
+    imageModelPreferenceSetInvokeMock: vi.fn(),
+  }));
+
+vi.mock('@/common', () => ({
+  ipcBridge: {
+    commandEve: {
+      imageCapabilities: { invoke: imageCapabilitiesInvokeMock },
+      imageModelPreferenceRead: { invoke: imageModelPreferenceReadInvokeMock },
+      imageModelPreferenceSet: { invoke: imageModelPreferenceSetInvokeMock },
+    },
+  },
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -40,6 +57,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 import ImageModelPill from '@/renderer/components/billing/ImageModelPill';
+import { useImageComposerSelection } from '@/renderer/components/billing/useImageComposerSelection';
 import type { CommandEveImageModelRegistry } from '@/common/config/eveImageModelRegistryCore';
 
 /**
@@ -162,6 +180,26 @@ const EDIT_REGISTRY: CommandEveImageModelRegistry = {
     entry.id === 'quality' || entry.id === 'max' ? entry : { ...entry, supports_references: false }
   ),
 };
+
+beforeEach(() => {
+  imageCapabilitiesInvokeMock.mockReset();
+  imageModelPreferenceReadInvokeMock.mockReset();
+  imageModelPreferenceSetInvokeMock.mockReset();
+  imageCapabilitiesInvokeMock.mockResolvedValue({
+    success: true,
+    data: { ok: true, registry: REGISTRY, revision: 'f'.repeat(64) },
+  });
+  imageModelPreferenceReadInvokeMock.mockResolvedValue({
+    success: true,
+    data: {
+      status: 'resolved',
+      seatId: 'seat-1',
+      tier: 'quality',
+      source: 'stored_explicit',
+      physicalKey: 'commandEve.imageModelPreference',
+    },
+  });
+});
 
 afterEach(cleanup);
 
@@ -328,15 +366,19 @@ describe('ImageModelPill model dropdown (MAT-1773 PACKAGE A)', () => {
 });
 
 describe('ImageModelPill edit dropdown', () => {
-  it('offers exactly the registry-declared reference models and uses only edit quotes', async () => {
+  it('offers exactly the registry-declared reference models and quotes base plus one source image', async () => {
     const onChange = vi.fn();
     render(<ImageModelPill visible value='quality' onChange={onChange} registry={EDIT_REGISTRY} operation='edit' />);
 
     const estimate = screen.getByTestId('image-model-pill-estimate');
-    expect(estimate).toHaveTextContent('48');
-    expect(estimate).toHaveTextContent('96');
+    expect(estimate).toHaveTextContent('53');
+    expect(estimate).toHaveTextContent('101');
     expect(estimate).not.toHaveTextContent('40');
     expect(estimate).not.toHaveTextContent('80');
+    expect(estimate).toHaveAttribute('data-credits-1k', '53');
+    expect(estimate).toHaveAttribute('data-credits-2k', '101');
+    expect(estimate).toHaveAttribute('data-reference-surcharge', '5');
+    expect(estimate).toHaveAttribute('data-priced-reference-count', '1');
 
     openModelDropdown();
     const entries = screen.getByTestId('image-model-dropdown').querySelectorAll('[role="option"]');
@@ -347,15 +389,47 @@ describe('ImageModelPill edit dropdown', () => {
     // Curated models that cannot take references are gone from edit mode too.
     expect(screen.queryByTestId('image-model-entry-quality-pro')).toBeNull();
     expect(screen.queryByTestId('image-model-entry-seedream-pro')).toBeNull();
-    expect(screen.getByTestId('image-model-entry-quality')).toHaveTextContent('≈ 48 Credits');
-    expect(screen.getByTestId('image-model-entry-max')).toHaveTextContent('≈ 144 Credits');
+    expect(screen.getByTestId('image-model-entry-quality')).toHaveTextContent('≈ 53 Credits');
+    expect(screen.getByTestId('image-model-entry-max')).toHaveTextContent('≈ 152 Credits');
 
     await userEvent.click(screen.getByTestId('image-model-entry-max'));
     expect(onChange).toHaveBeenCalledWith('max');
 
     fireEvent.click(screen.getByTestId('image-resolution-dropdown-trigger'));
-    expect(screen.getByTestId('image-resolution-option-1K')).toHaveTextContent('≈ 48 Credits');
-    expect(screen.getByTestId('image-resolution-option-2K')).toHaveTextContent('≈ 96 Credits');
+    expect(screen.getByTestId('image-resolution-option-1K')).toHaveTextContent('≈ 53 Credits');
+    expect(screen.getByTestId('image-resolution-option-2K')).toHaveTextContent('≈ 101 Credits');
+  });
+
+  it('prices exactly the one source image, not the advisory attachment count', () => {
+    render(
+      <ImageModelPill
+        visible
+        value='grok-2'
+        onChange={vi.fn()}
+        registry={REGISTRY}
+        operation='edit'
+        referenceCount={3}
+      />
+    );
+
+    const estimate = screen.getByTestId('image-model-pill-estimate');
+    expect(estimate).toHaveTextContent('64');
+    expect(estimate).toHaveTextContent('79');
+    expect(estimate).not.toHaveTextContent('82');
+    expect(estimate).toHaveAttribute('data-priced-reference-count', '1');
+  });
+});
+
+describe('useImageComposerSelection edit isolation', () => {
+  it('does not mutate or persist the create preference for an edit-only tier choice', async () => {
+    const { result } = renderHook(() => useImageComposerSelection());
+    await waitFor(() => expect(result.current.registry).toEqual(REGISTRY));
+    expect(result.current.tierId).toBe('quality');
+
+    act(() => result.current.setTierId('max', { persist: false }));
+
+    expect(result.current.tierId).toBe('quality');
+    expect(imageModelPreferenceSetInvokeMock).not.toHaveBeenCalled();
   });
 });
 
@@ -464,9 +538,7 @@ describe('ImageModelPill reference ceiling (max_reference_images)', () => {
     // rather than guessing a number the user would read as a promise.
     const olderGateway: CommandEveImageModelRegistry = {
       ...REGISTRY,
-      tiers: REGISTRY.tiers.map((entry) =>
-        entry.id === 'quality' ? { ...entry, max_reference_images: null } : entry
-      ),
+      tiers: REGISTRY.tiers.map((entry) => (entry.id === 'quality' ? { ...entry, max_reference_images: null } : entry)),
     };
     rerender(<ImageModelPill visible value='quality' onChange={vi.fn()} registry={olderGateway} referenceCount={9} />);
     expect(screen.getByTestId('image-model-pill')).not.toHaveAttribute('data-reference-ceiling');

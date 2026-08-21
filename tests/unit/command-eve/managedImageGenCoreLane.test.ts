@@ -17,6 +17,7 @@ import {
 import type { TProviderWithModel } from '@/common/config/storage';
 
 const HANDLE = `img_h_${'ab'.repeat(32)}`;
+const REQUEST_ID = 'c'.repeat(64);
 
 const managedProvider: TProviderWithModel = {
   id: 'command-eve-managed-image',
@@ -52,7 +53,11 @@ afterEach(() => {
 
 describe('the managed lane of executeImageGeneration (P0 leak gate)', () => {
   it('returns path-free tool text with the staged handle — and writes NOTHING to the workspace', async () => {
-    const result = await executeImageGeneration({ prompt: 'eine Aubergine' }, managedProvider, workspace);
+    const result = await executeImageGeneration(
+      { prompt: 'eine Aubergine', managedRequestId: REQUEST_ID },
+      managedProvider,
+      workspace
+    );
     expect(result.success).toBe(true);
     expect(result.text).toContain(HANDLE);
     for (const token of FORBIDDEN_TOKENS) expect(result.text).not.toContain(token);
@@ -71,7 +76,7 @@ describe('the managed lane of executeImageGeneration (P0 leak gate)', () => {
     const homeishWorkspace = path.join(workspace, 'Users', 'alice', 'conversations', 'conv-1');
     fs.mkdirSync(homeishWorkspace, { recursive: true });
     const result = await executeImageGeneration(
-      { prompt: 'ein Bild', aspect_ratio: '16:9', resolution: '1K' },
+      { prompt: 'ein Bild', aspect_ratio: '16:9', resolution: '1K', managedRequestId: REQUEST_ID },
       managedProvider,
       homeishWorkspace
     );
@@ -84,9 +89,20 @@ describe('the managed lane of executeImageGeneration (P0 leak gate)', () => {
 
   it('a managed failure surfaces the error text and no handle', async () => {
     viaShimMock.mockResolvedValue({ ok: false, error: 'Managed image generation failed.' });
-    const result = await executeImageGeneration({ prompt: 'x' }, managedProvider, workspace);
+    const result = await executeImageGeneration(
+      { prompt: 'x', managedRequestId: REQUEST_ID },
+      managedProvider,
+      workspace
+    );
     expect(result.success).toBe(false);
     expect(result.text).not.toContain('img_h_');
     for (const token of FORBIDDEN_TOKENS) expect(result.text).not.toContain(token);
+  });
+
+  it('refuses managed generation before the loopback client without a Hermes request identity', async () => {
+    const result = await executeImageGeneration({ prompt: 'x' }, managedProvider, workspace);
+
+    expect(result).toMatchObject({ success: false, error: 'managed_image_request_identity_missing' });
+    expect(viaShimMock).not.toHaveBeenCalled();
   });
 });

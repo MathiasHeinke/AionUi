@@ -14,10 +14,11 @@ export const COMMAND_EVE_PRESENTATION_WHEELS_DIR_ENV = 'COMMAND_EVE_PRESENTATION
 export const COMMAND_EVE_ARTIFACT_PYTHON_SITE_DIR_ENV = 'COMMAND_EVE_ARTIFACT_PYTHON_SITE_DIR';
 export const COMMAND_EVE_PRESENTATION_WHEELS_SUBDIR = 'presentation';
 export const COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR = 'artifact-site-packages';
+const COMMAND_EVE_ARTIFACT_PYTHON_NATIVE_WHEELS_SUBDIR = 'bundled-python-artifacts';
 export const COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT = 'command-eve-artifact-python-runtime.json';
 export const COMMAND_EVE_HERMES_RUNTIME_PACKAGED_LOCK_FILE = 'command-eve-hermes-runtime.lock.tsv';
 export const COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 =
-  'df692adb500889aa3c92e94dfa5bef17dd3a89b6ea2570e7c1e706800c62cad3';
+  '3e9fbc51acbe9f0088d1e6d73571b59a9e2b1e35fe8f40a89d00e928184e3521';
 export const COMMAND_EVE_HERMES_RUNTIME_PACKAGE_COUNT = 78;
 export const COMMAND_EVE_HERMES_RUNTIME_STAGED_PACKAGE_COUNT = 75;
 export const COMMAND_EVE_PYTHON_SIGNING_AUTHORITY = 'Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)';
@@ -795,15 +796,69 @@ print("PRESENTATION_PYTHON_READY")
   return ['-B', '-I', '-P', '-S', '-c', source];
 }
 
-export function commandEvePresentationPythonInstallArgs(bundleDir: string): string[] {
+type CommandEvePresentationPythonInstallContext = Readonly<{
+  resourcesPath?: string;
+  cwd?: string;
+  platform?: NodeJS.Platform;
+  architecture?: NodeJS.Architecture;
+  pythonVersion?: string;
+}>;
+
+/**
+ * Resolve the reviewed native wheels needed by the mutable source/dev fallback.
+ * Packaged builds never use this seam: they import the signed artifact site.
+ */
+export function resolveCommandEvePresentationPythonNativeWheelsDir(
+  context: CommandEvePresentationPythonInstallContext = {}
+): string {
+  const platform = context.platform ?? process.platform;
+  const architecture = context.architecture ?? process.arch;
+  if (platform !== 'darwin' || architecture !== 'arm64' || !/^Python 3\.12(?:\.|$)/.test(context.pythonVersion || '')) {
+    return '';
+  }
+
+  const candidates = [
+    context.resourcesPath
+      ? path.join(context.resourcesPath, COMMAND_EVE_ARTIFACT_PYTHON_NATIVE_WHEELS_SUBDIR, 'darwin-arm64')
+      : '',
+    path.join(
+      context.cwd ?? process.cwd(),
+      'resources',
+      COMMAND_EVE_ARTIFACT_PYTHON_NATIVE_WHEELS_SUBDIR,
+      'darwin-arm64'
+    ),
+  ].filter(Boolean);
+  return (
+    candidates.find((candidate) => {
+      try {
+        const directory = fs.lstatSync(candidate);
+        if (!directory.isDirectory() || directory.isSymbolicLink()) return false;
+        return COMMAND_EVE_ARTIFACT_PYTHON_NATIVE_PACKAGES.every((entry) => {
+          const wheel = path.join(candidate, entry.filename);
+          const stat = fs.lstatSync(wheel);
+          return stat.isFile() && !stat.isSymbolicLink() && sha256File(wheel) === entry.sha256;
+        });
+      } catch {
+        return false;
+      }
+    }) || ''
+  );
+}
+
+export function commandEvePresentationPythonInstallArgs(
+  bundleDir: string,
+  context: CommandEvePresentationPythonInstallContext = {}
+): string[] {
+  const nativeWheelsDir = resolveCommandEvePresentationPythonNativeWheelsDir(context);
+  const wheelDirectories = [bundleDir, nativeWheelsDir].filter(Boolean);
+  const packages = nativeWheelsDir ? COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES : COMMAND_EVE_PRESENTATION_PYTHON_PACKAGES;
   return [
     '-m',
     'pip',
     'install',
     '--no-deps',
     '--no-index',
-    '--find-links',
-    bundleDir,
-    ...COMMAND_EVE_PRESENTATION_PYTHON_PACKAGES.map((entry) => `${entry.name}==${entry.version}`),
+    ...wheelDirectories.flatMap((directory) => ['--find-links', directory]),
+    ...packages.map((entry) => `${entry.name}==${entry.version}`),
   ];
 }

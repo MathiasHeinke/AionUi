@@ -740,8 +740,7 @@ describe('BLOCKER 1 — the live Hermes registry row is pinned to the app-manage
       const method = String(init?.method || 'GET').toUpperCase();
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
 
-      if (url.pathname === '/api/agents/management')
-        return jsonResponse({ success: true, data: capture.agents });
+      if (url.pathname === '/api/agents/management') return jsonResponse({ success: true, data: capture.agents });
       if (url.pathname.startsWith('/api/agents/') && url.pathname.endsWith('/overrides')) {
         if (method === 'PUT') {
           capture.puts.push({ path: url.pathname, body: body as Record<string, unknown> });
@@ -751,7 +750,8 @@ describe('BLOCKER 1 — the live Hermes registry row is pinned to the app-manage
       }
       if (url.pathname === '/api/assistants' && method === 'GET') return jsonResponse({ success: true, data: [ready] });
       if (url.pathname === '/api/assistants' && method === 'POST') return jsonResponse({ success: true, data: ready });
-      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}`) return jsonResponse({ success: true, data: ready });
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}`)
+        return jsonResponse({ success: true, data: ready });
       if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state`)
         return jsonResponse({ success: true, data: ready });
       if (url.pathname.startsWith('/api/skills/')) return jsonResponse({ success: true, data: true });
@@ -821,7 +821,9 @@ describe('BLOCKER 1 — the live Hermes registry row is pinned to the app-manage
   // duration threshold measures machine load rather than the wait. The
   // timeout notice is the deterministic observable instead.
   const timeoutNotices = (warn: ReturnType<typeof vi.spyOn>): string[] =>
-    warn.mock.calls.map((args) => String(args[0])).filter((line) => line.includes('Hermes runtime shim did not appear'));
+    warn.mock.calls
+      .map((args) => String(args[0]))
+      .filter((line) => line.includes('Hermes runtime shim did not appear'));
 
   it('actually WAITS inside ensureCommandEveAssistant when the caller asks for it', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

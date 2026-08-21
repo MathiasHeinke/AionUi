@@ -152,7 +152,7 @@ describe('explicit composer work-product mode', () => {
     expect(renderComposerWorkProductPreparedContext(parsed)).not.toContain('private');
   });
 
-  it('does not override inherited output properties for a managed image edit', () => {
+  it('carries the exact request-scoped output properties for a managed image edit', () => {
     const selected = selectExplicitComposerWorkProductMode(
       'image',
       { selected: true, kind: 'image' },
@@ -160,8 +160,11 @@ describe('explicit composer work-product mode', () => {
     );
     const request = consumeComposerWorkProductSelection(selected).request;
 
-    expect(request).toMatchObject({ action: 'edit', imageOptions: null });
-    expect(request?.preparedContext).not.toMatch(/image_resolution|image_aspect_ratio/);
+    expect(request).toMatchObject({
+      action: 'edit',
+      imageOptions: { tierId: 'max', aspectRatio: '1:1', resolution: '2K' },
+    });
+    expect(request?.preparedContext).toMatch(/image_resolution=2K[\s\S]*image_aspect_ratio=1:1/);
   });
 
   it('treats a selected image in video mode as image-to-video creation without leaking artifact identity', () => {
@@ -203,14 +206,67 @@ describe('explicit composer work-product mode', () => {
     }
   );
 
-  it('does not inject office-studio for chat, existing non-Office lanes or malformed input', () => {
+  it.each(['pdf', 'presentation', 'word', 'excel'] as const)(
+    'preserves the explicit max/2K/2:3 image choice across the %s document lane',
+    (mode) => {
+      const imageOptions = { tierId: 'max' as const, resolution: '2K' as const, aspectRatio: '2:3' as const };
+      const selected = selectExplicitComposerWorkProductMode(mode, undefined, imageOptions);
+      const parsed = parseComposerWorkProductSelection(selected);
+      const firstSend = consumeComposerWorkProductSelection(parsed);
+      const secondSend = consumeComposerWorkProductSelection(firstSend.nextSelection);
+
+      expect(selected.imageOptions).toEqual(imageOptions);
+      expect(parsed.imageOptions).toEqual(imageOptions);
+      expect(firstSend.request).toMatchObject({ mode, action: 'create', imageOptions });
+      expect(firstSend.request?.preparedContext).toContain('image_tier_id=max');
+      expect(firstSend.request?.preparedContext).toContain('image_resolution=2K');
+      expect(firstSend.request?.preparedContext).toContain('image_aspect_ratio=2:3');
+      expect(firstSend.request?.preparedContext).toContain(
+        'image_prompt_statement=Build a self-contained English image prompt from the established conversation intent plus this turn; never forward only a short follow-up sentence.'
+      );
+      expect(firstSend.nextSelection).toMatchObject({ mode, imageOptions });
+      expect(secondSend.request).toMatchObject({ mode, action: 'create', imageOptions });
+    }
+  );
+
+  it('injects presentation-studio only for the presentation workflow', () => {
+    expect(resolveComposerWorkProductInjectedSkills('presentation')).toEqual(['presentation-studio']);
+  });
+
+  it('injects the dedicated PDF skill without inheriting Office or presentation skills', () => {
+    expect(resolveComposerWorkProductInjectedSkills('pdf')).toEqual(['editorial-pdf-design']);
+  });
+
+  it('does not inject work-product skills for chat, media or malformed input', () => {
     expect(resolveComposerWorkProductInjectedSkills('chat')).toEqual([]);
     expect(resolveComposerWorkProductInjectedSkills('image')).toEqual([]);
     expect(resolveComposerWorkProductInjectedSkills('video')).toEqual([]);
-    expect(resolveComposerWorkProductInjectedSkills('presentation')).toEqual([]);
-    expect(resolveComposerWorkProductInjectedSkills('pdf')).toEqual([]);
     expect(resolveComposerWorkProductInjectedSkills('__proto__')).toEqual([]);
   });
+
+  it.each(['pdf', 'presentation', 'word', 'excel'] as const)(
+    'treats an image selected for %s as an immutable create input, never an edit target',
+    (mode) => {
+      const consumed = consumeComposerWorkProductSelection(
+        selectExplicitComposerWorkProductMode(mode, { selected: true, kind: 'image' })
+      );
+
+      expect(consumed.request).toMatchObject({
+        mode,
+        action: 'create',
+        hasSelectedReference: true,
+        selectedReferenceKind: 'image',
+      });
+      expect(consumed.request?.preparedContext).toContain(`mode=${mode}`);
+      expect(consumed.request?.preparedContext).toContain('action=create');
+      expect(consumed.request?.preparedContext).toContain('reference_kind=image');
+      expect(consumed.nextSelection).toMatchObject({
+        mode,
+        hasSelectedReference: false,
+        selectedReferenceKind: null,
+      });
+    }
+  );
 
   it('refuses a mode-shaped object that lacks explicit click authority', () => {
     const lookalike = { mode: 'pdf', authority: 'none', hasSelectedReference: false };

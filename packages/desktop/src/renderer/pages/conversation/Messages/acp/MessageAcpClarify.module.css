@@ -33,47 +33,6 @@
   line-height: 1.45;
 }
 
-.artifact {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: color-mix(in srgb, rgb(var(--primary-6)) 7%, var(--color-fill-1));
-}
-
-.artifactIcon {
-  display: inline-flex;
-  color: rgb(var(--primary-6));
-}
-
-.artifactTitle {
-  min-width: 0;
-  color: var(--color-text-1);
-  font-size: 13px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.artifactKind {
-  margin-left: auto;
-  color: var(--color-text-3);
-  font-size: 11px;
-  letter-spacing: 0.02em;
-}
-
-.sourceTurn {
-  margin: 0;
-  padding-left: 12px;
-  border-left: 2px solid color-mix(in srgb, rgb(var(--primary-6)) 32%, transparent);
-  color: var(--color-text-2);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
 .choices {
   display: grid;
   gap: 8px;

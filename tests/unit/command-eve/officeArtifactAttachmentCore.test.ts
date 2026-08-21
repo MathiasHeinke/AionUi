@@ -11,6 +11,7 @@ import {
 } from '@/common/types/office/artifactLineage';
 import {
   resolveCommandEveOfficeArtifactAttachment,
+  resolveCommandEveOfficeConversationAuthority,
   validateOfficePackageBuffer,
   type CommandEveOfficeArtifactAttachmentDeps,
 } from '@/process/commandEve/officeArtifactAttachmentCore';
@@ -38,9 +39,26 @@ const INVALID_PACKAGE = Buffer.from(
 );
 
 const roots: string[] = [];
+const originalFetch = globalThis.fetch;
+const processGlobals = globalThis as typeof globalThis & { __backendPort?: number };
+const originalBackendPort = processGlobals.__backendPort;
 
 afterEach(async () => {
+  globalThis.fetch = originalFetch;
+  processGlobals.__backendPort = originalBackendPort;
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
+});
+
+it('resolves the production fetch lazily after the local capability boundary is installed', async () => {
+  processGlobals.__backendPort = 18181;
+  const capabilityFetch = vi.fn<typeof fetch>(async () => jsonResponse({ id: 'conv-lazy-fetch', extra: {} }));
+  globalThis.fetch = capabilityFetch;
+
+  const result = await resolveCommandEveOfficeConversationAuthority('conv-lazy-fetch');
+
+  expect(result).toMatchObject({ status: 'temporary' });
+  expect(capabilityFetch).toHaveBeenCalledOnce();
+  expect(String(capabilityFetch.mock.calls[0]?.[0])).toBe('http://127.0.0.1:18181/api/conversations/conv-lazy-fetch');
 });
 
 async function makeFixture() {

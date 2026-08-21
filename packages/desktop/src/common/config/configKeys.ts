@@ -105,26 +105,6 @@ export type ConfigKeyMap = {
    * always redact. Only the CLOUD lane is gated; local models never egress.
    */
   'commandEve.egressRedactionMode': 'on' | 'off' | undefined;
-  /**
-   * CEVE-18205 — PER-SEAT release for agent-initiated video GENERATION: may EVE
-   * start a paid render on her own initiative, without the operator opening the
-   * video picker?
-   *
-   * Absent/undefined ⇒ OFF, and every other uncertainty resolves the same way.
-   * FAIL-CLOSED in the opposite direction to the privacy switch above: there the
-   * safe answer is "always redact", here it is "never spend". The resolver holds
-   * NO last-known-good, so a backend hiccup closes the tool rather than keeping a
-   * spending capability open on an answer we could not read.
-   *
-   * Per seat, and never legacy-inherited (`SEAT_SCOPED_CONFIG_KEYS` +
-   * `NO_LEGACY_INHERIT_KEYS`): a founder seat's `true` reaching a client seat
-   * would let the model spend that client's credits.
-   *
-   * The renderer value is only the operator's answer. The binding decision is the
-   * main process's (`agentVideoGenerateSeatResolver` + licence wire + the global
-   * kill-switch), re-checked on every tool call.
-   */
-  'commandEve.agentVideoGenerateEnabled': boolean | undefined;
   'commandEve.modelWarmupEnabled': boolean | undefined;
   // COMPA-626 — EVE's kanban clearance: true ⇒ EVE's card proposals auto-apply (no
   // confirm card). Absent/false ⇒ the confirm-card gate (default).

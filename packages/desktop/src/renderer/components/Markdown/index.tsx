@@ -20,17 +20,11 @@ import classNames from 'classnames';
 import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { convertLatexDelimiters } from '@renderer/utils/chat/latexDelimiters';
-import LocalImageView from '@renderer/components/media/LocalImageView';
 import CodeBlock from './CodeBlock';
+import MarkdownImage from './MarkdownImage';
 import ShadowView from './ShadowView';
 
 const REMARK_PLUGINS = [remarkGfm, remarkMath, remarkBreaks];
-
-const isLocalFilePath = (src: string): boolean => {
-  if (src.startsWith('http://') || src.startsWith('https://')) return false;
-  if (src.startsWith('data:')) return false;
-  return true;
-};
 
 type MarkdownViewProps = {
   children: string;
@@ -119,11 +113,7 @@ const MarkdownView: React.FC<MarkdownViewProps> = React.memo(
         ),
         img: ({ node: _node, ...rest }: Record<string, unknown>) => {
           const imgProps = rest as React.ImgHTMLAttributes<HTMLImageElement>;
-          if (isLocalFilePath(imgProps.src || '')) {
-            const src = decodeURIComponent(imgProps.src || '');
-            return <LocalImageView src={src} alt={imgProps.alt || ''} className={imgProps.className} />;
-          }
-          return <img {...imgProps} />;
+          return <MarkdownImage {...imgProps} />;
         },
       }),
       [codeStyle, hiddenCodeCopyButton, handleLinkClick]

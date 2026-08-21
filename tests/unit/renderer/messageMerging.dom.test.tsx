@@ -176,11 +176,9 @@ function createAcpPermission(callId: string): IMessageAcpPermission {
           question: 'Should I make the artifact blue?',
           choices: ['Make it blue'],
           metadata: {
-            interaction_kind: 'artifact_followup',
-            artifact_mode: 'image',
+            interaction_kind: 'clarify',
             question: 'Should I make the artifact blue?',
             choices: ['Make it blue'],
-            source_user_turn: 'Please make the image blue.',
           },
         },
       },
@@ -304,8 +302,8 @@ describe('message merging', () => {
       expect(result.current.messages[0].content.options[0]?.option_id).toBe('clarify_choice_0');
       expect(result.current.messages[0].content.tool_call.raw_input).toMatchObject({
         metadata: {
-          artifact_mode: 'image',
-          source_user_turn: 'Please make the image blue.',
+          interaction_kind: 'clarify',
+          question: 'Should I make the artifact blue?',
         },
       });
     }
@@ -327,8 +325,8 @@ describe('message merging', () => {
     if (result.current.messages[0].type === 'acp_permission') {
       expect(result.current.messages[0].content.tool_call.raw_input).toMatchObject({
         metadata: {
-          artifact_mode: 'image',
-          source_user_turn: 'Please make the image blue.',
+          interaction_kind: 'clarify',
+          question: 'Should I make the artifact blue?',
         },
       });
     }

@@ -76,12 +76,14 @@ const {
   setModeInvokeMock,
   messageErrorMock,
   messageWarningMock,
+  confirmMessageInvokeMock,
   modalConfirmMock,
   configGetMock,
   configSetMock,
   initialMessageParamsMock,
   buildDisplayMessageMock,
   artifactContextEnvelopeInvokeMock,
+  artifactInputResolveInvokeMock,
   videoCapabilitiesInvokeMock,
   artifactTurnSteerInvokeMock,
   imageModelPreferenceReadInvokeMock,
@@ -95,7 +97,6 @@ const {
   settleConversationWarmupForSendMock,
   warmupConversationMock,
   composerReferenceSelectHandlerMock,
-  composerFollowupConfirmedHandlerMock,
   messageListState,
   readAloudTextMock,
   stopReadAloudMock,
@@ -146,7 +147,7 @@ const {
     activeTurnId: null as string | null,
     localSubmitting: false,
     captureSeatTicket: vi.fn(() => ({
-      conversationId: 'conv-1',
+      conversation_id: 'conv-1',
       seatId: 'seat-1',
       rebindEpoch: 0,
       seatGeneration: 0,
@@ -154,7 +155,7 @@ const {
     isSeatTicketCurrent: vi.fn(() => true),
     issueSendAttempt: vi.fn(() => ({
       kind: 'send',
-      conversationId: 'conv-1',
+      conversation_id: 'conv-1',
       seatId: 'seat-a',
       seatGeneration: 0,
       attemptId: 1,
@@ -164,7 +165,7 @@ const {
     markSendFailed: vi.fn(() => true),
     issueStopAttempt: vi.fn(() => ({
       kind: 'stop',
-      conversationId: 'conv-1',
+      conversation_id: 'conv-1',
       seatId: 'seat-a',
       seatGeneration: 0,
       attemptId: 2,
@@ -195,6 +196,7 @@ const {
   setModeInvokeMock: vi.fn(),
   messageErrorMock: vi.fn(),
   messageWarningMock: vi.fn(),
+  confirmMessageInvokeMock: vi.fn().mockResolvedValue({ success: true }),
   modalConfirmMock: vi.fn(),
   configGetMock: vi.fn(),
   configSetMock: vi.fn(),
@@ -210,6 +212,7 @@ const {
   },
   buildDisplayMessageMock: vi.fn((input: string) => input),
   artifactContextEnvelopeInvokeMock: vi.fn(),
+  artifactInputResolveInvokeMock: vi.fn(),
   videoCapabilitiesInvokeMock: vi.fn(),
   artifactTurnSteerInvokeMock: vi.fn(),
   imageModelPreferenceReadInvokeMock: vi.fn(),
@@ -224,11 +227,6 @@ const {
   warmupConversationMock: vi.fn().mockResolvedValue(undefined),
   composerReferenceSelectHandlerMock: {
     current: null as null | ((event: { conversation_id: string; artifact_id: string }) => void),
-  },
-  composerFollowupConfirmedHandlerMock: {
-    current: null as
-      | null
-      | ((event: { conversation_id: string; artifact_id: string; source_user_turn: string }) => void),
   },
   messageListState: { current: [] as TMessage[] },
   readAloudTextMock: vi.fn(),
@@ -285,12 +283,12 @@ beforeAll(async () => {
   });
 });
 
-const expectedPdfGrounding = () => ({
+const expectedPdfGrounding = (sourcePath = '/tmp/report.pdf') => ({
   version: 'command-eve-attachment-grounding/v1',
   entries: [
     {
       kind: 'pdf',
-      source_path: '/tmp/report.pdf',
+      source_path: sourcePath,
       source_sha256: 'a'.repeat(64),
       source_bytes: 100,
       grounding_path: PDF_SIDECAR_PATH,
@@ -300,20 +298,48 @@ const expectedPdfGrounding = () => ({
   ],
 });
 
-const expectedImageGrounding = () => ({
+const expectedImageGroundingFor = (sourcePath: string, sidecarPath: string) => ({
   version: 'command-eve-attachment-grounding/v1',
   entries: [
     {
       kind: 'image',
-      source_path: '/tmp/screenshot.png',
+      source_path: sourcePath,
       source_sha256: 'd'.repeat(64),
       source_bytes: 100,
-      grounding_path: '/tmp/hermes/document-intelligence/image/hash/document.md',
+      grounding_path: sidecarPath,
       grounding_sha256: 'e'.repeat(64),
       grounding_bytes: 128,
     },
   ],
 });
+
+const expectedImageGrounding = () =>
+  expectedImageGroundingFor('/tmp/screenshot.png', '/tmp/hermes/document-intelligence/image/hash/document.md');
+
+function imagePrepareSuccess(sourcePath: string, sidecarPath: string) {
+  return {
+    success: true,
+    data: {
+      ok: true,
+      documents: [
+        {
+          source_path: sourcePath,
+          source_name: sourcePath.replace(/\\/g, '/').split('/').pop() || 'image.png',
+          sha256: 'd'.repeat(64),
+          bytes: 100,
+          extraction_mode: 'cloud_vision',
+          sidecar_path: sidecarPath,
+          sidecar_sha256: 'e'.repeat(64),
+          sidecar_bytes: 128,
+          prompt_context: '## Image 1\n\nA managed image.',
+          citation_format: '[Image 1]',
+          model: 'curated-vision-model',
+          cache_hit: true,
+        },
+      ],
+    },
+  };
+}
 
 function pdfPrepareSuccess(
   sourcePath = '/tmp/report.pdf',
@@ -349,6 +375,11 @@ function pdfPrepareSuccess(
 }
 
 vi.mock('@/common', () => ({
+  conversation: {
+    confirmMessage: {
+      invoke: confirmMessageInvokeMock,
+    },
+  },
   ipcBridge: {
     acpConversation: {
       sendMessage: {
@@ -379,6 +410,9 @@ vi.mock('@/common', () => ({
       },
     },
     conversation: {
+      confirmMessage: {
+        invoke: confirmMessageInvokeMock,
+      },
       stop: {
         invoke: conversationStopInvokeMock,
       },
@@ -417,6 +451,9 @@ vi.mock('@/common', () => ({
       artifactContextEnvelope: {
         invoke: artifactContextEnvelopeInvokeMock,
       },
+      artifactInputResolve: {
+        invoke: artifactInputResolveInvokeMock,
+      },
       videoCapabilities: {
         invoke: videoCapabilitiesInvokeMock,
       },
@@ -450,6 +487,19 @@ vi.mock('@/common', () => ({
     },
   },
 }));
+
+vi.mock('@/common/adapter/ipcBridge', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/common/adapter/ipcBridge')>();
+  return {
+    ...actual,
+    commandEve: {
+      ...actual.commandEve,
+      artifactContextEnvelope: {
+        invoke: artifactContextEnvelopeInvokeMock,
+      },
+    },
+  };
+});
 
 vi.mock('@/common/config/configService', () => ({
   configService: {
@@ -748,13 +798,6 @@ vi.mock('@/renderer/utils/emitter', () => ({
         artifact_id: string;
       }) => void;
     }
-    if (event === 'commandEve.composer.followup.confirmed') {
-      composerFollowupConfirmedHandlerMock.current = handler as unknown as (event: {
-        conversation_id: string;
-        artifact_id: string;
-        source_user_turn: string;
-      }) => void;
-    }
   }),
   // The artifact provider's history-refresh subscription (1.820.3 display
   // gap). Tests fire the handler via chatHistoryRefreshHandlerMock.current.
@@ -909,6 +952,8 @@ describe('AcpSendBox', () => {
     initialMessageParamsMock.current = null;
     speechButtonPropsMock.current = null;
     messageListState.current = [];
+    confirmMessageInvokeMock.mockReset();
+    confirmMessageInvokeMock.mockResolvedValue({ success: true });
     window.localStorage.removeItem(VOICE_DIALOGUE_PREFERENCE_KEY);
     readAloudTextMock.mockImplementation(async (_text: string, options?: { onStart?: () => void }) => {
       options?.onStart?.();
@@ -923,7 +968,7 @@ describe('AcpSendBox', () => {
     runtimeViewMock.activeTurnId = null;
     runtimeViewMock.localSubmitting = false;
     runtimeViewMock.captureSeatTicket.mockImplementation(() => ({
-      conversationId: 'conv-1',
+      conversation_id: 'conv-1',
       seatId: activeSeatIdMock.current,
       rebindEpoch: 0,
       seatGeneration: 0,
@@ -951,7 +996,6 @@ describe('AcpSendBox', () => {
     imageArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [] });
     chatHistoryRefreshHandlerMock.current = null;
     composerReferenceSelectHandlerMock.current = null;
-    composerFollowupConfirmedHandlerMock.current = null;
     managedVisualTurnAuthorizeInvokeMock.mockReset();
     imageGenerateInvokeMock.mockReset();
     imageGenerateInvokeMock.mockResolvedValue({
@@ -1049,7 +1093,18 @@ describe('AcpSendBox', () => {
     // therefore keeps asserting the byte-identical message it always did.
     artifactContextEnvelopeInvokeMock.mockResolvedValue({
       success: true,
-      data: { envelope: '', officeOperation: { status: 'ready' } },
+      data: {
+        envelope: '',
+        mediaEditOperation: { status: 'ready' },
+        officeOperation: { status: 'ready' },
+      },
+    });
+    artifactInputResolveInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        agentFilePath: '/private/command-eve/artifact-inputs/default.png',
+      },
     });
     // MAT-1753: the DEFAULT seat has neither capability, which is the fail-closed
     // production default (both env flags off). Every pre-existing assertion in
@@ -1092,9 +1147,50 @@ describe('AcpSendBox', () => {
       },
     });
     imageCapabilitiesInvokeMock.mockResolvedValue({
-      success: false,
-      msg: 'capabilities_unparseable',
-      data: { ok: false, reason: 'capabilities_unparseable' },
+      success: true,
+      data: {
+        ok: true,
+        revision: 'f'.repeat(64),
+        registry: {
+          version: 'command-eve-image-model-registry/v1',
+          enabled: true,
+          default_tier: 'quality',
+          tiers: [
+            {
+              id: 'quality',
+              slug: 'google/gemini-3.1-flash-image',
+              display_name: 'Nano Banana 2',
+              premium: false,
+              supports_references: true,
+              curated_rank: 1,
+              max_reference_images: 14,
+              honors_resolution: true,
+              resolutions: ['1K', '2K'],
+              quotes: {
+                generate_credits: { '1K': 1380, '2K': 1380 },
+                edit_credits: { '1K': 1380, '2K': 1380 },
+                per_input_reference_credits: 0,
+              },
+            },
+            {
+              id: 'max',
+              slug: 'openai/gpt-image-2',
+              display_name: 'GPT Image 2',
+              premium: true,
+              supports_references: true,
+              curated_rank: 2,
+              max_reference_images: 16,
+              honors_resolution: false,
+              resolutions: ['1K', '2K'],
+              quotes: {
+                generate_credits: { '1K': 2300, '2K': 2300 },
+                edit_credits: { '1K': 2300, '2K': 2300 },
+                per_input_reference_credits: 0,
+              },
+            },
+          ],
+        },
+      },
     });
     buildDisplayMessageMock.mockImplementation((input: string) => input);
     queueRemoveMock.mockResolvedValue(undefined);
@@ -3393,7 +3489,7 @@ describe('AcpSendBox', () => {
     expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'fast');
   });
 
-  it('sends a video at the default tier without any confirmation step, and never dispatches to the agent', async () => {
+  it('sends explicit video intent as one normal Hermes turn without a provider call', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
     sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
 
@@ -3411,12 +3507,9 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'fast', conversationId: 'conv-1' });
-    // The wall is gone: no modal was opened on the way to dispatch. And there is
-    // no second path to the agent for a managed video request.
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
     expect(modalConfirmMock).not.toHaveBeenCalled();
-    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
   });
 
   it('refuses a 1080p tier the provider cannot produce from a text prompt', async () => {
@@ -3444,11 +3537,9 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    // It generates at a tier that CAN be produced, and never claims 1080p.
-    expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'fast' });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
     expect(modalConfirmMock).not.toHaveBeenCalled();
-    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
   });
 
   it('MAT-1753: a bare TEXT prompt reaches 1080p once the seat has 1.5', async () => {
@@ -3483,12 +3574,10 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    const sent = videoGenerateInvokeMock.mock.calls[0][0];
-    expect(sent).toMatchObject({ tierId: 'hd' });
-    // No image travelled — the whole point of the correction.
-    expect(sent.imagePath).toBeUndefined();
-    expect(sent.referenceImagePaths).toBeUndefined();
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+    const sent = sendMessageInvokeMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(sent.files).toEqual([]);
   });
 
   it('1.820.4: sends the contextual video model and duration selected in the composer', async () => {
@@ -3532,12 +3621,8 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({
-      tierId: 'fast',
-      modelId: 'grok-imagine-video-1.5',
-      durationSeconds: 10,
-    });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
     expect(modalConfirmMock).not.toHaveBeenCalled();
   });
 
@@ -3672,16 +3757,20 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    const sent = videoGenerateInvokeMock.mock.calls[0][0];
-    expect(sent.referenceImagePaths).toEqual(['/tmp/a.png', '/tmp/b.png', '/tmp/c.png']);
-    // EXCLUSIVE: a reference send carries no image->video source.
-    expect(sent.imagePath).toBeUndefined();
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+    const sent = sendMessageInvokeMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(sent.files).toEqual(['/tmp/a.png', '/tmp/b.png', '/tmp/c.png']);
     // No preset voices for an unentitled seat, so the field never appears.
     expect(sent.presetVoiceIds).toBeUndefined();
   });
   it('1.823.0: the image model picker follows explicit image mode and persists clicks through Main', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein Bild: eine lila Aubergine als Icon.' };
+    imageCapabilitiesInvokeMock.mockResolvedValue({
+      success: false,
+      msg: 'capabilities_unparseable',
+      data: { ok: false, reason: 'capabilities_unparseable' },
+    });
     // Main stores what it is asked and answers with the value it re-proved.
     imageModelPreferenceSetInvokeMock.mockImplementation(async (request: { tier: string }) => ({
       success: true,
@@ -3734,6 +3823,11 @@ describe('AcpSendBox', () => {
       success: true,
       data: { status: 'resolved', tier: 'quality', source: 'stored_default', seatId: 'seat-1' },
     });
+    imageCapabilitiesInvokeMock.mockResolvedValue({
+      success: false,
+      msg: 'capabilities_unparseable',
+      data: { ok: false, reason: 'capabilities_unparseable' },
+    });
     // The rollback case only matters while explicit image mode keeps the pill visible.
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'Erstelle ein Bild: eine lila Aubergine als Icon.' };
 
@@ -3764,8 +3858,50 @@ describe('AcpSendBox', () => {
     );
   });
 
-  it('1.823.0: explicit image create sends one exact Main-authoritative image request and no Hermes turn', async () => {
+  it('1.823.6: explicit image create with references goes to Hermes and keeps its exact model', async () => {
     const prompt = 'Erstelle ein ruhiges Editorial-Motiv für Command EVE.';
+    const generation = createDeferred<unknown>();
+    sendMessageInvokeMock.mockReturnValue(generation.promise);
+    imageModelPreferenceReadInvokeMock.mockResolvedValue({
+      success: true,
+      data: { status: 'resolved', tier: 'max', source: 'stored_explicit', seatId: 'seat-1' },
+    });
+    imageCapabilitiesInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        ok: true,
+        revision: 'f'.repeat(64),
+        registry: {
+          version: 'command-eve-image-model-registry/v1',
+          enabled: true,
+          default_tier: 'quality',
+          tiers: [
+            {
+              id: 'max',
+              slug: 'openai/gpt-image-2',
+              display_name: 'GPT Image 2',
+              premium: true,
+              supports_references: true,
+              curated_rank: 1,
+              max_reference_images: 16,
+              honors_resolution: true,
+              resolutions: ['1K', '2K'],
+              quotes: {
+                generate_credits: { '1K': 1150, '2K': 2300 },
+                edit_credits: { '1K': 1150, '2K': 2300 },
+                per_input_reference_credits: 0,
+              },
+            },
+          ],
+        },
+      },
+    });
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        envelope: 'allowed_capability=aionui_image_generation',
+      },
+    });
     draftDataMock.current = { atPath: [], uploadFile: ['/tmp/reference.png'], content: prompt };
     sendBoxMessageMock.current = prompt;
 
@@ -3778,51 +3914,82 @@ describe('AcpSendBox', () => {
       />
     );
     await chooseWorkProductMode('image');
-    await act(async () => screen.getByTestId('image-model-dropdown-trigger').click());
-    await act(async () => screen.getByTestId('image-model-option-max').click());
+    await waitFor(() => expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'max'));
     await act(async () => screen.getByTestId('image-resolution-dropdown-trigger').click());
     await act(async () => screen.getByTestId('image-resolution-option-2K').click());
     await act(async () => screen.getByTestId('image-aspect-ratio-dropdown-trigger').click());
     await act(async () => screen.getByTestId('image-aspect-ratio-option-1-1').click());
 
+    addOrUpdateMessageMock.mockClear();
+    emitterEmitMock.mockClear();
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
 
-    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    expect(imageGenerateInvokeMock.mock.calls[0][0]).toMatchObject({
-      prompt,
-      conversationId: 'conv-1',
-      tierId: 'max',
-      resolution: '2K',
-      aspectRatio: '1:1',
-      referenceImagePaths: ['/tmp/reference.png'],
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const request = sendMessageInvokeMock.mock.calls[0][0];
+    expect(request).toMatchObject({
+      input: expect.stringContaining(prompt),
+      conversation_id: 'conv-1',
+      files: ['/tmp/reference.png'],
     });
-    expect(imageGenerateInvokeMock.mock.calls[0][0].requestId).toMatch(/^image-[A-Za-z0-9]+$/);
-    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        userTurnText: prompt,
+        referenceImagePaths: ['/tmp/reference.png'],
+      })
+    );
+    expect(artifactContextEnvelopeInvokeMock.mock.calls[0][0]).not.toHaveProperty('requestedImageGenerationSelection');
+    expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'max');
+    expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
     expect(imagePrepareInvokeMock).not.toHaveBeenCalled();
     expect(cloudVisualPolicyReceiptInvokeMock).not.toHaveBeenCalled();
-    // Sticky lane (2026-08-18): the send consumes the artifact, not the mode —
-    // making a second image must not cost a second trip through the menu. What
-    // MUST still be gone is the expensive pick: the tier falls back to the
-    // default so a resend can never silently cost more than the one before it.
+
+    await act(async () => generation.resolve({}));
+    await waitFor(() => expect(sendBoxPropsMock.current?.loading).toBe(false));
+    // Sticky lane: a successful GPT Image 2 create keeps the exact visible
+    // selection that produced it. Main's durable create preference may settle
+    // independently, but it cannot repaint this still-active request as Nano
+    // Banana after the result arrives.
     await waitFor(() => expect(screen.getByTestId('work-product-active-image')).toBeTruthy());
-    expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'quality');
+    expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'max');
   });
 
-  it('1.823.0: an image refusal restores the draft, files and exact request id for a safe retry', async () => {
-    const prompt = 'Erstelle ein Bild mit einer klaren Typografie.';
-    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/reference.png'], content: prompt };
-    sendBoxMessageMock.current = prompt;
-    imageGenerateInvokeMock.mockResolvedValue({
+  it('1.823.6: a referenceless image turn goes to Hermes so it can derive the prompt from conversation context', async () => {
+    const shortFollowup = 'Genau, bitte jetzt als Bild erstellen.';
+    sendMessageInvokeMock.mockResolvedValue({});
+    imageCapabilitiesInvokeMock.mockResolvedValue({
       success: true,
       data: {
-        ok: false,
-        requestId: 'image-request-refused',
-        reasonCode: 'image-generation-disabled',
-        message: 'Bildgenerierung ist für diesen Seat nicht verfügbar.',
-        retryable: false,
-        artifactState: 'none',
+        ok: true,
+        revision: 'f'.repeat(64),
+        registry: {
+          version: 'command-eve-image-model-registry/v1',
+          enabled: true,
+          default_tier: 'quality',
+          tiers: [
+            {
+              id: 'quality',
+              slug: 'google/gemini-3.1-flash-image',
+              display_name: 'Nano Banana 2',
+              premium: false,
+              supports_references: true,
+              curated_rank: 1,
+              max_reference_images: 14,
+              honors_resolution: true,
+              resolutions: ['1K', '2K'],
+              quotes: {
+                generate_credits: { '1K': 1380, '2K': 2760 },
+                edit_credits: { '1K': 1380, '2K': 2760 },
+                per_input_reference_credits: 0,
+              },
+            },
+          ],
+        },
       },
     });
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({ success: true, data: {} });
+    draftDataMock.current = { atPath: [], uploadFile: [], content: shortFollowup };
+    sendBoxMessageMock.current = shortFollowup;
 
     render(
       <AcpSendBox
@@ -3833,30 +4000,30 @@ describe('AcpSendBox', () => {
       />
     );
     await chooseWorkProductMode('image');
+    await waitFor(() => expect(imageCapabilitiesInvokeMock).toHaveBeenCalled());
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
-    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(setUploadFileMock).toHaveBeenCalledWith(['/tmp/reference.png']));
-    expect(screen.getByTestId('work-product-active-image')).toBeTruthy();
 
-    await act(async () => screen.getByRole('button', { name: 'send' }).click());
-    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(2));
-    expect(imageGenerateInvokeMock.mock.calls[1][0].requestId).toBe(imageGenerateInvokeMock.mock.calls[0][0].requestId);
-    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
+    expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        userTurnText: shortFollowup,
+      })
+    );
+    expect(artifactContextEnvelopeInvokeMock.mock.calls[0][0]).not.toHaveProperty('requestedImageGenerationSelection');
+    const sentInput = String(sendMessageInvokeMock.mock.calls[0][0].input);
+    expect(sentInput).toContain('mode=image');
+    expect(sentInput).toContain('image_prompt_statement=Build a self-contained English image prompt');
+    expect(sentInput).not.toContain('spend_operation=image_generate');
+    expect(sentInput).not.toContain('spend_permit=');
   });
 
-  it('1.823.0: a delayed image result from the prior seat cannot mutate or clear the current seat retry', async () => {
-    const prompt = 'Erstelle ein Bild mit einer blauen Linie.';
-    const seatAResult = createDeferred<Awaited<ReturnType<typeof imageGenerateInvokeMock>>>();
-    const seatBResult = createDeferred<Awaited<ReturnType<typeof imageGenerateInvokeMock>>>();
-    const seatBRetry = createDeferred<Awaited<ReturnType<typeof imageGenerateInvokeMock>>>();
-    imageGenerateInvokeMock
-      .mockImplementationOnce(() => seatAResult.promise)
-      .mockImplementationOnce(() => seatBResult.promise)
-      .mockImplementationOnce(() => seatBRetry.promise);
-    runtimeViewMock.isSeatTicketCurrent.mockImplementation(
-      (ticket: { seatId?: string }) => ticket.seatId === activeSeatIdMock.current
-    );
-    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/reference.png'], content: prompt };
+  it('1.823.6: optional envelope failure never blocks the Hermes image turn', async () => {
+    const prompt = 'Erstelle daraus jetzt das Bild.';
+    sendMessageInvokeMock.mockResolvedValue({});
+    artifactContextEnvelopeInvokeMock.mockRejectedValue(new Error('authority unavailable'));
+    draftDataMock.current = { atPath: [], uploadFile: [], content: prompt };
     sendBoxMessageMock.current = prompt;
 
     render(
@@ -3868,71 +4035,96 @@ describe('AcpSendBox', () => {
       />
     );
     await chooseWorkProductMode('image');
+    await waitFor(() => expect(imageCapabilitiesInvokeMock).toHaveBeenCalled());
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
-    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    const seatARequestId = imageGenerateInvokeMock.mock.calls[0][0].requestId;
 
-    await act(async () => {
-      activeSeatIdMock.current = 'seat-2';
-      seatRebindHandlerMock.current?.('seat-2');
+    await waitFor(() => expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(String(sendMessageInvokeMock.mock.calls[0][0].input)).toContain(prompt);
+  });
+
+  it('1.823.6: Full authority sends ordinary image intent to Hermes without a custom permit', async () => {
+    const prompt = 'Mach dazu bitte passend ein Bild.';
+    sendMessageInvokeMock.mockResolvedValue({});
+    configGetMock.mockImplementation((key: string) => {
+      if (key === 'commandEve.authority') {
+        return { ladder: 5, capabilities: {}, updatedBy: 'user' };
+      }
+      return undefined;
     });
-    await waitFor(() => expect(screen.queryByTestId('work-product-active-image')).toBeNull());
+    imageModelPreferenceReadInvokeMock.mockResolvedValue({
+      success: true,
+      data: { status: 'resolved', tier: 'max', source: 'stored_explicit', seatId: 'seat-1' },
+    });
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({ success: true, data: {} });
+    draftDataMock.current = { atPath: [], uploadFile: [], content: prompt };
+    sendBoxMessageMock.current = prompt;
 
-    await chooseWorkProductMode('image');
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
-    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(2));
-    const seatBRequestId = imageGenerateInvokeMock.mock.calls[1][0].requestId;
-    expect(seatBRequestId).not.toBe(seatARequestId);
-    const restoreCallsBeforeStaleResult = setUploadFileMock.mock.calls.length;
 
-    await act(async () => {
-      seatAResult.resolve({
-        success: true,
-        data: {
-          ok: true,
-          requestId: seatARequestId,
-          alreadyCompleted: false,
-          artifact: {
-            id: 'seat-a-artifact',
-            conversationId: 'conv-1',
-            status: 'active',
-            createdAt: 1000,
-            updatedAt: 1000,
-            title: 'Seat A image',
-            mimeType: 'image/png',
-            width: 1024,
-            height: 1024,
-            sha256: 'a'.repeat(64),
-            relativePath: 'images/seat-a.png',
-          },
-        },
-      });
-      await seatAResult.promise;
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        userTurnText: prompt,
+      })
+    );
+    expect(artifactContextEnvelopeInvokeMock.mock.calls[0][0]).not.toHaveProperty('requestedImageGenerationSelection');
+    const sentInput = String(sendMessageInvokeMock.mock.calls[0][0].input);
+    expect(sentInput).not.toContain('spend_operation=image_generate');
+    expect(sentInput).not.toContain('spend_permit=');
+    expect(sentInput).not.toContain('[COMMAND_EVE_WORK_PRODUCT_CONTEXT]');
+    expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('1.823.6: a lower-rung image intent reaches Hermes without custom spend authority', async () => {
+    const prompt = 'Mach dazu bitte passend ein Bild.';
+    sendMessageInvokeMock.mockResolvedValue({});
+    configGetMock.mockImplementation((key: string) => {
+      if (key === 'commandEve.authority') {
+        return {
+          ladder: 2,
+          capabilities: {},
+          updatedBy: 'user',
+        };
+      }
+      return undefined;
     });
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({ success: true, data: {} });
+    draftDataMock.current = { atPath: [], uploadFile: [], content: prompt };
+    sendBoxMessageMock.current = prompt;
 
-    expect(screen.getByTestId('work-product-active-image')).toBeTruthy();
-    expect(setUploadFileMock).toHaveBeenCalledTimes(restoreCallsBeforeStaleResult);
-
-    await act(async () => {
-      seatBResult.resolve({
-        success: true,
-        data: {
-          ok: false,
-          requestId: seatBRequestId,
-          reasonCode: 'image-generation-disabled',
-          message: 'Bildgenerierung ist für diesen Seat nicht verfügbar.',
-          retryable: false,
-          artifactState: 'none',
-        },
-      });
-      await seatBResult.promise;
-    });
-    await waitFor(() => expect(setUploadFileMock.mock.calls.length).toBeGreaterThan(restoreCallsBeforeStaleResult));
-    expect(screen.getByTestId('work-product-active-image')).toBeTruthy();
-
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
-    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(3));
-    expect(imageGenerateInvokeMock.mock.calls[2][0].requestId).toBe(seatBRequestId);
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        userTurnText: prompt,
+      })
+    );
+    expect(artifactContextEnvelopeInvokeMock.mock.calls[0][0]).not.toHaveProperty('requestedImageGenerationSelection');
+    const sentInput = String(sendMessageInvokeMock.mock.calls[0][0].input);
+    expect(sentInput).not.toContain('spend_operation=image_generate');
+    expect(sentInput).not.toContain('spend_permit=');
+    expect(sentInput).not.toContain('[COMMAND_EVE_WORK_PRODUCT_CONTEXT]');
+    expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
   it('1.823.0: image prose without an explicit mode remains one ordinary Hermes turn', async () => {
@@ -3953,6 +4145,51 @@ describe('AcpSendBox', () => {
 
     await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
     expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('PDF prompt text without an explicit composer selection injects no workflow skill', async () => {
+    const prompt = 'Erstelle ein PDF mit einem hochwertigen Titelblatt.';
+    draftDataMock.current = { atPath: [], uploadFile: [], content: prompt };
+    sendBoxMessageMock.current = prompt;
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const request = sendMessageInvokeMock.mock.calls[0][0];
+    expect(request.inject_skills).toBeUndefined();
+    expect(String(request.input)).not.toContain('mode=pdf');
+  });
+
+  it('an explicit PDF composer selection injects only editorial-pdf-design', async () => {
+    const prompt = 'Erstelle ein PDF mit einem hochwertigen Titelblatt.';
+    draftDataMock.current = { atPath: [], uploadFile: [], content: prompt };
+    sendBoxMessageMock.current = prompt;
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await chooseWorkProductMode('pdf');
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const request = sendMessageInvokeMock.mock.calls[0][0];
+    expect(request.inject_skills).toEqual(['editorial-pdf-design']);
+    expect(String(request.input)).toContain('mode=pdf');
   });
 
   // ---------------------------------------------------------------------
@@ -4083,7 +4320,7 @@ describe('AcpSendBox', () => {
     return message?.content?.content;
   };
 
-  it('1.823.0: an ordinary Office follow-up turn receives an exact pathless registry candidate', async () => {
+  it('1.823.0: an ordinary Office turn does not receive artifact-followup routing context', async () => {
     sendMessageInvokeMock.mockResolvedValue({});
     renderWithOfficeArtifact('word');
     await waitFor(() => expect(listArtifactsInvokeMock).toHaveBeenCalled());
@@ -4092,10 +4329,8 @@ describe('AcpSendBox', () => {
 
     await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
     const input = String(sendMessageInvokeMock.mock.calls[0][0].input);
-    expect(input).toContain('[COMMAND_EVE_ARTIFACT_FOLLOWUP_ROUTING]');
-    expect(input).toContain(`candidate=artifact_id:${OFFICE_SOURCE_ARTIFACTS.word.id};mode:word`);
-    expect(input).toContain('[command_eve:artifact_followup:<mode>][command_eve:artifact_target:<artifact_id>]');
-    expect(input).toContain('Never infer a target from keywords');
+    expect(input).not.toContain('[COMMAND_EVE_ARTIFACT_FOLLOWUP_ROUTING]');
+    expect(input).not.toContain('artifact_followup');
     expect(input).not.toContain(OFFICE_SOURCE_ARTIFACTS.word.payload.path);
     expect(input).not.toContain(OFFICE_SOURCE_ARTIFACTS.word.payload.title);
     expect(stripCommandEvePreparedContext(input)).toBe('Hello');
@@ -4329,121 +4564,6 @@ describe('AcpSendBox', () => {
       );
     }
   );
-
-  it.each(['word', 'excel'] as const)(
-    '1.823.0: native clarify re-drives a confirmed %s follow-up through the same Main gate',
-    async (mode) => {
-      const source = OFFICE_SOURCE_ARTIFACTS[mode];
-      const stagedPath = mode === 'word' ? '/private/staged/report.docx' : '/private/staged/model.xlsx';
-      const followup = mode === 'word' ? 'Nee, kürze die Einleitung stärker.' : 'Mach die Forecast-Spalte blau.';
-      sendMessageInvokeMock.mockResolvedValue({});
-      artifactContextEnvelopeInvokeMock.mockResolvedValue({
-        success: true,
-        data: {
-          envelope: '',
-          officeAttachment: { status: 'ready', path: stagedPath },
-          officeOperation: { status: 'ready' },
-        },
-      });
-
-      renderWithOfficeArtifact(mode);
-      await waitFor(() => expect(listArtifactsInvokeMock).toHaveBeenCalled());
-      await waitFor(() => expect(composerFollowupConfirmedHandlerMock.current).not.toBeNull());
-      await act(async () => {
-        composerFollowupConfirmedHandlerMock.current?.({
-          conversation_id: 'conv-1',
-          artifact_id: source.id,
-          source_user_turn: followup,
-        });
-      });
-
-      await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
-      expect(sendMessageInvokeMock.mock.calls[0][0].files).toEqual([stagedPath]);
-      expect(sendMessageInvokeMock.mock.calls[0][0].inject_skills).toEqual(['office-studio']);
-      expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: 'conv-1',
-          userTurnText: followup,
-          selectedArtifactIds: [source.id],
-          requestedOfficeMode: mode,
-          officeOperationRequestId: expect.any(String),
-        })
-      );
-    }
-  );
-
-  it('1.823.0: a no-keyword video follow-up re-enters the canonical Hermes tool loop once', async () => {
-    const followup = 'Nee, gib der Aubergine lieber ein freundliches Gesicht.';
-    sendMessageInvokeMock.mockResolvedValue({});
-    artifactContextEnvelopeInvokeMock.mockResolvedValue({
-      success: true,
-      data: { envelope: '- artifact_id=video-artifact-1 kind=video editable=true edit_handle=evecap_exact' },
-    });
-
-    renderWithVideoArtifact();
-    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
-    await waitFor(() => expect(composerFollowupConfirmedHandlerMock.current).not.toBeNull());
-    await act(async () => {
-      composerFollowupConfirmedHandlerMock.current?.({
-        conversation_id: 'conv-1',
-        artifact_id: VIDEO_SOURCE_ARTIFACT.id,
-        source_user_turn: followup,
-      });
-    });
-
-    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
-    expect(stripCommandEvePreparedContext(String(sendMessageInvokeMock.mock.calls[0][0].input))).toBe(followup);
-    expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledTimes(1);
-    expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: 'conv-1',
-        userTurnText: followup,
-        selectedArtifactIds: [VIDEO_SOURCE_ARTIFACT.id],
-        requestedEditOperation: 'video_edit',
-      })
-    );
-    // The renderer contributes only the canonical user turn. Hermes owns the
-    // assistant tool_call -> MCP result -> final assistant continuation.
-    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
-    expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
-    expect(modalConfirmMock).not.toHaveBeenCalled();
-  });
-
-  it('1.823.0: a confirmed follow-up from another conversation is ignored before permit minting', async () => {
-    renderWithVideoArtifact();
-    await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
-    await waitFor(() => expect(composerFollowupConfirmedHandlerMock.current).not.toBeNull());
-
-    await act(async () => {
-      composerFollowupConfirmedHandlerMock.current?.({
-        conversation_id: 'conv-elsewhere',
-        artifact_id: VIDEO_SOURCE_ARTIFACT.id,
-        source_user_turn: 'Mach sie freundlicher.',
-      });
-    });
-
-    expect(artifactContextEnvelopeInvokeMock).not.toHaveBeenCalled();
-    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
-    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
-  });
-
-  it('1.823.0: a stale clarify artifact id fails closed before any Hermes turn', async () => {
-    renderWithOfficeArtifact('word');
-    await waitFor(() => expect(listArtifactsInvokeMock).toHaveBeenCalled());
-    await waitFor(() => expect(composerFollowupConfirmedHandlerMock.current).not.toBeNull());
-
-    await act(async () => {
-      composerFollowupConfirmedHandlerMock.current?.({
-        conversation_id: 'conv-1',
-        artifact_id: 'word-missing',
-        source_user_turn: 'Mach die Einleitung kürzer.',
-      });
-    });
-
-    expect(messageWarningMock).toHaveBeenCalled();
-    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
-    expect(artifactContextEnvelopeInvokeMock).not.toHaveBeenCalled();
-  });
 
   it('1.823.0: plain prose mentioning image/video creation shows ZERO media controls', async () => {
     draftDataMock.current = {
@@ -4712,9 +4832,7 @@ describe('AcpSendBox', () => {
     expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
-  it('1.823.0: explicit video mode keeps the direct videoGenerate path', async () => {
-    // The other half of the boundary: create+video MAY use the direct lane.
-    // This pins that the contextual gate did not disturb the shipped path.
+  it('1.823.6: explicit video mode reaches Hermes and never the renderer provider lane', async () => {
     draftDataMock.current = {
       atPath: [],
       uploadFile: [],
@@ -4733,8 +4851,8 @@ describe('AcpSendBox', () => {
     await chooseWorkProductMode('video');
     await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toBeTruthy());
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
   it.each(['Schneide das Video.', 'Mach das Video heller.', 'Animate this video.'])(
@@ -4804,6 +4922,7 @@ describe('AcpSendBox', () => {
       success: true,
       data: {
         ok: true,
+        revision: 'f'.repeat(64),
         registry: {
           version: 'command-eve-image-model-registry/v1',
           enabled: true,
@@ -4921,6 +5040,16 @@ describe('AcpSendBox', () => {
     await act(async () => screen.getByTestId('image-model-entry-max').click());
     await waitFor(() => expect(screen.getByTestId('image-model-pill')).toHaveAttribute('data-selected-tier', 'max'));
     expect(imageModelPreferenceSetInvokeMock).not.toHaveBeenCalled();
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+    await waitFor(() => expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalled());
+    const [artifactEnvelopeRequest] = artifactContextEnvelopeInvokeMock.mock.calls.at(-1) ?? [];
+    expect(artifactEnvelopeRequest).toMatchObject({
+      selectedArtifactIds: ['image-artifact-1'],
+      userTurnText: 'Bearbeite das Bild und gib der Aubergine ein Gesicht.',
+    });
+    expect(artifactEnvelopeRequest).not.toHaveProperty('requestedEditOperation');
+    expect(artifactEnvelopeRequest).not.toHaveProperty('requestedImageEditSelection');
+    expect(imageModelPreferenceSetInvokeMock).not.toHaveBeenCalled();
 
     // The edit choice is held only in the one-shot composer selection. Removing
     // the reference returns to the unchanged Main-authoritative create tier.
@@ -4939,6 +5068,7 @@ describe('AcpSendBox', () => {
       success: true,
       data: {
         ok: true,
+        revision: 'f'.repeat(64),
         registry: {
           version: 'command-eve-image-model-registry/v1',
           enabled: true,
@@ -5250,7 +5380,7 @@ describe('AcpSendBox', () => {
     expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
-  it('does not let an HD pick outlive its own send', async () => {
+  it('keeps an explicit cheaper video selection visible while no provider job runs', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
     sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
 
@@ -5270,78 +5400,45 @@ describe('AcpSendBox', () => {
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'sd' });
-
-    // Sticky lane (2026-08-18): the mode survives the send — a second video no
-    // longer costs a trip through the menu. The PRICE does not survive it: the
-    // tier falls back to Fast/Standard, so the next send is never quietly
-    // dearer than the one the user just approved.
-    await waitFor(() =>
-      expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'fast')
-    );
-
-    await act(async () => {
-      screen.getByRole('button', { name: 'send' }).click();
-    });
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(2));
-    expect(videoGenerateInvokeMock.mock.calls[1][0]).toMatchObject({ tierId: 'fast' });
-  });
-
-  it('keeps the cheaper pick standing when the send was REFUSED', async () => {
-    // Found live, not in a test: a 480p request was refused, the draft came
-    // back, and the picker read 720p. The obvious next action — send the
-    // restored draft again — would then have cost 700 credits instead of 500,
-    // with nothing on screen saying the price had changed. Resetting to the
-    // default is only ever cheaper when the user picked HD.
-    videoGenerateInvokeMock.mockResolvedValue({
-      success: true,
-      data: {
-        ok: false,
-        reasonCode: 'request-replayed',
-        message: 'Dieses Video wurde bereits erstellt.',
-        retryable: false,
-      },
-    });
-    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
-    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
-
-    render(
-      <AcpSendBox
-        conversation_id='conv-1'
-        backend='hermes'
-        workspacePath='/tmp/workspace'
-        messageState={makeMessageState()}
-      />
-    );
-    await chooseWorkProductMode('video');
-
-    act(() => {
-      screen.getByTestId('video-quality-option-sd').click();
-    });
-    await act(async () => {
-      screen.getByRole('button', { name: 'send' }).click();
-    });
-
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'sd' });
-    await waitFor(() => expect(messageErrorMock).toHaveBeenCalled());
-
-    // The choice the user made moments ago is still the choice.
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'sd');
 
-    // And a resend stays at the price the picker is showing.
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(2));
-    expect(videoGenerateInvokeMock.mock.calls[1][0]).toMatchObject({ tierId: 'sd' });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(2));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
-  it('calls the REAL video endpoint, not just a prompt stamp', async () => {
-    // The defect this closes: the lane used to stamp "[EVE:VIDEO ...]" into the
-    // text and stop. The deployed gateway had no video branch at all, so the
-    // stamp travelled and nothing generated. A stamp alone is not a video.
+  it('keeps a failed video turn retryable without starting a renderer provider job', async () => {
+    sendMessageInvokeMock.mockRejectedValue(new Error('send failed'));
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await chooseWorkProductMode('video');
+
+    act(() => {
+      screen.getByTestId('video-quality-option-sd').click();
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'sd');
+  });
+
+  it('sends real chat input for video intent instead of a renderer-side stub', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
     sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
     sendMessageInvokeMock.mockResolvedValue({});
@@ -5360,25 +5457,13 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    const sent = videoGenerateInvokeMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(sent.tierId).toBe('fast');
-    expect(sent.prompt).toContain('Video');
-    expect(typeof sent.durationSeconds).toBe('number');
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const sent = sendMessageInvokeMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(String(sent.input)).toContain('Video');
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
-  it('shows the server reason when a video is refused, not a generic sentence', async () => {
-    // Six distinct refusals exist server-side; flattening them here would waste
-    // every one of them. This pins that the spend-cap sentence reaches the user.
-    videoGenerateInvokeMock.mockResolvedValue({
-      success: true,
-      data: {
-        ok: false,
-        reasonCode: 'spend_cap_exceeded',
-        message: 'Dieses Video würde das Ausgabenlimit für den aktuellen Zeitraum überschreiten.',
-        retryable: false,
-      },
-    });
+  it('does not synthesize a video refusal or success artifact in the renderer', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
     sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
 
@@ -5396,19 +5481,12 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(messageErrorMock).toHaveBeenCalled());
-    const shown = messageErrorMock.mock.calls.at(-1)?.[0] as { content?: string } | undefined;
-    expect(shown?.content).toContain('Ausgabenlimit');
-    // A refusal must never create a fake success artifact — there is nothing to show.
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
     expect(emitterEmitMock).not.toHaveBeenCalledWith('acp.video.generated', expect.anything());
-    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
-  it('starts exactly one provider job per send, and never dispatches the same intent to the agent', async () => {
-    // A managed video request used to ALSO dispatch a `[EVE:VIDEO ...]`-stamped
-    // message into the normal ACP turn — a second path that could ask the
-    // agent/runtime to execute the same generation intent again. One user send
-    // must call videoGenerate exactly once and must never send that message.
+  it('starts exactly one Hermes turn per explicit video send', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
     sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
 
@@ -5426,8 +5504,8 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
   it('forwards the attached image path and conversation id for image-to-video, without any cloud vision call', async () => {
@@ -5457,20 +5535,16 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    const sent = videoGenerateInvokeMock.mock.calls[0][0] as Record<string, unknown>;
-    // Only the PATH crosses the boundary — Main re-reads and re-hashes it. The
-    // renderer never computes or forwards bytes/a digest itself.
-    expect(sent.imagePath).toBe('/tmp/photo.png');
-    expect(sent.conversationId).toBe('conv-1');
-    expect(sent).not.toHaveProperty('imageBase64');
-    expect(sent).not.toHaveProperty('imageSha256');
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const sent = sendMessageInvokeMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(sent.files).toEqual(['/tmp/photo.png']);
+    expect(sent.conversation_id).toBe('conv-1');
     // Hard assertion (not a mocked workaround): the vision-analysis pipeline and
     // its visual-policy receipt are never invoked for an image->video send.
     expect(imagePrepareInvokeMock).not.toHaveBeenCalled();
     expect(cloudVisualPolicyReceiptInvokeMock).not.toHaveBeenCalled();
     expect(managedVisualTurnAuthorizeInvokeMock).not.toHaveBeenCalled();
-    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
   it('a text-only send never carries an image path', async () => {
@@ -5492,12 +5566,13 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
-    const sent = videoGenerateInvokeMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(sent).not.toHaveProperty('imagePath');
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const sent = sendMessageInvokeMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(sent.files).toEqual([]);
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
-  it('a successful generation emits the durable, path-based artifact for this conversation', async () => {
+  it('video generation artifacts are owned by the native tool, not fabricated by the renderer', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
     sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
     sendMessageInvokeMock.mockResolvedValue({});
@@ -5516,23 +5591,9 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() =>
-      expect(emitterEmitMock).toHaveBeenCalledWith('acp.video.generated', {
-        conversation_id: 'conv-1',
-        artifact: expect.objectContaining({
-          id: 'video-artifact-1',
-          conversation_id: 'conv-1',
-          kind: 'video',
-          status: 'active',
-          payload: expect.objectContaining({
-            artifact_type: 'video',
-            // A local file PATH, never a data: URL — the ephemeral,
-            // does-not-survive-reload shape this lane must not repeat.
-            path: '/tmp/Downloads/video-artifact-1.mp4',
-          }),
-        }),
-      })
-    );
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock).not.toHaveBeenCalled();
+    expect(emitterEmitMock).not.toHaveBeenCalledWith('acp.video.generated', expect.anything());
   });
 
   /**
@@ -5576,6 +5637,20 @@ describe('AcpSendBox', () => {
       parent_artifact_id: IMAGE_EDIT_SOURCE.id,
     },
   };
+  const PDF_EDIT_SOURCE = {
+    id: 'pdf-chain-source',
+    conversation_id: 'conv-1',
+    kind: 'file' as const,
+    status: 'active' as const,
+    created_at: 1200,
+    updated_at: 1200,
+    payload: {
+      artifact_type: 'file' as const,
+      title: 'Palmen-Report',
+      path: '/Users/tester/Downloads/palmen-report.pdf',
+      mime_type: 'application/pdf',
+    },
+  };
 
   const renderImageChain = async (artifacts: readonly unknown[]) => {
     videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: artifacts });
@@ -5591,6 +5666,155 @@ describe('AcpSendBox', () => {
     );
     await waitFor(() => expect(videoArtifactsListInvokeMock).toHaveBeenCalled());
   };
+
+  it('sends a typed acknowledgement as its own turn without replaying a prior clarify', async () => {
+    sendMessageInvokeMock.mockResolvedValue({});
+    sendBoxMessageMock.current = 'yes';
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'yes' };
+    await renderImageChain([IMAGE_EDIT_SOURCE]);
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(confirmMessageInvokeMock).not.toHaveBeenCalled();
+    expect(stripCommandEvePreparedContext(String(sendMessageInvokeMock.mock.calls[0][0].input))).toBe('yes');
+  });
+
+  it.each(['pdf', 'presentation', 'word', 'excel'] as const)(
+    'CROSS-ARTIFACT: an explicitly selected image reaches %s as a private create input only',
+    async (targetMode) => {
+      const privateAgentPath = `/private/command-eve/artifact-inputs/${targetMode}.png`;
+      const privateSidecarPath = `/private/command-eve/image-sidecars/${targetMode}.md`;
+      draftDataMock.current = { atPath: [], uploadFile: [], content: `baue ${targetMode} aus diesem Bild` };
+      sendBoxMessageMock.current = `baue ${targetMode} aus diesem Bild`;
+      sendMessageInvokeMock.mockResolvedValue({});
+      artifactInputResolveInvokeMock.mockResolvedValue({
+        success: true,
+        data: {
+          status: 'ready',
+          agentFilePath: privateAgentPath,
+        },
+      });
+      imagePrepareInvokeMock.mockResolvedValue(imagePrepareSuccess(privateAgentPath, privateSidecarPath));
+      await renderImageChain([IMAGE_EDIT_SOURCE]);
+
+      await chooseWorkProductMode('image');
+      await chooseArtifactReference(IMAGE_EDIT_SOURCE.id);
+      await chooseWorkProductMode(targetMode);
+      expect(screen.getByTestId('work-product-reference-chip')).toBeTruthy();
+
+      await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+      await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+      expect(artifactInputResolveInvokeMock).toHaveBeenCalledWith({
+        conversationId: 'conv-1',
+        artifactId: IMAGE_EDIT_SOURCE.id,
+      });
+      const sentRequest = sendMessageInvokeMock.mock.calls[0][0] as {
+        input?: string;
+        files?: string[];
+        attachment_grounding?: unknown;
+      };
+      expect(sentRequest.files).toContain(privateAgentPath);
+      expect(sentRequest.files).toContain(privateSidecarPath);
+      expect(sentRequest.attachment_grounding).toEqual(expectedImageGroundingFor(privateAgentPath, privateSidecarPath));
+      expect(imagePrepareInvokeMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filePaths: [privateAgentPath],
+          privacyLane: 'cloud_auto',
+        })
+      );
+      expect(imagePrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('conversationId');
+      expect(imagePrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('managedArtifactInputReceipts');
+      expect(imagePrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('managedArtifactInputTarget');
+      expect(artifactInputResolveInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+        imagePrepareInvokeMock.mock.invocationCallOrder[0]
+      );
+      expect(imagePrepareInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+        sendMessageInvokeMock.mock.invocationCallOrder[0]
+      );
+      expect(String(sentRequest.input)).toContain(`mode=${targetMode}`);
+      expect(String(sentRequest.input)).toContain('action=create');
+      expect(String(sentRequest.input)).toContain('reference_kind=image');
+      expect(String(sentRequest.input)).not.toContain(privateAgentPath);
+      expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: 'conv-1',
+        })
+      );
+      expect(artifactContextEnvelopeInvokeMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('selectedArtifactIds');
+      expect(artifactContextEnvelopeInvokeMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('requestedEditOperation');
+      expect(buildDisplayMessageMock.mock.calls.flat().join('\n')).not.toContain(privateAgentPath);
+    }
+  );
+
+  it('PDF EDIT: hands the selected PDF to Hermes with prepared grounding but never leaks either path into text or display files', async () => {
+    const sourcePath = '/Users/tester/Downloads/palmen-report.pdf';
+    const privateAgentPath = '/private/command-eve/artifact-inputs/palmen-report.pdf';
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'Passe die Titelseite an.' };
+    sendBoxMessageMock.current = 'Passe die Titelseite an.';
+    sendMessageInvokeMock.mockResolvedValue({});
+    artifactInputResolveInvokeMock.mockResolvedValue({
+      success: true,
+      data: { status: 'ready', agentFilePath: privateAgentPath },
+    });
+    pdfPrepareInvokeMock.mockResolvedValue(pdfPrepareSuccess(privateAgentPath, PDF_SIDECAR_PATH));
+    await renderImageChain([PDF_EDIT_SOURCE]);
+
+    await chooseArtifactReference(PDF_EDIT_SOURCE.id);
+    expect(screen.getByTestId('work-product-reference-chip')).toBeTruthy();
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(artifactInputResolveInvokeMock).toHaveBeenCalledWith({
+      conversationId: 'conv-1',
+      artifactId: PDF_EDIT_SOURCE.id,
+      sourcePath,
+    });
+    expect(pdfPrepareInvokeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filePaths: [privateAgentPath],
+      })
+    );
+    const sentRequest = sendMessageInvokeMock.mock.calls[0][0] as {
+      input?: string;
+      files?: string[];
+      displayFiles?: string[];
+      attachment_grounding?: unknown;
+    };
+    expect(sentRequest.files).toEqual(expect.arrayContaining([privateAgentPath, PDF_SIDECAR_PATH]));
+    expect(sentRequest.attachment_grounding).toEqual(expectedPdfGrounding(privateAgentPath));
+    expect(String(sentRequest.input)).toContain('mode=pdf');
+    expect(String(sentRequest.input)).toContain('action=edit');
+    expect(String(sentRequest.input)).not.toContain(sourcePath);
+    expect(String(sentRequest.input)).not.toContain(privateAgentPath);
+    expect(sentRequest.displayFiles ?? []).not.toContain(sourcePath);
+    expect(sentRequest.displayFiles ?? []).not.toContain(privateAgentPath);
+    expect(buildDisplayMessageMock.mock.calls.flat().join('\n')).not.toContain(sourcePath);
+    expect(buildDisplayMessageMock.mock.calls.flat().join('\n')).not.toContain(privateAgentPath);
+  });
+
+  it('MEDIA EDIT: a selected image dispatches to Hermes without a pre-send permit', async () => {
+    sendMessageInvokeMock.mockResolvedValue({});
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        envelope: '',
+      },
+    });
+    await renderImageChain([IMAGE_EDIT_SOURCE]);
+
+    await chooseWorkProductMode('image');
+    await chooseArtifactReference(IMAGE_EDIT_SOURCE.id);
+    sendMessageInvokeMock.mockClear();
+    artifactContextEnvelopeInvokeMock.mockClear();
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(artifactContextEnvelopeInvokeMock).toHaveBeenCalled());
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(String(sendMessageInvokeMock.mock.calls[0][0].input)).toContain('mode=image');
+    expect(String(sendMessageInvokeMock.mock.calls[0][0].input)).toContain('action=edit');
+  });
 
   it('EDIT CHAIN: the second send edits the RESULT and still says action=edit', async () => {
     // Gap 1 closed in the same test: the whole sticky property lives in
@@ -5630,12 +5854,12 @@ describe('AcpSendBox', () => {
     // THE POINT: the follow-up targets the result, never the original.
     expect(secondTurn).toContain(`artifact_id=${IMAGE_EDIT_RESULT.id}`);
     expect(secondTurn).not.toContain(`artifact_id=${IMAGE_EDIT_SOURCE.id}`);
-    expect(artifactContextEnvelopeInvokeMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        selectedArtifactIds: [IMAGE_EDIT_RESULT.id],
-        requestedEditOperation: 'image_edit',
-      })
-    );
+    const [artifactEnvelopeRequest] = artifactContextEnvelopeInvokeMock.mock.calls.at(-1) ?? [];
+    expect(artifactEnvelopeRequest).toMatchObject({
+      selectedArtifactIds: [IMAGE_EDIT_RESULT.id],
+      userTurnText: 'warte, doch blau',
+    });
+    expect(artifactEnvelopeRequest).not.toHaveProperty('requestedEditOperation');
   });
 
   it('EDIT CHAIN: a FAILED edit leaves the reference on the source, so a retry hits the same image', async () => {
@@ -5682,11 +5906,10 @@ describe('AcpSendBox', () => {
     expect(retry).not.toContain('unrelated-newer-image');
   });
 
-  it('COST SEAM: a carried reference spends nothing by itself and re-mints per send', async () => {
+  it('EDIT CHAIN: a carried reference remains dormant until each Hermes turn', async () => {
     // Randbedingung (b). Authority still comes only from a click; a reference
-    // that merely persists must not buy anything. The permit is minted per send,
-    // bound to that turn's own text — so two turns mean two mints, never one
-    // reusable grant.
+    // that merely persists must not trigger provider work. Each send carries
+    // the selected source through Hermes' native permission path.
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'mach die Linie grün' };
     sendBoxMessageMock.current = 'mach die Linie grün';
     sendMessageInvokeMock.mockResolvedValue({});
@@ -5718,14 +5941,15 @@ describe('AcpSendBox', () => {
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
     await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(2));
 
-    // One mint per send, each bound to its OWN text: the second turn is not
-    // spending the first turn's permit.
-    const mints = artifactContextEnvelopeInvokeMock.mock.calls.filter(
-      (call) => (call[0] as { requestedEditOperation?: string }).requestedEditOperation === 'image_edit'
+    const editTurns = artifactContextEnvelopeInvokeMock.mock.calls.filter(
+      (call) =>
+        Array.isArray((call[0] as { selectedArtifactIds?: unknown }).selectedArtifactIds) &&
+        (call[0] as { selectedArtifactIds: unknown[] }).selectedArtifactIds.includes(IMAGE_EDIT_RESULT.id)
     );
-    expect(mints).toHaveLength(2);
-    expect((mints[0]?.[0] as { userTurnText?: string }).userTurnText).toBe('mach die Linie grün');
-    expect((mints[1]?.[0] as { userTurnText?: string }).userTurnText).toBe('warte, doch blau');
+    expect(editTurns).toHaveLength(2);
+    const [firstTurn, secondTurn] = editTurns;
+    expect((firstTurn[0] as { userTurnText?: string }).userTurnText).toBe('mach die Linie grün');
+    expect((secondTurn[0] as { userTurnText?: string }).userTurnText).toBe('warte, doch blau');
   });
 
   it('a CREATE never chains: the next send is a fresh image, not an edit of the last one', async () => {
@@ -5733,15 +5957,31 @@ describe('AcpSendBox', () => {
     // chaining would turn "und noch eins" into an edit of the previous picture.
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Bild einer Aubergine' };
     sendBoxMessageMock.current = 'erstelle ein Bild einer Aubergine';
-    imageGenerateInvokeMock.mockResolvedValue({
+    sendMessageInvokeMock.mockResolvedValue({});
+    imageCapabilitiesInvokeMock.mockResolvedValue({
       success: true,
-      data: { ok: true, requestId: 'image-chain-1', alreadyCompleted: false, artifact: IMAGE_EDIT_RESULT },
+      data: {
+        ok: true,
+        revision: 'f'.repeat(64),
+        registry: {
+          version: 'command-eve-image-model-registry/v1',
+          enabled: true,
+          default_tier: 'quality',
+          tiers: [],
+        },
+      },
+    });
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        envelope: 'allowed_capability=aionui_image_generation',
+      },
     });
     await renderImageChain([]);
 
     await chooseWorkProductMode('image');
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
-    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
 
     videoArtifactsListInvokeMock.mockResolvedValue({ success: true, data: [IMAGE_EDIT_RESULT] });
     await act(async () => {
@@ -5749,13 +5989,21 @@ describe('AcpSendBox', () => {
     });
 
     // Still in image mode (sticky), but with NO reference: the next send is
-    // another creation, priced and routed as one.
+    // another creation routed through Hermes, never an edit of the last image.
     await waitFor(() => expect(screen.getByTestId('work-product-active-image')).toBeTruthy());
     expect(screen.queryByTestId('work-product-reference-chip')).toBeNull();
 
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
-    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(2));
-    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(2));
+    const imageTurns = artifactContextEnvelopeInvokeMock.mock.calls.filter(
+      (call) => typeof (call[0] as { userTurnText?: unknown }).userTurnText === 'string'
+    );
+    expect(imageTurns).toHaveLength(2);
+    for (const [turn] of imageTurns) {
+      expect(turn).not.toHaveProperty('requestedImageGenerationSelection');
+      expect(turn).not.toHaveProperty('requestedEditOperation');
+    }
+    expect(imageGenerateInvokeMock).not.toHaveBeenCalled();
   });
 
   it('stopping a turn leaves the armed lane exactly where it was', async () => {
@@ -5791,9 +6039,25 @@ describe('AcpSendBox', () => {
     // picked for it — that cannot happen here, because the seat/conversation
     // effect resets to chat and only this explicit handoff re-arms it.
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Bild einer Aubergine' };
-    imageGenerateInvokeMock.mockResolvedValue({
+    sendMessageInvokeMock.mockResolvedValue({});
+    imageCapabilitiesInvokeMock.mockResolvedValue({
       success: true,
-      data: { ok: true, requestId: 'image-guid-1', alreadyCompleted: false, artifact: IMAGE_EDIT_RESULT },
+      data: {
+        ok: true,
+        revision: 'f'.repeat(64),
+        registry: {
+          version: 'command-eve-image-model-registry/v1',
+          enabled: true,
+          default_tier: 'quality',
+          tiers: [],
+        },
+      },
+    });
+    artifactContextEnvelopeInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        envelope: 'allowed_capability=aionui_image_generation',
+      },
     });
     render(
       <AcpSendBox
@@ -5821,7 +6085,7 @@ describe('AcpSendBox', () => {
       );
     });
 
-    await waitFor(() => expect(imageGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
     // The lane the operator chose on the start screen is still the lane they are
     // in, and it is visible: a second image costs no trip through the menu.
     await waitFor(() => expect(screen.getByTestId('work-product-active-image')).toBeTruthy());

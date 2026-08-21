@@ -142,7 +142,9 @@ describe('parseCommandEveImageModelRegistry', () => {
   it('fails the WHOLE read when the survivors would mislead', () => {
     // (a) nothing survived: an empty picker claiming to be a catalog.
     expect(parseCommandEveImageModelRegistry(registryRaw({ tiers: [] }))).toBeNull();
-    expect(parseCommandEveImageModelRegistry(registryRaw({ tiers: [tierRaw('ultra'), tierRaw('nonsense')] }))).toBeNull();
+    expect(
+      parseCommandEveImageModelRegistry(registryRaw({ tiers: [tierRaw('ultra'), tierRaw('nonsense')] }))
+    ).toBeNull();
     // (b) the default_tier itself did not survive: the seat's fallback would
     // silently become a different, possibly dearer, model.
     expect(
@@ -229,9 +231,7 @@ describe('parseCommandEveImageModelRegistry', () => {
   it('rejects malformed tier payloads instead of recovering them', () => {
     // Each of these is the ONLY tier, so dropping it empties the catalog and
     // the read fails — the same guarantee as before, now stated per tier.
-    expect(
-      parseCommandEveImageModelRegistry(registryRaw({ tiers: [tierRaw('quality', { slug: '' })] }))
-    ).toBeNull();
+    expect(parseCommandEveImageModelRegistry(registryRaw({ tiers: [tierRaw('quality', { slug: '' })] }))).toBeNull();
     expect(
       parseCommandEveImageModelRegistry(registryRaw({ tiers: [tierRaw('quality', { display_name: 42 })] }))
     ).toBeNull();
@@ -617,9 +617,27 @@ describe('catalog presentation helpers (MAT-1773 PACKAGE A)', () => {
       registryRaw({
         tiers: [
           tierRaw('quality', { curated_rank: 1 }),
-          tierRaw('grok-2', { quotes: { generate_credits: { '1K': 900, '2K': 900 }, edit_credits: { '1K': 900, '2K': 900 }, per_input_reference_credits: 0 } }),
-          tierRaw('qwen-3', { quotes: { generate_credits: { '1K': 100, '2K': 100 }, edit_credits: { '1K': 100, '2K': 100 }, per_input_reference_credits: 0 } }),
-          tierRaw('seedream-lite', { quotes: { generate_credits: { '1K': 400, '2K': 400 }, edit_credits: { '1K': 400, '2K': 400 }, per_input_reference_credits: 0 } }),
+          tierRaw('grok-2', {
+            quotes: {
+              generate_credits: { '1K': 900, '2K': 900 },
+              edit_credits: { '1K': 900, '2K': 900 },
+              per_input_reference_credits: 0,
+            },
+          }),
+          tierRaw('qwen-3', {
+            quotes: {
+              generate_credits: { '1K': 100, '2K': 100 },
+              edit_credits: { '1K': 100, '2K': 100 },
+              per_input_reference_credits: 0,
+            },
+          }),
+          tierRaw('seedream-lite', {
+            quotes: {
+              generate_credits: { '1K': 400, '2K': 400 },
+              edit_credits: { '1K': 400, '2K': 400 },
+              per_input_reference_credits: 0,
+            },
+          }),
         ],
       })
     )!;
@@ -634,9 +652,7 @@ describe('catalog presentation helpers (MAT-1773 PACKAGE A)', () => {
     // Fail-closed for curation too: no rank means no recommendation. The
     // models stay reachable behind 'Weitere anzeigen'; the client never
     // promotes one on its own taste.
-    const registry = parseCommandEveImageModelRegistry(
-      registryRaw({ tiers: [tierRaw('quality'), tierRaw('max')] })
-    )!;
+    const registry = parseCommandEveImageModelRegistry(registryRaw({ tiers: [tierRaw('quality'), tierRaw('max')] }))!;
     expect(resolveImageModelCuratedTiers(registry)).toEqual([]);
     expect(listImageModelsBeyondCurated(registry).map((tier) => tier.id)).toEqual(['quality', 'max']);
   });

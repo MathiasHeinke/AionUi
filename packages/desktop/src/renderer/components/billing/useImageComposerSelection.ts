@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export type ImageComposerSelection = Readonly<{
   tierId: CommandEveImageModelTierId;
   registry: CommandEveImageModelRegistry | null;
+  registryRevision: string | null;
   resolution: CommandEveImageModelResolution;
   aspectRatio: CommandEveManagedImageAspectRatio;
   /**
@@ -32,6 +33,7 @@ export type ImageComposerSelection = Readonly<{
 export function useImageComposerSelection(): ImageComposerSelection {
   const [tierId, setTierIdState] = useState<CommandEveImageModelTierId>(DEFAULT_COMMAND_EVE_IMAGE_MODEL_TIER);
   const [registry, setRegistry] = useState<CommandEveImageModelRegistry | null>(null);
+  const [registryRevision, setRegistryRevision] = useState<string | null>(null);
   const [resolution, setResolution] = useState<CommandEveImageModelResolution>('1K');
   const [aspectRatio, setAspectRatio] = useState<CommandEveManagedImageAspectRatio>('16:9');
   const preferenceSeatRef = useRef<string | null>(null);
@@ -49,7 +51,10 @@ export function useImageComposerSelection(): ImageComposerSelection {
     void ipcBridge.commandEve.imageCapabilities
       .invoke()
       .then((response) => {
-        if (!cancelled && response?.success && response.data?.ok) setRegistry(response.data.registry);
+        if (!cancelled && response?.success && response.data?.ok) {
+          setRegistry(response.data.registry);
+          setRegistryRevision(response.data.revision);
+        }
       })
       .catch((): void => undefined);
     return () => {
@@ -89,5 +94,5 @@ export function useImageComposerSelection(): ImageComposerSelection {
       .catch(reconcile);
   }, []);
 
-  return { tierId, registry, resolution, aspectRatio, setTierId, setResolution, setAspectRatio };
+  return { tierId, registry, registryRevision, resolution, aspectRatio, setTierId, setResolution, setAspectRatio };
 }

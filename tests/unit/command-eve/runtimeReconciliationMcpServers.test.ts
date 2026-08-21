@@ -25,6 +25,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   buildCommandEveRuntimeReconciliation,
+  ensureCommandEveManagedSkillsReconciliation,
   loadCommandEveCapabilityPack,
   resolveCommandEveRuntimeBootstrapPaths,
 } from '@/process/commandEve/runtimeBootstrapCore';
@@ -62,10 +63,23 @@ describe('hermes_config.mcp_servers reflects what was emitted', () => {
     expect(reconcile([]).hermes_config.mcp_servers).toEqual([]);
   });
 
-  it('defaults to empty for the skills-only reconciler, which computes no servers', () => {
-    // `ensureCommandEveManagedSkillsReconciliation` reconciles skills and never
-    // renders a config. Defaulting keeps its existing meaning instead of having
-    // it claim a server set it did not compute.
+  it('preserves the last emitted server set across the skills-only reconciler', () => {
+    // The skills self-heal runs after a full bootstrap and renders no config.
+    // It must not degrade the governance receipt to an vacuous allowlist.
+    const paths = resolveCommandEveRuntimeBootstrapPaths(tmpRoot);
+    fs.mkdirSync(path.dirname(paths.runtimeReconciliation), { recursive: true });
+    fs.writeFileSync(
+      paths.runtimeReconciliation,
+      JSON.stringify({
+        version: 'command-eve-runtime-reconciliation/v0',
+        hermes_config: { mcp_servers: ['aionui-image-generation', 'aionui-eve-artifacts'] },
+      })
+    );
+    ensureCommandEveManagedSkillsReconciliation({ userDataPath: tmpRoot });
+    expect(JSON.parse(fs.readFileSync(paths.runtimeReconciliation, 'utf8')).hermes_config.mcp_servers).toEqual([
+      'aionui-image-generation',
+      'aionui-eve-artifacts',
+    ]);
     expect(reconcile().hermes_config.mcp_servers).toEqual([]);
   });
 

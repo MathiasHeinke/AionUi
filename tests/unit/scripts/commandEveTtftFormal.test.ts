@@ -162,6 +162,38 @@ describe('Command EVE TTFT formal correlation', () => {
     expect(JSON.stringify(receipt)).not.toContain('message-b');
   });
 
+  it('accepts Core task readiness before the renderer observes the admitted 202 response', () => {
+    const receipt = buildCommandEveTtftFormalReceipt({
+      ...exactEvidence,
+      marks: exactTurnMarks(),
+      runtimeReadiness: {
+        ...exactEvidence.runtimeReadiness,
+        taskReadyAtEpochMs: 1_180,
+      },
+    });
+
+    expect(receipt.outcome).toBe('PASS');
+    expect(receipt.violations).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('turn_admitted -> task ready')])
+    );
+  });
+
+  it('still rejects task readiness that predates the settled warmup boundary', () => {
+    const receipt = buildCommandEveTtftFormalReceipt({
+      ...exactEvidence,
+      marks: exactTurnMarks(),
+      runtimeReadiness: {
+        ...exactEvidence.runtimeReadiness,
+        taskReadyAtEpochMs: 1_080,
+      },
+    });
+
+    expect(receipt.outcome).toBe('INSUFFICIENT_EVIDENCE');
+    expect(receipt.violations).toEqual(
+      expect.arrayContaining([expect.stringContaining('warmup settled -> task ready')])
+    );
+  });
+
   it('does not let a delayed old finish or assistant node fulfill the admitted turn', () => {
     const marks = exactTurnMarks().filter((candidate) => candidate.stage !== 'response_finished');
     marks.push(

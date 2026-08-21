@@ -16,6 +16,7 @@ const LocalImageView: React.FC<{
 } = ({ src, alt, className }) => {
   const [loading, setLoading] = useState(true);
   const [url, setUrl] = useState(src);
+  const [failed, setFailed] = useState(false);
   const { root } = useLocalImage();
 
   const absolutePath = useMemo(() => {
@@ -35,11 +36,14 @@ const LocalImageView: React.FC<{
 
   useEffect(() => {
     setLoading(true);
+    setFailed(false);
     ipcBridge.fs.getImageBase64
       .invoke({ path: absolutePath, workspace: root || undefined })
       .then((base64) => {
         if (base64) {
           setUrl(base64);
+        } else {
+          setFailed(true);
         }
         setLoading(false);
       })
@@ -48,9 +52,10 @@ const LocalImageView: React.FC<{
           path: absolutePath,
           error,
         });
+        setFailed(true);
         setLoading(false);
       });
-  }, [absolutePath]);
+  }, [absolutePath, root]);
   if (loading)
     return (
       <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -58,7 +63,14 @@ const LocalImageView: React.FC<{
         <span>{alt}</span>
       </span>
     );
-  return <img src={url} alt={alt} className={className} />;
+  if (failed) {
+    return alt ? (
+      <span role='img' aria-label={alt} className={className} data-testid='local-image-fallback'>
+        {alt}
+      </span>
+    ) : null;
+  }
+  return <img src={url} alt={alt} className={className} onError={() => setFailed(true)} />;
 };
 
 LocalImageView.Provider = LocalImageProvider;

@@ -21,6 +21,12 @@ export const COMMAND_EVE_PUBLIC_KEY_FILES = Object.freeze([
   'command-eve-license-public-key-server.pem',
 ]);
 
+export const COMMAND_EVE_EDITORIAL_PDF_DESIGN_FILES = Object.freeze([
+  'SKILL.md',
+  'references/cover-export-qa.md',
+  'scripts/render_pdf_pages_macos.jxa',
+]);
+
 /**
  * G2 (CEVE-18205) — the Hermes wheel is the ONE bundled wheel nothing verified.
  *
@@ -40,7 +46,7 @@ export const COMMAND_EVE_HERMES_WHEEL = Object.freeze({
   name: 'hermes-agent',
   version: '0.20.0',
   filename: 'hermes_agent-0.20.0-py3-none-any.whl',
-  sha256: '0fcd755a455743869b00c3831ec01bd71e9c392c8b3c1fedaa9da45d99d9b67e',
+  sha256: 'bec95a22b43c2ca675ffa39a810ad62aae020086069d16d7de33fc808b4787e7',
   required_entries: Object.freeze(['tools/browser_use_cli.py']),
 });
 
@@ -145,7 +151,7 @@ const COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION = 'command-eve-artifact-python
 const COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT = 'command-eve-artifact-python-runtime.json';
 const COMMAND_EVE_HERMES_RUNTIME_SOURCE_LOCK_FILE = 'hermes-runtime-darwin-arm64.tsv';
 const COMMAND_EVE_HERMES_RUNTIME_PACKAGED_LOCK_FILE = 'command-eve-hermes-runtime.lock.tsv';
-const COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 = 'df692adb500889aa3c92e94dfa5bef17dd3a89b6ea2570e7c1e706800c62cad3';
+const COMMAND_EVE_HERMES_RUNTIME_LOCK_SHA256 = '3e9fbc51acbe9f0088d1e6d73571b59a9e2b1e35fe8f40a89d00e928184e3521';
 const NATIVE_ARCHIVE_ENTRY_PATTERN = /\.(?:so|dylib|dll|pyd|node)$/i;
 
 const MACH_O_ARCH_BY_BUILDER_ARCH = Object.freeze({
@@ -828,6 +834,27 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
     };
   });
 
+  const sourceEditorialPdfDesignDirectory = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../resources/bundled-skills/editorial-pdf-design'
+  );
+  const editorialPdfDesign = COMMAND_EVE_EDITORIAL_PDF_DESIGN_FILES.map((relativePath) => {
+    const sourcePath = path.join(sourceEditorialPdfDesignDirectory, relativePath);
+    const packagedPath = path.join(resourcesPath, 'bundled-skills', 'editorial-pdf-design', relativePath);
+    const sourceBytes = readRequiredRegularFile(sourcePath, `source editorial-pdf-design ${relativePath}`, deps);
+    const packagedBytes = readRequiredRegularFile(packagedPath, `packaged editorial-pdf-design ${relativePath}`, deps);
+    if (!sourceBytes.equals(packagedBytes)) {
+      throw new Error(
+        `PACKAGED-RESOURCES: packaged editorial-pdf-design ${relativePath} is not byte-identical to its source`
+      );
+    }
+    return {
+      file: relativePath,
+      bytes: packagedBytes.length,
+      sha256: sha256(packagedBytes),
+    };
+  });
+
   const presentationDirectory = path.join(resourcesPath, 'bundled-hermes', 'presentation');
   assertDirectory(presentationDirectory, 'packaged presentation Python bundle', deps);
   const presentationManifestPath = path.join(presentationDirectory, 'manifest.json');
@@ -953,6 +980,9 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
     builder_arch: expectedArch,
     executable_architectures: architectures,
     keys,
+    editorial_pdf_design: {
+      files: editorialPdfDesign,
+    },
     presentation_python: {
       bundle_version: COMMAND_EVE_PRESENTATION_PYTHON_BUNDLE_VERSION,
       offline_only: true,

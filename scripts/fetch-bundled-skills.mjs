@@ -244,6 +244,9 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   // legal-enforcement-dach (ENTWURF-only, PII-Redaktions-Bypass ENTFERNT, Anwalt-zeichnet-
   // Human-Gate, „kein Rechtsrat"-Disclaimer).
   { id: 'ai-coding-delegation' },
+  // General PDF production owns neutral reports, covers, brochures and PDF edits.
+  // The lead-magnet method remains a separate intent-specific conversion workflow.
+  { id: 'editorial-pdf-design', requiredFiles: ['references/cover-export-qa.md'] },
   { id: 'lead-magnet-pdf' },
   { id: 'skill-authoring' },
   { id: 'legal-enforcement-dach' },
@@ -427,6 +430,7 @@ export const SKILL_IDS_REQUIRING_RUNTIME_INVISIBILITY = Object.freeze([
   'eve-doctrine',
   'presentation-studio',
   'office-studio',
+  'editorial-pdf-design',
   'lead-magnet-pdf',
   'autor-studio',
   'essay-writer',

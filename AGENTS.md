@@ -66,6 +66,30 @@ condition, and prove the real bundled path rather than a substitute harness.
 The extended operating doctrine is maintained in the Company.OS workspace at
 `docs/operations/command-eve-native-first-build-doctrine.md`.
 
+Hard Clean-Code constraints for Command EVE:
+
+- Choose the simplest complete native path. A passing custom subsystem is not
+  acceptable when Hermes/AionUI/AionCore already owns the responsibility.
+- Composer tool pills are intent signals to Hermes, not alternate execution
+  engines. Hermes receives the conversation context and invokes the native
+  tool/plugin; the renderer must not call a provider with only the latest
+  textbox value.
+- Existing permission modes are authoritative. `Voll` allows normal tool use,
+  including paid image/video generation while credits are available. Lower
+  modes use the existing native allow-once/allow-always/revoke flow. Do not add
+  another permit UI, consent store, or medium-specific approval machine.
+- Add a new security boundary only for a reproduced invariant missing from the
+  bundled runtime. Hypothetical risk does not justify a new token, receipt,
+  validator, broker, queue, store, or state machine.
+- File creation has one generic completion lifecycle. PDF, PPTX, DOCX, and XLSX
+  may have different plugins and byte validators, but not separate authority,
+  registration, or delivery architectures.
+- Production files should remain well below 800 lines. Up to 1000 lines needs a
+  named reviewed exception. Do not add feature logic to files already above
+  1000 lines; extract one clear responsibility or use the native owner first.
+- When a local wiring bug requires another cross-layer special case, stop and
+  simplify before editing. Prefer deleting a workaround over extending it.
+
 Two process types — never mix their APIs:
 
 | Process  | Path                             | Restriction     |

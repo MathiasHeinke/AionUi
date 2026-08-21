@@ -95,13 +95,13 @@ import type { CommandEveVideoEditRequest, CommandEveVideoEditResult } from '../c
 import type { VideoCatalogEntry } from '../config/videoCatalogCore';
 import type { CommandEveActiveImageArtifact } from '../config/managedImageArtifactCore';
 import type {
+  CommandEveManagedArtifactInputRequest,
+  CommandEveManagedArtifactInputResolution,
+} from '../config/managedArtifactInputCore';
+import type {
   CommandEveAttachmentGroundingReceipt,
   CommandEveAttachmentGroundingRequest,
 } from '../config/eveAttachmentGroundingCore';
-import type {
-  CommandEveImageGenerateRequest,
-  CommandEveImageGenerateResult,
-} from '../config/eveManagedImageGenerationCore';
 
 /**
  * 1.820.3 — the renderer-facing shapes of the managed image artifact lane.
@@ -2160,6 +2160,18 @@ export const commandEve = {
             status: 'refused';
             reasonCode: CommandEveOfficeArtifactRefusalReason;
           };
+      mediaEditOperation?:
+        | { status: 'ready' }
+        | {
+            status: 'refused';
+            reasonCode:
+              | 'invalid-request'
+              | 'turn-unavailable'
+              | 'artifact-unavailable'
+              | 'operation-disabled'
+              | 'permit-unavailable'
+              | 'preparation-failed';
+          };
       officeOperation?:
         | { status: 'ready' }
         | {
@@ -2173,11 +2185,11 @@ export const commandEve = {
       userTurnText?: string;
       referenceImagePaths?: string[];
       /**
-       * 1.820.3 fail-closed spend gate: the ONE operation this turn's permit
-       * may authorise, resolved renderer-side by `resolveEditAuthorization`.
+       * The existing video-only spend gate, resolved renderer-side by
+       * `resolveEditAuthorization`.
        * Absent → Main mints NO permit.
        */
-      requestedEditOperation?: 'video_edit' | 'image_edit';
+      requestedEditOperation?: 'video_edit';
       /** Main resolves this so the renderer cannot mint document authority. */
       requestedOfficeMode?: 'word' | 'excel';
       /** Reusing queue identity prevents retries from minting another operation. */
@@ -2210,11 +2222,6 @@ export const commandEve = {
   videoEdit: bridge.buildProvider<IBridgeResponse<CommandEveVideoEditResult>, CommandEveVideoEditRequest>(
     'command-eve.video-edit'
   ),
-  // Explicit composer image turn. Main validates every option, owns the
-  // gateway request id, and returns an already-bound conversation artifact.
-  imageGenerate: bridge.buildProvider<IBridgeResponse<CommandEveImageGenerateResult>, CommandEveImageGenerateRequest>(
-    'command-eve.image-generate'
-  ),
   // 1.820.3 — the managed IMAGE artifact lane (staged-handle contract).
   // BIND: the renderer read the staged handle out of the finished turn's tool
   // output; Main flips staged→active, scopes the record to this conversation
@@ -2236,6 +2243,13 @@ export const commandEve = {
     IBridgeResponse<ICommandEveImageArtifactPreview | null>,
     { conversationId: string; artifactId: string }
   >('command-eve.image-artifact-preview'),
+  // Main verifies the active record's exact seat + conversation + bytes, then
+  // returns one private immutable agent-file path. It is never model-visible
+  // message/envelope/tool-result content.
+  artifactInputResolve: bridge.buildProvider<
+    IBridgeResponse<CommandEveManagedArtifactInputResolution>,
+    CommandEveManagedArtifactInputRequest
+  >('command-eve.artifact-input-resolve'),
   // LEGACY IMPORT: the one-time, strictly confined adoption of the
   // pre-contract P1 proof file. conversationId is the CANONICAL conversation
   // the record binds to; legacyWorkspaceId is the Hermes workspace folder the

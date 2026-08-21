@@ -64,12 +64,22 @@ import {
   verifyCanonicalArtifact,
   type CanonicalArtifactPlacement,
 } from '@process/services/project-workspace/storage/canonicalArtifactPlacement';
+import {
+  findRecoverableStagedImageEditArtifact as findRecoverableStagedImageEditArtifactFromStore,
+  type RecoverableStagedImageEditArtifact,
+} from './imageArtifactStagedRecovery';
+import {
+  MANAGED_IMAGE_ARTIFACT_BLOBS_SUBDIR as BLOBS_SUBDIR,
+  MANAGED_IMAGE_ARTIFACT_RECORDS_SUBDIR as RECORDS_SUBDIR,
+  managedImageArtifactBlobFile as blobFile,
+  managedImageArtifactLocationFile as locationFile,
+  managedImageArtifactRecordFile as recordFile,
+  managedImageArtifactStoreRoot as storeRoot,
+  readManagedImageArtifactWorkspace as readArtifactWorkspace,
+  TEMPORARY_IMAGE_ARTIFACT_NOTICE,
+} from './visual/managedImageArtifactPlacement';
 
-const MANAGED_IMAGE_ARTIFACT_DIR = 'command-eve-managed-image-artifacts';
-const RECORDS_SUBDIR = 'records';
-const BLOBS_SUBDIR = 'blobs';
 const STAGED_SUBDIR = 'staged';
-const LOCATIONS_SUBDIR = 'locations';
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/;
 const SAFE_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -103,33 +113,6 @@ const EXTENSION_TO_MIME: Record<string, string> = {
 };
 
 const LEGACY_IMPORT_DESCRIPTION = 'Aus der bestehenden Arbeitsdatei importiert';
-const TEMPORARY_IMAGE_ARTIFACT_NOTICE =
-  'Dieses Bild gehört zu dieser Unterhaltung und ist nur temporär abgelegt. Ordne die Unterhaltung einem Projekt zu, um es dauerhaft im Projektordner zu sichern.';
-
-function storeRoot(dataPath: string): string {
-  return path.join(path.resolve(dataPath), MANAGED_IMAGE_ARTIFACT_DIR);
-}
-
-function recordFile(dataPath: string, artifactId: string): string {
-  return path.join(storeRoot(dataPath), RECORDS_SUBDIR, `${artifactId}.json`);
-}
-
-function blobFile(dataPath: string, artifactId: string): string {
-  return path.join(storeRoot(dataPath), BLOBS_SUBDIR, artifactId);
-}
-
-function locationFile(dataPath: string, artifactId: string): string {
-  return path.join(storeRoot(dataPath), LOCATIONS_SUBDIR, `${artifactId}.json`);
-}
-
-function readArtifactWorkspace(dataPath: string, artifactId: string): string | undefined {
-  try {
-    const value = JSON.parse(fs.readFileSync(locationFile(dataPath, artifactId), 'utf8')) as Record<string, unknown>;
-    return typeof value.workspace === 'string' && path.isAbsolute(value.workspace) ? value.workspace : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 function stagedHandleFile(dataPath: string, handle: string): string {
   const key = crypto.createHash('sha256').update(handle).digest('hex');
@@ -282,6 +265,37 @@ export function readImageArtifactRecordByStagedHandle(
   if (!staged || staged.seat_id !== expectedSeatId || nowMs > staged.expires_at_ms) return undefined;
   const record = readImageArtifactRecordById(dataPath, staged.artifact_id, expectedSeatId);
   return record?.id === staged.artifact_id && record.seat_id === staged.seat_id ? record : undefined;
+}
+
+export type { RecoverableStagedImageEditArtifact } from './imageArtifactStagedRecovery';
+
+/**
+ * Find the single still-staged paid edit child bound to an exact deterministic
+ * request identity.
+ *
+ * This is intentionally a recovery lookup over the existing staged-handle
+ * store, not a second ledger. The request digest is persisted on the artifact
+ * record itself; the handle entry proves which opaque handle names that exact
+ * child. Ambiguous matches fail closed so a retry can never choose one of two
+ * paid outputs by accident.
+ */
+export function findRecoverableStagedImageEditArtifact(
+  dataPath: string,
+  input: {
+    expectedSeatId: string;
+    parentArtifactId: string;
+    editRequestSha256: string;
+    nowMs?: number;
+  }
+): RecoverableStagedImageEditArtifact | undefined {
+  return findRecoverableStagedImageEditArtifactFromStore(dataPath, input, {
+    stagedDirectory: (root) => path.join(storeRoot(root), STAGED_SUBDIR),
+    isValidSeatId: (seatId) => sanitizeSeatId(seatId) === seatId,
+    isSafeArtifactId: (artifactId) => SAFE_ID.test(artifactId),
+    readStagedHandleFile,
+    readImageArtifactRecordById,
+    readImageArtifactBytes,
+  });
 }
 
 /** A record by id, or `undefined`. Unreadable and malformed both read as absent. */
@@ -471,6 +485,7 @@ export interface StageGeneratedImageArtifactInput {
   promptSha256: string;
   nameHint?: string;
   parentArtifactId?: string;
+  editRequestSha256?: string;
   nowMs?: number;
   randomBytes?: (size: number) => Uint8Array;
   newArtifactId?: () => string;
@@ -491,6 +506,8 @@ export function stageGeneratedImageArtifact(
 ): { record: CommandEveManagedImageArtifact; handle: string } | undefined {
   if (!input.bytes || input.bytes.length < 8 || input.bytes.length > MANAGED_IMAGE_ARTIFACT_MAX_BYTES) return undefined;
   if (!isSha256Hex(input.promptSha256)) return undefined;
+  if (input.editRequestSha256 !== undefined && !isSha256Hex(input.editRequestSha256)) return undefined;
+  if (input.editRequestSha256 !== undefined && input.parentArtifactId === undefined) return undefined;
   if (sanitizeSeatId(input.capturedSeatId) !== input.capturedSeatId) return undefined;
   const nowMs = input.nowMs ?? Date.now();
   const randomBytes = input.randomBytes ?? ((size: number) => new Uint8Array(crypto.randomBytes(size)));
@@ -524,6 +541,7 @@ export function stageGeneratedImageArtifact(
         aspect_ratio: input.aspectRatio,
         prompt_sha256: input.promptSha256,
         ...(input.parentArtifactId === undefined ? {} : { parent_artifact_id: input.parentArtifactId }),
+        ...(input.editRequestSha256 === undefined ? {} : { edit_request_sha256: input.editRequestSha256 }),
       },
       created_at: nowMs,
       updated_at: nowMs,

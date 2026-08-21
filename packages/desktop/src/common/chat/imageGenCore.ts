@@ -166,6 +166,8 @@ export interface ImageGenParams {
   image_uris?: string[] | string;
   aspect_ratio?: string;
   resolution?: string;
+  /** Hermes-owned idempotency key for the managed MCP lane; never model input. */
+  managedRequestId?: string;
 }
 
 export interface ImageGenResult {
@@ -263,12 +265,20 @@ export async function executeImageGeneration(
     }
 
     if (provider.platform === COMMAND_EVE_MANAGED_IMAGE_PLATFORM) {
+      if (!params.managedRequestId) {
+        return {
+          success: false,
+          text: 'Error generating image: Managed image generation requires a Hermes tool-call identity.',
+          error: 'managed_image_request_identity_missing',
+        };
+      }
       const managed = await executeManagedImageGenerationViaShim({
         provider,
         prompt: params.prompt,
         referenceDataUrls,
         aspectRatio: params.aspect_ratio,
         resolution: params.resolution,
+        requestId: params.managedRequestId,
         signal,
       });
       if (managed.ok === false) {
@@ -289,6 +299,9 @@ export async function executeImageGeneration(
           aspectRatio: managed.aspectRatio,
           bytesCount: managed.bytesCount,
           ...(managed.model === undefined ? {} : { model: managed.model }),
+          ...(managed.workspaceRelativePath === undefined
+            ? {}
+            : { workspaceRelativePath: managed.workspaceRelativePath }),
         }),
       };
     }

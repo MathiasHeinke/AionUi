@@ -158,8 +158,22 @@ describe('A — the rung decides the class', () => {
     expect(decideHermesToolApproval({ toolName: 'cronjob', action: 'create' }, renderEveAuthorityRuntime(at(4)))).toBe(
       'allow'
     );
-    expect(decideHermesToolApproval({ toolName: 'image_generate' }, renderEveAuthorityRuntime(at(0)))).toBe('allow');
-    expect(decideHermesToolApproval({ toolName: 'video_generate' }, renderEveAuthorityRuntime(at(0)))).toBe('allow');
+    expect(decideHermesToolApproval({ toolName: 'image_generate' }, renderEveAuthorityRuntime(at(0)))).toBe('ask');
+    expect(decideHermesToolApproval({ toolName: 'video_generate' }, renderEveAuthorityRuntime(at(0)))).toBe('ask');
+    expect(decideHermesToolApproval({ toolName: 'image_generate' }, renderEveAuthorityRuntime(at(5)))).toBe('allow');
+    expect(decideHermesToolApproval({ toolName: 'video_generate' }, renderEveAuthorityRuntime(at(5)))).toBe('allow');
+    expect(
+      decideHermesToolApproval(
+        { toolName: 'mcp__aionui_image_generation__aionui_image_generation' },
+        renderEveAuthorityRuntime(at(0))
+      )
+    ).toBe('ask');
+    expect(
+      decideHermesToolApproval(
+        { toolName: 'mcp__aionui_image_generation__aionui_image_generation' },
+        renderEveAuthorityRuntime(at(5))
+      )
+    ).toBe('allow');
   });
 
   it('keeps outward and skill-deletion seals independent even on Full', () => {

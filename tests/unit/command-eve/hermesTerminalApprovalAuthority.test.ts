@@ -35,10 +35,42 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
 const SOURCE_PATH = path.resolve(process.cwd(), 'packages/desktop/src/process/commandEve/runtimeBootstrapCore.ts');
 const source = fs.readFileSync(SOURCE_PATH, 'utf8');
+
+describe('the bundled Hermes 0.20 ACP callback reaches the native approval gate', () => {
+  it('maps ACP once/session/always and fails closed on timeout or missing human', () => {
+    const harness = spawnSync(
+      'python3',
+      [
+        path.resolve('tests/fixtures/command-eve/hermes_native_approval_contract_harness.py'),
+        path.resolve('resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl'),
+      ],
+      { encoding: 'utf8', timeout: 30_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
+    );
+
+    expect(harness.status, harness.stderr || harness.stdout).toBe(0);
+    expect(JSON.parse(harness.stdout)).toEqual({
+      exact_wheel_function_executed: true,
+      exact_wheel_acp_callback_executed: true,
+      exact_wheel_async_bridge_executed: true,
+      exact_wheel_server_wiring_observed: true,
+      acp_request_call_shape_exact: true,
+      always_persists_exact_plugin_rule_key: true,
+      same_key_skips_human: true,
+      changed_key_asks_again: true,
+      once_does_not_persist: true,
+      session_persists_only_in_session: true,
+      timeout_fails_closed: true,
+      missing_acp_loop_fails_closed: true,
+      missing_human_fails_closed: true,
+      callback_option_scope_respected: true,
+    });
+  });
+});
 
 /** The installer block, from its def to the next top-level installer def. */
 function installerBlock(): string {
@@ -154,6 +186,9 @@ describe("THE REWRITTEN HALF — the seat's grant decides the class, not a const
     expect(patch).toContain('from acp_adapter import server as acp_server');
     expect(patch).toContain('acp_server.make_approval_callback = command_eve_make_approval_callback');
     expect(patch).toContain('acp_server.make_approval_callback is not acp_permissions.make_approval_callback');
+    expect(patch).toContain('from tools import approval as hermes_approval');
+    expect(patch).toContain('platform == "acp" and bool(hermes_approval._is_interactive_cli())');
+    expect(patch).toContain('_command_eve_acp_interactive_patch');
 
     const stateGate = source.slice(
       source.indexOf("'def _command_eve_permission_authority_patch_state() -> tuple[bool, str]:'"),
@@ -161,6 +196,7 @@ describe("THE REWRITTEN HALF — the seat's grant decides the class, not a const
     );
     expect(stateGate).toContain('server approval factory not bound to seat authority');
     expect(stateGate).toContain('_ce_approval_factory is not getattr(_ce_permissions, "make_approval_callback", None)');
+    expect(stateGate).toContain('ACP approval routing not bound to interactive callback');
   });
 
   it('the session folder is recorded where the ACP layer actually hands it over', () => {

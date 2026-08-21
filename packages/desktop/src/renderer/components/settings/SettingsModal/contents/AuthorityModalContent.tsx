@@ -672,23 +672,22 @@ const AuthorityModalContent: React.FC = () => {
           description={t('commandEve.authority.rememberedDescription')}
           bodyClassName={remembered.length === 0 ? undefined : 'eve-settings-list'}
         >
-          {remembered.length === 0 ? (
+          {remembered.map((entry) => (
+            <PreferenceRow
+              key={entry.command}
+              label={<code className='break-all text-13px'>{entry.command}</code>}
+              description={t('commandEve.authority.grantedAt', {
+                date: new Date(entry.grantedAt).toLocaleDateString(),
+              })}
+              testId='remembered-row'
+            >
+              <Button size='mini' status='danger' onClick={() => onForget(entry.command)}>
+                {t('commandEve.authority.forget')}
+              </Button>
+            </PreferenceRow>
+          ))}
+          {remembered.length === 0 && (
             <div className='eve-settings-muted'>{t('commandEve.authority.rememberedEmpty')}</div>
-          ) : (
-            remembered.map((entry) => (
-              <PreferenceRow
-                key={entry.command}
-                label={<code className='break-all text-13px'>{entry.command}</code>}
-                description={t('commandEve.authority.grantedAt', {
-                  date: new Date(entry.grantedAt).toLocaleDateString(),
-                })}
-                testId='remembered-row'
-              >
-                <Button size='mini' status='danger' onClick={() => onForget(entry.command)}>
-                  {t('commandEve.authority.forget')}
-                </Button>
-              </PreferenceRow>
-            ))
           )}
         </SettingsSection>
       </div>

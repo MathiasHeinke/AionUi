@@ -191,6 +191,8 @@ describe('v1.6 Beat 2 — Session-1-Artefakt-Skill (D6-Merge)', () => {
     expect(md).toContain('images, videos, audio clips, HTML screens, reports, files, markdown tables, code snippets');
     expect(md).toContain('return a visible failure artifact instead of silently stopping');
     expect(md).toContain('MEDIA: <absolute-local-path-or-https-url>');
+    expect(md).toContain('PDF/DOCX/XLSX/PPTX/HTML documents in `dokumente/`');
+    expect(md).toContain('the image stays in `bilder/` and the resulting document goes to `dokumente/`');
     expect(md).toContain('For local HTML, use the absolute path to the generated .html file');
     expect(md).toContain('Never use a transient loopback URL such as 127.0.0.1 or localhost');
     expect(md).toContain('Do not paste a bare file path as the only answer');
@@ -203,6 +205,20 @@ describe('v1.6 Beat 2 — Session-1-Artefakt-Skill (D6-Merge)', () => {
     expect(md).toContain('this skill itself grants no filesystem rights and does not stop or cancel turns');
     expect(md).toContain('native Save-As flow');
     expect(md).toContain('Do this proactively');
+  });
+
+  it('binds the PDF skill output to the canonical documents folder', () => {
+    const body = fs.readFileSync(
+      path.resolve(__dirname, '../../../resources/bundled-skills/lead-magnet-pdf/SKILL.md'),
+      'utf8'
+    );
+    expect(body).toContain('the rendered PDF in the active workspace');
+    expect(body).toContain('Never place a PDF beside its source image in `bilder/`');
+    expect(body).toContain('MEDIA: <absolute-path-to-the-rendered-.pdf-in-dokumente>');
+    expect(body).toContain('MEDIA: <absolute-path-to-the-html-source-in-dokumente>');
+    expect(body).toContain('outside code');
+    expect(body).toContain('two `MEDIA:` lines total');
+    expect(body).toContain('no duplicate PDF/HTML carriers');
   });
 
   it('carries the honest menu, the fabrication kill-switch, and budget honesty', async () => {

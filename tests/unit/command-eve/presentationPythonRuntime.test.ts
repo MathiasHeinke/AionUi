@@ -17,6 +17,7 @@ import {
   commandEvePresentationPythonInstallArgs,
   commandEvePresentationPythonProbeArgs,
   resolveCommandEvePresentationPythonBundleDir,
+  resolveCommandEvePresentationPythonNativeWheelsDir,
   verifyCommandEvePresentationPythonBundle,
 } from '@process/commandEve/presentationPythonRuntimeCore';
 
@@ -103,5 +104,37 @@ describe('bundled presentation Python runtime', () => {
     expect(commandEveArtifactPythonPackages('win32')).toHaveLength(14);
     expect(commandEveArtifactPythonPackages('win32').map((entry) => entry.name)).toContain('colorama');
     expect(probe).not.toContain('PyMuPDF');
+  });
+
+  it('adds the reviewed cp312 native wheels when a fresh macOS Hermes candidate needs the document fallback', () => {
+    const resourcesPath = path.resolve('resources');
+    const nativeWheelsDir = path.join(resourcesPath, 'bundled-python-artifacts', 'darwin-arm64');
+    const context = {
+      resourcesPath,
+      platform: 'darwin' as const,
+      architecture: 'arm64' as const,
+      pythonVersion: 'Python 3.12.13',
+    };
+
+    expect(resolveCommandEvePresentationPythonNativeWheelsDir(context)).toBe(nativeWheelsDir);
+    const installArgs = commandEvePresentationPythonInstallArgs(SOURCE_BUNDLE, context);
+    expect(installArgs.filter((arg) => arg === '--find-links')).toHaveLength(2);
+    expect(installArgs).toContain(nativeWheelsDir);
+    expect(installArgs).toContain('lxml==6.1.1');
+    expect(installArgs).toContain('Pillow==12.3.0');
+  });
+
+  it('does not offer cp312 native wheels to an ABI-mismatched Python candidate', () => {
+    const context = {
+      resourcesPath: path.resolve('resources'),
+      platform: 'darwin' as const,
+      architecture: 'arm64' as const,
+      pythonVersion: 'Python 3.13.7',
+    };
+
+    expect(resolveCommandEvePresentationPythonNativeWheelsDir(context)).toBe('');
+    const installArgs = commandEvePresentationPythonInstallArgs(SOURCE_BUNDLE, context);
+    expect(installArgs.filter((arg) => arg === '--find-links')).toHaveLength(1);
+    expect(installArgs).not.toContain('lxml==6.1.1');
   });
 });

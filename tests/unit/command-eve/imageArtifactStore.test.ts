@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   bindStagedImageArtifact,
+  findRecoverableStagedImageEditArtifact,
   importLegacyImageArtifact,
   listActiveImageArtifacts,
   MANAGED_IMAGE_ARTIFACT_RECOVERY_RETENTION_MS,
@@ -33,7 +34,7 @@ let dataRoot: string;
 function stage(
   nowMs = Date.now(),
   capturedSeatId = SEAT_A,
-  extra: { parentArtifactId?: string; newArtifactId?: () => string } = {}
+  extra: { parentArtifactId?: string; editRequestSha256?: string; newArtifactId?: () => string } = {}
 ) {
   const staged = stageGeneratedImageArtifact(dataRoot, {
     capturedSeatId,
@@ -80,6 +81,88 @@ describe('STAGE', () => {
   it('an unbound staged record is listed for NO conversation', () => {
     stage();
     expect(listActiveImageArtifacts(dataRoot, 'conv-1', SEAT_A)).toEqual([]);
+  });
+
+  it('recovers exactly one paid edit child by its durable request binding and fails closed on ambiguity', () => {
+    const requestSha256 = 'a'.repeat(64);
+    const first = stage(Date.now(), SEAT_A, {
+      parentArtifactId: 'img_parent',
+      editRequestSha256: requestSha256,
+      newArtifactId: () => 'img_child_one',
+    });
+
+    expect(first.record.payload.edit_request_sha256).toBe(requestSha256);
+    expect(
+      findRecoverableStagedImageEditArtifact(dataRoot, {
+        expectedSeatId: SEAT_A,
+        parentArtifactId: 'img_parent',
+        editRequestSha256: requestSha256,
+      })
+    ).toEqual({ record: first.record, handle: first.handle });
+    expect(
+      findRecoverableStagedImageEditArtifact(dataRoot, {
+        expectedSeatId: SEAT_B,
+        parentArtifactId: 'img_parent',
+        editRequestSha256: requestSha256,
+      })
+    ).toBeUndefined();
+    expect(
+      findRecoverableStagedImageEditArtifact(dataRoot, {
+        expectedSeatId: SEAT_A,
+        parentArtifactId: 'img_other',
+        editRequestSha256: requestSha256,
+      })
+    ).toBeUndefined();
+    expect(
+      findRecoverableStagedImageEditArtifact(dataRoot, {
+        expectedSeatId: SEAT_A,
+        parentArtifactId: 'img_parent',
+        editRequestSha256: 'b'.repeat(64),
+      })
+    ).toBeUndefined();
+
+    stage(Date.now() + 1, SEAT_A, {
+      parentArtifactId: 'img_parent',
+      editRequestSha256: requestSha256,
+      newArtifactId: () => 'img_child_two',
+    });
+    expect(
+      findRecoverableStagedImageEditArtifact(dataRoot, {
+        expectedSeatId: SEAT_A,
+        parentArtifactId: 'img_parent',
+        editRequestSha256: requestSha256,
+      })
+    ).toBeUndefined();
+  });
+
+  it('refuses an edit request binding without a parent or with a malformed digest', () => {
+    expect(
+      stageGeneratedImageArtifact(dataRoot, {
+        capturedSeatId: SEAT_A,
+        bytes: BYTES,
+        mimeType: 'image/png',
+        tier: 'quality',
+        model: 'gemini',
+        resolution: '1K',
+        aspectRatio: '16:9',
+        promptSha256: PROMPT_SHA,
+        editRequestSha256: 'a'.repeat(64),
+      })
+    ).toBeUndefined();
+    expect(
+      stageGeneratedImageArtifact(dataRoot, {
+        capturedSeatId: SEAT_A,
+        bytes: BYTES,
+        mimeType: 'image/png',
+        tier: 'quality',
+        model: 'gemini',
+        resolution: '1K',
+        aspectRatio: '16:9',
+        promptSha256: PROMPT_SHA,
+        parentArtifactId: 'img_parent',
+        editRequestSha256: 'bad',
+      })
+    ).toBeUndefined();
   });
 
   it('fsyncs every persisted record and blob so a crash after rename cannot empty a paid artifact', () => {

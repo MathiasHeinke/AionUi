@@ -21,6 +21,7 @@ import { useImageComposerSelection } from '@/renderer/components/billing/useImag
 import { resolveReferenceCapableImageModelTier } from '@/common/config/eveImageModelRegistryCore';
 import {
   DEFAULT_COMPOSER_WORK_PRODUCT_SELECTION,
+  composerWorkProductModeSupportsImageGeneration,
   selectExplicitComposerWorkProductMode,
   type ComposerWorkProductMode,
   type ComposerWorkProductSelection,
@@ -231,7 +232,7 @@ const GuidPage: React.FC = () => {
           : selectExplicitComposerWorkProductMode(
               mode,
               undefined,
-              mode === 'image'
+              composerWorkProductModeSupportsImageGeneration(mode)
                 ? {
                     tierId: imageComposerSelection.tierId,
                     aspectRatio: imageComposerSelection.aspectRatio,
@@ -247,8 +248,8 @@ const GuidPage: React.FC = () => {
     (tierId: typeof imageComposerSelection.tierId) => {
       imageComposerSelection.setTierId(tierId, { persist: !isImageEdit });
       setComposerSelection((selection) =>
-        selection.mode === 'image'
-          ? selectExplicitComposerWorkProductMode('image', undefined, {
+        composerWorkProductModeSupportsImageGeneration(selection.mode)
+          ? selectExplicitComposerWorkProductMode(selection.mode, undefined, {
               tierId,
               aspectRatio: imageComposerSelection.aspectRatio,
               resolution: imageComposerSelection.resolution,
@@ -267,8 +268,8 @@ const GuidPage: React.FC = () => {
     (resolution: '1K' | '2K') => {
       imageComposerSelection.setResolution(resolution);
       setComposerSelection((selection) =>
-        selection.mode === 'image'
-          ? selectExplicitComposerWorkProductMode('image', undefined, {
+        composerWorkProductModeSupportsImageGeneration(selection.mode)
+          ? selectExplicitComposerWorkProductMode(selection.mode, undefined, {
               tierId: selection.imageOptions?.tierId ?? imageComposerSelection.tierId,
               aspectRatio: imageComposerSelection.aspectRatio,
               resolution,
@@ -282,8 +283,8 @@ const GuidPage: React.FC = () => {
     (aspectRatio: typeof imageComposerSelection.aspectRatio) => {
       imageComposerSelection.setAspectRatio(aspectRatio);
       setComposerSelection((selection) =>
-        selection.mode === 'image'
-          ? selectExplicitComposerWorkProductMode('image', undefined, {
+        composerWorkProductModeSupportsImageGeneration(selection.mode)
+          ? selectExplicitComposerWorkProductMode(selection.mode, undefined, {
               tierId: selection.imageOptions?.tierId ?? imageComposerSelection.tierId,
               aspectRatio,
               resolution: imageComposerSelection.resolution,
@@ -854,7 +855,10 @@ const GuidPage: React.FC = () => {
   const workProductControls = (
     <>
       <ImageModelPill
-        visible={composerSelection.mode === 'image' && (!isImageEdit || imageComposerSelection.registry !== null)}
+        visible={
+          composerWorkProductModeSupportsImageGeneration(composerSelection.mode) &&
+          (!isImageEdit || imageComposerSelection.registry !== null)
+        }
         value={selectedImageTier}
         onChange={handleImageModelTierChange}
         registry={imageComposerSelection.registry}
@@ -864,7 +868,10 @@ const GuidPage: React.FC = () => {
         referenceCount={imageReferenceCount}
       />
       <ImageAspectRatioPill
-        visible={composerSelection.mode === 'image' && (!isImageEdit || imageComposerSelection.registry !== null)}
+        visible={
+          composerWorkProductModeSupportsImageGeneration(composerSelection.mode) &&
+          (!isImageEdit || imageComposerSelection.registry !== null)
+        }
         value={imageComposerSelection.aspectRatio}
         onChange={handleImageAspectRatioChange}
       />

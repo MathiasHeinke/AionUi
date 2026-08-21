@@ -58,6 +58,7 @@ import {
   EVE_ARTIFACT_TOOL_VIDEO_GENERATE,
   isToolAdvertised,
 } from './eveArtifactToolSurface';
+import { readCommandEveManagedImageRequestId } from './managedImageRequestIdentityCore';
 
 function isOpaqueCredential(value: string, prefix: string): boolean {
   if (typeof value !== 'string' || value.length !== prefix.length + 64) return false;
@@ -224,24 +225,27 @@ async function main() {
     );
   }
 
-  // 1.820.3 — the IMAGE half of POLICY F, advertised from ITS OWN env carrier
-  // exactly like the video tool above. Same credential pair (handle + permit),
-  // same path-free doctrine in both directions.
+  // 1.820.3 — the IMAGE half of POLICY F, advertised from ITS OWN env carrier.
+  // Hermes' native ACP approval owns consent; the tool exposes only source +
+  // instruction and forwards Hermes' opaque logical call identity internally.
   if (isToolAdvertised(surface, EVE_ARTIFACT_TOOL_IMAGE_EDIT)) {
     server.tool(
       EVE_ARTIFACT_TOOL_IMAGE_EDIT,
       describeEveArtifactTool(surface, EVE_ARTIFACT_TOOL_IMAGE_EDIT),
       {
         handle: handleSchema,
-        permit: permitSchema,
         instruction: z
           .string()
           .min(1)
           .max(2000)
           .describe("What should change about the image, in the user's own terms."),
       },
-      async ({ handle, permit, instruction }) => {
-        const result = await callMain('image_edit', { handle, permit, instruction });
+      async ({ handle, instruction }, extra) => {
+        const requestId = readCommandEveManagedImageRequestId(extra._meta);
+        if (!requestId) {
+          return textResult({ ok: false, reason: 'image-edit-request-identity-missing' }, true);
+        }
+        const result = await callMain('image_edit', { handle, instruction, requestId });
         // Main answers with a staged reference (`img_h_…`) and a parent id —
         // never a path — so nothing here can leak one into the transcript.
         return textResult(result, result.ok !== true);

@@ -895,8 +895,8 @@ export interface CommandEveArtifactContextEnvelopeRequest {
    * carry, resolved by the RENDERER through `resolveEditAuthorization`
    * (mutation semantics + canonical source truth) and passed explicitly.
    *
-   * Main VALIDATES it: exactly `'video_edit'` or `'image_edit'`, anything else
-   * is treated as absent. And ABSENT MEANS NO PERMIT — no legacy `video_edit`
+   * Main VALIDATES it as exactly `'video_edit'`; anything else is treated as
+   * invalid. And ABSENT MEANS NO PERMIT — no legacy `video_edit`
    * default, no derivation from which artifact kinds happen to exist. A turn
    * whose edit intent the app could not resolve carries no spending credential
    * at all; the model choosing a medium is precisely what this field removes.
@@ -910,10 +910,21 @@ export interface CommandEveArtifactContextEnvelopeRequest {
 export type CommandEveArtifactContextEnvelopeResult = Readonly<{
   envelope: string;
   officeAttachment?: CommandEveOfficeArtifactAttachment;
+  mediaEditOperation?:
+    | Readonly<{ status: 'ready' }>
+    | Readonly<{ status: 'refused'; reasonCode: CommandEveMediaEditRefusalReason }>;
   officeOperation?:
     | Readonly<{ status: 'ready' }>
     | Readonly<{ status: 'refused'; reasonCode: CommandEveOfficeArtifactRefusalReason }>;
 }>;
+
+export type CommandEveMediaEditRefusalReason =
+  | 'invalid-request'
+  | 'turn-unavailable'
+  | 'artifact-unavailable'
+  | 'operation-disabled'
+  | 'permit-unavailable'
+  | 'preparation-failed';
 
 /**
  * The sanitized artifact envelope for one conversation, or `''`.
@@ -937,6 +948,12 @@ export async function handleCommandEveArtifactContextEnvelope(
   deps: CommandEveArtifactContextEnvelopeDeps = productionEnvelopeDeps
 ): Promise<CommandEveArtifactContextEnvelopeResult> {
   const conversationId = request?.conversationId;
+  const requestedMediaEditOperation =
+    request?.requestedEditOperation === 'video_edit'
+      ? request.requestedEditOperation
+      : request?.requestedEditOperation !== undefined
+        ? ('invalid' as const)
+        : undefined;
   const requestedOfficeMode =
     request?.requestedOfficeMode === 'word' || request?.requestedOfficeMode === 'excel'
       ? request.requestedOfficeMode
@@ -944,6 +961,9 @@ export async function handleCommandEveArtifactContextEnvelope(
   if (typeof conversationId !== 'string' || conversationId.length === 0) {
     return {
       envelope: '',
+      ...(requestedMediaEditOperation !== undefined
+        ? { mediaEditOperation: { status: 'refused' as const, reasonCode: 'invalid-request' as const } }
+        : {}),
       ...(requestedOfficeMode
         ? {
             officeOperation: { status: 'refused' as const, reasonCode: 'invalid-request' as const },
@@ -956,6 +976,12 @@ export async function handleCommandEveArtifactContextEnvelope(
   let officeAttachment: CommandEveOfficeArtifactAttachment | undefined;
   let officeOperation: CommandEveArtifactContextEnvelopeResult['officeOperation'];
   let officeOperationMarker = '';
+  let mediaEditOperation: CommandEveArtifactContextEnvelopeResult['mediaEditOperation'] =
+    requestedMediaEditOperation === undefined
+      ? undefined
+      : requestedMediaEditOperation === 'invalid'
+        ? { status: 'refused', reasonCode: 'invalid-request' }
+        : undefined;
   if (requestedOfficeMode) {
     const selectedArtifactIds = request?.selectedArtifactIds ?? [];
     const operationRequestId = request?.officeOperationRequestId;
@@ -1021,10 +1047,8 @@ export async function handleCommandEveArtifactContextEnvelope(
     // seat (licence wire readable) advertises by default, `'0'` kill-switches
     // it, and no wire fails closed.
     const paidEnabled = (deps.isVideoEditEnabled ?? (() => isAgentVideoEditAdvertisingEnabled(dataPath)))();
-    // The image half of the same question, resolved HERE (not later) because
-    // the turn pointer below must move on every send while EITHER paid path is
-    // open — an image permit judged against a pointer only the video lane
-    // moved would refuse its own turn.
+    // The image half is independently advertised below. It has no pre-send
+    // permit path: Hermes ACP approval is the native authority for image edits.
     const imagePaidEnabled = (deps.isImageEditEnabled ?? (() => isAgentImageEditAdvertisingEnabled(dataPath)))();
 
     // THE RAW BYTES. Read once, never reassigned, never normalised. `rawUserTurn`
@@ -1059,7 +1083,7 @@ export async function handleCommandEveArtifactContextEnvelope(
     // nothing — a send that could not establish its own turn state has no
     // business handing out authority bound to that turn.
     let turnStateEstablished = false;
-    if ((paidEnabled || imagePaidEnabled) && userTurnPresent) {
+    if (paidEnabled && userTurnPresent) {
       try {
         turnStateEstablished =
           (deps.recordActiveTurn ?? recordActiveUserTurn)(dataPath, conversationId, userTurnSha256) === true;
@@ -1123,15 +1147,11 @@ export async function handleCommandEveArtifactContextEnvelope(
     recordSentImageArtifacts(dataPath, conversationId, request?.referenceImagePaths, referenceEntries, deps);
     const editableVideos = entries.filter((entry) => entry.editable && entry.kind === 'video');
     const editableImages = managedImageEntries.filter((entry) => entry.editable);
-    // Clicking "edit this" is a hard target boundary, not a hint. When an
-    // explicit selection was supplied, a permit may cover only matching,
-    // editable selected entries. An unknown, stale or wrong-medium id therefore
-    // mints nothing instead of falling back to the newest artifact. The legacy
-    // no-selection path remains bounded to the visible editable set.
+    // Clicking "edit this" is a hard target boundary for the video permit.
+    // An unknown or stale selected id mints nothing instead of falling back to
+    // the newest artifact.
     const permitVideos =
       selectedArtifactIds.length === 0 ? editableVideos : editableVideos.filter((entry) => entry.selected === true);
-    const permitImages =
-      selectedArtifactIds.length === 0 ? editableImages : editableImages.filter((entry) => entry.selected === true);
     // POLICY F per medium: a capability is advertised only when the paid path
     // is really enabled AND there is something editable to spend it on. The
     // two media are advertised INDEPENDENTLY — kill-switching one never
@@ -1141,26 +1161,28 @@ export async function handleCommandEveArtifactContextEnvelope(
       ...(imagePaidEnabled && editableImages.length > 0 ? ['eve_image_edit'] : []),
     ];
 
-    // 1.820.3 CoS FAIL-CLOSED GATE — the turn's ONE permit is minted ONLY for
-    // the operation the renderer's authorization resolver named, and ONLY when
-    // that operation is enabled here and has editable artifacts to bind. An
-    // absent or unrecognised `requestedEditOperation` mints NOTHING: no legacy
-    // `video_edit` default, no derivation from artifact kinds. The model never
-    // picks the medium a permit covers; the app decided before the model call.
+    // The pre-send permit belongs to the existing video lane only. Image edit
+    // consent stays in native Hermes ACP and never enters the model context.
     const requestedEditOperation =
-      request?.requestedEditOperation === 'video_edit' || request?.requestedEditOperation === 'image_edit'
-        ? request.requestedEditOperation
-        : undefined;
+      requestedMediaEditOperation === 'video_edit' ? requestedMediaEditOperation : undefined;
 
     let spendPermit: string | undefined;
-    if (requestedEditOperation !== undefined && userTurnPresent && turnStateEstablished) {
+    if (requestedEditOperation !== undefined && !userTurnPresent) {
+      mediaEditOperation = { status: 'refused', reasonCode: 'turn-unavailable' };
+    } else if (requestedEditOperation !== undefined && !turnStateEstablished) {
+      mediaEditOperation = { status: 'refused', reasonCode: 'turn-unavailable' };
+    } else if (requestedEditOperation !== undefined) {
       const issue = deps.issuePermit ?? issueVideoEditSpendPermit;
       // `undefined` here is an ordinary outcome, and one of its causes is POLICY
       // C: a turn that already bought its edit gets no second permit, however
       // many times this path is driven for it. Another is that the mint itself
       // hit a storage failure — in which case it has already denied the
       // conversation on its way out.
-      if (requestedEditOperation === 'video_edit' && paidEnabled && permitVideos.length > 0) {
+      if (requestedEditOperation === 'video_edit' && !paidEnabled) {
+        mediaEditOperation = { status: 'refused', reasonCode: 'operation-disabled' };
+      } else if (requestedEditOperation === 'video_edit' && permitVideos.length === 0) {
+        mediaEditOperation = { status: 'refused', reasonCode: 'artifact-unavailable' };
+      } else if (requestedEditOperation === 'video_edit') {
         spendPermit = issue(dataPath, {
           conversationId,
           userTurnSha256,
@@ -1192,19 +1214,13 @@ export async function handleCommandEveArtifactContextEnvelope(
             .map((entry) => entry.artifactSha256)
             .filter((sha): sha is string => typeof sha === 'string'),
         });
-      } else if (requestedEditOperation === 'image_edit' && imagePaidEnabled && permitImages.length > 0) {
-        // The image half, bound by the same store, TTL and turn digest — but
-        // operation `image_edit`, so a video permit can never buy an image edit
-        // and this permit can never buy a video one.
-        spendPermit = issue(dataPath, {
-          conversationId,
-          userTurnSha256,
-          operation: 'image_edit',
-          allowedArtifactSha256: permitImages
-            .map((entry) => entry.artifactSha256)
-            .filter((sha): sha is string => typeof sha === 'string'),
-        });
       }
+      if (requestedEditOperation !== undefined && spendPermit === undefined && mediaEditOperation === undefined) {
+        mediaEditOperation = { status: 'refused', reasonCode: 'permit-unavailable' };
+      }
+    }
+    if (requestedEditOperation !== undefined && spendPermit !== undefined) {
+      mediaEditOperation = { status: 'ready' };
     }
 
     const artifactEnvelope = buildEveArtifactContextEnvelope({
@@ -1216,6 +1232,7 @@ export async function handleCommandEveArtifactContextEnvelope(
     return {
       envelope: [officeOperationMarker, artifactEnvelope].filter(Boolean).join('\n'),
       ...(officeAttachment ? { officeAttachment } : {}),
+      ...(mediaEditOperation ? { mediaEditOperation } : {}),
       ...(officeOperation ? { officeOperation } : {}),
     };
   } catch {
@@ -1225,6 +1242,9 @@ export async function handleCommandEveArtifactContextEnvelope(
     return {
       envelope: officeOperationMarker,
       ...(officeAttachment ? { officeAttachment } : {}),
+      ...(requestedMediaEditOperation !== undefined
+        ? { mediaEditOperation: { status: 'refused' as const, reasonCode: 'preparation-failed' as const } }
+        : mediaEditOperation),
       ...(officeOperation ? { officeOperation } : {}),
     };
   }

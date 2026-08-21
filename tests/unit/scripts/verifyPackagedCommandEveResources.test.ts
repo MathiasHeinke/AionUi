@@ -7,6 +7,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  COMMAND_EVE_EDITORIAL_PDF_DESIGN_FILES,
   COMMAND_EVE_HERMES_LOCALES,
   COMMAND_EVE_HERMES_WHEEL,
   COMMAND_EVE_PRESENTATION_PYTHON_WHEELS,
@@ -55,6 +56,11 @@ describe('packaged Command EVE resource truth', () => {
     fs.cpSync(path.resolve('resources/bundled-hermes/locales'), path.join(resourcesPath, 'bundled-hermes', 'locales'), {
       recursive: true,
     });
+    fs.cpSync(
+      path.resolve('resources/bundled-skills/editorial-pdf-design'),
+      path.join(resourcesPath, 'bundled-skills', 'editorial-pdf-design'),
+      { recursive: true }
+    );
     const runnerRoot = path.join(resourcesPath, 'bundled-hermes', 'uvx', 'aarch64-apple-darwin');
     fs.mkdirSync(runnerRoot, { recursive: true });
     const runnerPath = path.join(runnerRoot, 'uvx');
@@ -316,6 +322,7 @@ describe('packaged Command EVE resource truth', () => {
     expect(result.status).toBe('PASS');
     expect(result.resources_path).toBe(resourcesPath);
     expect(result.keys.map((key) => key.file)).toEqual(COMMAND_EVE_PUBLIC_KEY_FILES);
+    expect(result.editorial_pdf_design.files.map((file) => file.file)).toEqual(COMMAND_EVE_EDITORIAL_PDF_DESIGN_FILES);
     expect(result.presentation_python.offline_only).toBe(true);
     expect(result.presentation_python.wheels.map((wheel) => wheel.file)).toEqual(
       COMMAND_EVE_PRESENTATION_PYTHON_WHEELS.map((wheel) => wheel.filename)
@@ -344,6 +351,29 @@ describe('packaged Command EVE resource truth', () => {
     });
     expect(result.hermes_wheel.required_entries).toEqual(['tools/browser_use_cli.py']);
   });
+
+  it.each(COMMAND_EVE_EDITORIAL_PDF_DESIGN_FILES)(
+    'fails closed when packaged editorial-pdf-design %s is absent',
+    (relativePath) => {
+      fs.rmSync(path.join(resourcesPath, 'bundled-skills', 'editorial-pdf-design', relativePath));
+
+      expect(() => verify()).toThrow(`packaged editorial-pdf-design ${relativePath} is missing`);
+    }
+  );
+
+  it.each(COMMAND_EVE_EDITORIAL_PDF_DESIGN_FILES)(
+    'fails closed when packaged editorial-pdf-design %s differs from source bytes',
+    (relativePath) => {
+      fs.appendFileSync(
+        path.join(resourcesPath, 'bundled-skills', 'editorial-pdf-design', relativePath),
+        '\ntampered\n'
+      );
+
+      expect(() => verify()).toThrow(
+        `packaged editorial-pdf-design ${relativePath} is not byte-identical to its source`
+      );
+    }
+  );
 
   it('fails closed when the Browser Use uvx resource is absent or altered', () => {
     const runner = path.join(resourcesPath, 'bundled-hermes', 'uvx', 'aarch64-apple-darwin', 'uvx');

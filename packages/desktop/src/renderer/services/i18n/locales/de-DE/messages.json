@@ -111,8 +111,13 @@
   "permissionUnverifiedDescription": "EVE konnte die Sicherheitsklasse dieser Operation nicht verifizieren und fragt deshalb bewusst nach. Prüfen Sie die exakte Operation vor der Freigabe.",
   "permissionResponseFailed": "Die Berechtigungsantwort konnte nicht angewendet werden. Die Operation bleibt nicht freigegeben.",
   "clarify": {
+    "cancel": "Abbrechen",
     "selected": "Ausgewählt: {{choice}}",
-    "responseFailed": "Die Auswahl konnte nicht übernommen werden. Es wurde nichts ausgeführt."
+    "responseFailed": "Die Auswahl konnte nicht übernommen werden. Es wurde nichts ausgeführt.",
+    "allowAlwaysImage": "Immer erlauben",
+    "imageAutoConfirmed": "Automatisch freigegeben — gemerkte Entscheidung. In den Einstellungen unter „Freigaben“ widerrufbar.",
+    "imageRememberFailed": "Entscheidung konnte nicht gemerkt werden — nur dieses Mal freigegeben.",
+    "imageRememberedSelected": "Ausgewählt: {{choice}} — gemerkt. In den Einstellungen unter „Freigaben“ widerrufbar."
   },
   "permissionStatus": {
     "expired": "Diese Berechtigungsanfrage ist abgelaufen.",

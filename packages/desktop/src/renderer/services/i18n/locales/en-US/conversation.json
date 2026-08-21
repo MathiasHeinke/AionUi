@@ -554,6 +554,7 @@
     "remove": "Remove",
     "promote": "Push as correction now",
     "promoteFilesUnsupported": "Corrections with files stay queued.",
+    "promoteAuthorityUnsupported": "Work with an explicit artifact or work product stays queued.",
     "promoteFailed": "The correction could not be pushed into the current run.",
     "activeTurnUnavailable": "The current run is not ready for a correction yet.",
     "steerFilesQueued": "Corrections cannot include files, so this message was queued for afterwards.",
@@ -648,6 +649,9 @@
       "file": "File"
     },
     "referenceUnavailable": "This artifact can no longer be used as an editing source.",
+    "mediaEditPreparationUnavailable": "The paid edit could not be prepared. Nothing was sent.",
+    "imageGenerationPreparationUnavailable": "The selected image model, resolution and price could not be verified. Nothing was sent.",
+    "artifactInputUnavailable": "The selected image source could not be provided safely to this document. Nothing was sent.",
     "artifactCapabilityRefusal": {
       "medium": {
         "image": {

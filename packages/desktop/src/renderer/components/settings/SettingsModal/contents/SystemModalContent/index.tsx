@@ -24,8 +24,6 @@ import { useSettingsViewMode } from '../../settingsViewContext';
 import DevSettings from './DevSettings';
 import DirInputItem from './DirInputItem';
 import PreferenceRow from './PreferenceRow';
-import AgentVideoGenerateToggle, { isAgentVideoGenerateSettingVisible } from './AgentVideoGenerateToggle';
-import { useEntitlementGate } from '@/renderer/hooks/useEntitlementGate';
 
 /**
  * System settings content component
@@ -78,8 +76,6 @@ const SystemModalContent: React.FC = () => {
   // seat. `status` is null while the first read is in flight, which
   // `isAgentVideoGenerateSettingVisible` treats as not-entitled: the row appears
   // once entitlement is proven, never optimistically.
-  const { status: entitlementStatus } = useEntitlementGate();
-  const agentVideoGenerateVisible = isAgentVideoGenerateSettingVisible(entitlementStatus?.state);
   const kanbanAutoApproveOn = kanbanAutoApprove === true;
   const [modelWarmupEnabled, setModelWarmupEnabled] = useState(true);
 
@@ -466,30 +462,6 @@ const SystemModalContent: React.FC = () => {
       }),
       component: <Switch checked={kanbanAutoApproveOn} onChange={handleKanbanAutoApproveChange} />,
     },
-    // CEVE-18205 — EVE's own video-generation release. Sits beside the kanban
-    // clearance because it answers the same shape of question ("what may EVE do
-    // without asking?"), and it is the most expensive answer in the list: this one
-    // spends credits per call.
-    //
-    // OFFERED ONLY TO AN ENTITLED SEAT. A seat the main-process gate would refuse
-    // must not be shown the control at all — an offer the product will not honour
-    // reads as a broken app, and the loading window before the first entitlement
-    // read resolves is treated as not-entitled (fail-closed).
-    ...(agentVideoGenerateVisible
-      ? [
-          {
-            key: 'commandEveAgentVideoGenerate',
-            label: t('settings.commandEveAgentVideoGenerate', {
-              defaultValue: 'Eve darf selbst Videos generieren',
-            }),
-            description: t('settings.commandEveAgentVideoGenerateDesc', {
-              defaultValue:
-                'Aus (Standard): Videos entstehen nur, wenn du sie selbst über die Video-Auswahl startest — dort siehst du vorher Qualität, Länge und Kosten. An: EVE darf im Gespräch selbst ein kurzes Video erzeugen, wenn du im selben Zug eines verlangst. Jeder Lauf kostet Credits. Länge und Qualität legt die App fest, nicht das Modell. Gilt nur für diesen Seat.',
-            }),
-            component: <AgentVideoGenerateToggle />,
-          },
-        ]
-      : []),
     ...(isDesktop && gpuStatus
       ? [
           {
@@ -553,16 +525,7 @@ const SystemModalContent: React.FC = () => {
 
   const preferenceGroups = {
     application: ['language', 'startOnBoot', 'closeToTray'],
-    // CEVE-18205 — the video-generate release joins the CONTROL group: it answers
-    // "what may EVE do without asking?", the same question as the kanban clearance
-    // beside it. When the seat is not entitled the item is absent from
-    // `preferenceItems` entirely, so naming it here renders nothing.
-    control: [
-      'commandEvePiiProtection',
-      'commandEveEgressStatus',
-      'commandEveKanbanAutoApprove',
-      'commandEveAgentVideoGenerate',
-    ],
+    control: ['commandEvePiiProtection', 'commandEveEgressStatus', 'commandEveKanbanAutoApprove'],
     performance: [
       'commandEveRuntimeStatus',
       'commandEveModelWarmup',

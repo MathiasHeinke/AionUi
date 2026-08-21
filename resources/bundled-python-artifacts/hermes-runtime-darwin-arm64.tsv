@@ -17,7 +17,7 @@ fastapi	0.141.1	bfb91aa2d334c61cb35ba9a116fc123b3d3df31640b801cf57a7a78ec3f603b3
 fire	0.7.1	e43fd8a5033a9001e7e2973bab96070694b9f12f2e0ecf96d4683971b5ab1882	https://files.pythonhosted.org/packages/e5/4c/93d0f85318da65923e4b91c1c2ff03d8a458cbefebe3bc612a6693c7906d/fire-0.7.1-py3-none-any.whl
 h11	0.16.0	63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86	https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
 h2	4.3.0	c438f029a25f7945c69e0ccf0fb951dc3f73a5f6412981daee861431b70e2bdd	https://files.pythonhosted.org/packages/69/b2/119f6e6dcbd96f9069ce9a2665e0146588dc9f88f29549711853645e736a/h2-4.3.0-py3-none-any.whl
-hermes-agent	0.20.0	0fcd755a455743869b00c3831ec01bd71e9c392c8b3c1fedaa9da45d99d9b67e	repo://resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl
+hermes-agent	0.20.0	bec95a22b43c2ca675ffa39a810ad62aae020086069d16d7de33fc808b4787e7	repo://resources/bundled-hermes/hermes_agent-0.20.0-py3-none-any.whl
 hpack	4.2.0	858ac0b02280fa582b5080d68db0899c62a80375e0e5413a74970c5e518b6986	https://files.pythonhosted.org/packages/71/b4/4a9fcfb2aef6ba44d9073ecd301443aa00b3dac95de5619f2a7de7ec8a91/hpack-4.2.0-py3-none-any.whl
 httpcore	1.0.9	2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55	https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl
 httptools	0.8.0	5931891fb7b441b8a3853cf1b85c82c903defce084dd5f6771ca46e31bf862c5	https://files.pythonhosted.org/packages/a5/42/cc4feea2945cb3051038f090c9b36bd5b8a9d7f5a894a506a8983e33fd1c/httptools-0.8.0-cp312-cp312-macosx_11_0_arm64.whl

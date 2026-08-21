@@ -12,7 +12,7 @@ import ContextCreditsPopover from '@/renderer/components/agent/ContextCreditsPop
 import { useConfig } from '@/renderer/hooks/config/useConfig';
 import { COMPOSER_MENU_TRIGGER_PROPS } from '@/renderer/utils/ui/composerMenuMotion';
 import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
-import { Button, Dropdown, Menu, Popover } from '@arco-design/web-react';
+import { Button, Dropdown, Menu, Message, Popover } from '@arco-design/web-react';
 import { Check, Down, Shield } from '@renderer/components/icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -62,7 +62,18 @@ export const ComposerAuthorityControl: React.FC<{ disabled?: boolean }> = ({ dis
       onClickMenuItem={(key) => {
         const rung = Number(key) as EveLadderRung;
         if (!ENFORCED_LADDER_RUNGS.includes(rung)) return;
-        void setStoredGrant(withLadder(grant, rung));
+        const next = withLadder(grant, rung);
+        void setStoredGrant(next).catch((error) => {
+          // configService paints optimistically before the backend PUT. If that
+          // PUT rejects, restore the last durable grant locally — but never
+          // overwrite a newer click that already replaced this exact optimistic
+          // object while the rejected request was in flight.
+          if (configService.get('commandEve.authority') === next) {
+            configService.setLocal('commandEve.authority', grant);
+          }
+          console.error('[ComposerAuthorityControl] authority persistence failed:', error);
+          Message.error(t('agentMode.eve.expansionPersistFailed'));
+        });
       }}
     >
       {ENFORCED_LADDER_RUNGS.map((rung) => (

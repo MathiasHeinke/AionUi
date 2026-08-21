@@ -29,9 +29,8 @@
  *
  * Why TWO handles with two prefixes: the staged handle is DISPLAY authority
  * (it says "this image exists; show it"), the capability handle is READ/EDIT
- * authority (it says "this conversation may act on these bytes"), and the spend
- * permit is SPEND authority. Collapsing them would let a token that rides a
- * transcript do work it was never scoped for.
+ * authority (it says "this conversation may act on these bytes"). Native Hermes
+ * ACP approval owns the separate paid-tool permission decision.
  *
  * PURE: no fs, no crypto import, no Electron. Randomness is injected.
  */
@@ -42,7 +41,7 @@ import { LEGACY_SEAT_ID, sanitizeSeatId } from './seatConfigKeyCore';
 /**
  * A visible prefix so a staged reference is recognisable in a transcript as a
  * STAGED image reference — deliberately different from `evecap_` (capability)
- * and `evespend_` (spend permit), because two credentials that look alike get
+ * and other tool credentials, because two credentials that look alike get
  * passed to each other's checks.
  */
 export const IMAGE_STAGED_HANDLE_PREFIX = 'img_h_';
@@ -114,6 +113,12 @@ export type CommandEveManagedImageArtifactPayload = {
   cleanup_notice?: string;
   /** Set only on derived images — the artifact this one was edited FROM. */
   parent_artifact_id?: string;
+  /**
+   * Set only on paid edit children. This is Hermes' deterministic logical call
+   * identity, used to recover a child after the provider completed but the
+   * loopback response was lost.
+   */
+  edit_request_sha256?: string;
 };
 
 /**
@@ -153,6 +158,7 @@ export type CommandEveActiveImageArtifact = CommandEveManagedImageArtifact & {
  */
 const MANAGED_TOOL_TEXT_FORBIDDEN_TOKENS = ['/Users/', 'file:', 'MEDIA:', 'data:image'];
 const MANAGED_TOOL_TEXT_METADATA_MAX_CHARS = 48;
+const MANAGED_TOOL_TEXT_RELATIVE_PATH_MAX_CHARS = 256;
 
 /**
  * One metadata value made safe for model-visible text. Any value that is
@@ -202,12 +208,35 @@ export function buildManagedImageToolText(input: {
   aspectRatio: string;
   bytesCount: number;
   model?: string;
+  workspaceRelativePath?: string;
 }): string {
   const sizeKb = Math.max(1, Math.round(input.bytesCount / 1024));
   const resolution = safeManagedToolTextMetadata(input.resolution);
   const aspectRatio = safeManagedToolTextMetadata(input.aspectRatio);
   const quality = safeManagedToolTextMetadata(input.model);
-  return `Bild erstellt. Interne Artefakt-Referenz: ${input.artifactHandle} (${resolution} · ${aspectRatio} · ${sizeKb} KB · Qualität ${quality}).`;
+  const workspacePath = isSafeManagedImageWorkspaceRelativePath(input.workspaceRelativePath)
+    ? input.workspaceRelativePath
+    : undefined;
+  return [
+    `Bild erstellt. Interne Artefakt-Referenz: ${input.artifactHandle} (${resolution} · ${aspectRatio} · ${sizeKb} KB · Qualität ${quality}).`,
+    workspacePath
+      ? `Projektrelative Arbeitsdatei: ${workspacePath}. Nutze exakt diese Relative-Datei für Folgewerkzeuge; erzeuge keine Ersatzgrafik.`
+      : 'Keine projektrelative Arbeitsdatei verfügbar. Nutze für Folgewerkzeuge ausschließlich den App-Export; erzeuge keine Ersatzgrafik.',
+  ].join(' ');
+}
+
+/**
+ * The one path shape permitted in managed tool text: a bounded POSIX path
+ * under `bilder/`. It names no account, host, drive or absolute directory, and
+ * cannot escape the authoritative workspace through `..`, backslashes or a
+ * control byte.
+ */
+export function isSafeManagedImageWorkspaceRelativePath(value: unknown): value is string {
+  if (typeof value !== 'string' || !value || value.length > MANAGED_TOOL_TEXT_RELATIVE_PATH_MAX_CHARS) return false;
+  if (value.includes('\\') || value.includes('\0') || /\p{Cc}/u.test(value)) return false;
+  const normalized = value.split('/').filter(Boolean);
+  if (normalized[0] !== 'bilder' || normalized.length < 2) return false;
+  return normalized.every((part) => part && part !== '.' && part !== '..');
 }
 
 /**
@@ -290,7 +319,8 @@ export function parseManagedImageArtifactRecord(value: unknown): CommandEveManag
     (p.path !== undefined &&
       (!isBoundedText(p.path, 512) || p.path.startsWith('/') || p.path.includes('\\') || p.path.includes('..'))) ||
     (p.cleanup_notice !== undefined && !isBoundedText(p.cleanup_notice, 512)) ||
-    (p.parent_artifact_id !== undefined && !isSafeRecordId(p.parent_artifact_id))
+    (p.parent_artifact_id !== undefined && !isSafeRecordId(p.parent_artifact_id)) ||
+    (p.edit_request_sha256 !== undefined && !isSha256Hex(p.edit_request_sha256))
   ) {
     return undefined;
   }

@@ -62,6 +62,8 @@ const REGISTRY: CommandEveImageModelRegistry = {
     },
   ],
 };
+const REGISTRY_REVISION = 'f'.repeat(64);
+const REQUEST_ID = 'c'.repeat(64);
 
 /**
  * The MAT-1769 seams, injected so no test depends on seat settings or a second
@@ -78,7 +80,7 @@ function imageLaneSeams(overrides: Record<string, unknown> = {}) {
       seatId: 'seat-1',
       physicalKey: 'commandEve.imageModelPreference',
     })),
-    readRegistry: vi.fn(async () => ({ ok: true as const, registry: REGISTRY })),
+    readRegistry: vi.fn(async () => ({ ok: true as const, registry: REGISTRY, revision: REGISTRY_REVISION })),
     stageArtifact: vi.fn(() => ({ artifactHandle: `img_h_${'b'.repeat(64)}` })),
     ...overrides,
   };
@@ -107,12 +109,13 @@ function edgeResponse(overrides: Record<string, unknown> = {}) {
       sha256: crypto.createHash('sha256').update(outputBytes).digest('hex'),
     },
     image_generation: {
-      model: 'google/gemini-3-pro-image',
+      model: 'google/gemini-3.1-flash-image',
       prompt_sha256: crypto.createHash('sha256').update(prompt).digest('hex'),
       aspect_ratio: '16:9',
       resolution: '1K',
       input_reference_count: 1,
       input_reference_sha256: [crypto.createHash('sha256').update(referenceBytes).digest('hex')],
+      credits_quoted: 1380,
       zdr_enforced: true,
       data_collection: 'deny',
       cost_usd: 0.12,
@@ -133,6 +136,7 @@ function request() {
     n: 1,
     aspect_ratio: '16:9',
     resolution: '1K',
+    requestId: REQUEST_ID,
     input_references: [
       {
         type: 'image_url',
@@ -171,7 +175,7 @@ describe('managed image generation main-process service', () => {
             bytes_count: outputBytes.length,
           },
         ],
-        usage: { cost: 0.12, model: 'google/gemini-3-pro-image' },
+        usage: { cost: 0.12, model: 'google/gemini-3.1-flash-image' },
       },
     });
     expect(JSON.stringify(result.body)).not.toContain('b64_json');
@@ -334,19 +338,22 @@ describe('managed image generation main-process service', () => {
       dataPath: '/tmp/test',
       ...imageLaneSeams({ readPreference }),
       requestedTier: 'quality',
-      requestId: 'image-request-0001',
+      requestId: 'd'.repeat(64),
     });
 
     const body = JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body));
     expect(body.image_model).toBe('quality');
-    expect(body.requestId).toBe('image-request-0001');
+    expect(body.requestId).toBe('d'.repeat(64));
     expect(body.resolution).toBe('1K');
     expect(body.aspect_ratio).toBe('16:9');
     expect(readPreference).not.toHaveBeenCalled();
   });
 
   it('forwards an explicit GPT Image 2 composer edit without silently switching tiers or dropping references', async () => {
-    const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
+    const maxResponse = edgeResponse();
+    maxResponse.image_generation.model = 'openai/gpt-image-2';
+    maxResponse.image_generation.credits_quoted = 2300;
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify(maxResponse), { status: 200 }));
     const readPreference = vi.fn();
 
     await expect(
@@ -355,7 +362,7 @@ describe('managed image generation main-process service', () => {
         dataPath: '/tmp/test',
         ...imageLaneSeams({ readPreference }),
         requestedTier: 'max',
-        requestId: 'image-request-0002',
+        requestId: 'e'.repeat(64),
       })
     ).resolves.toMatchObject({ status: 200 });
     expect(readPreference).not.toHaveBeenCalled();
@@ -385,9 +392,15 @@ describe('managed image generation main-process service', () => {
         {
           fetchFn: fetchFn as typeof fetch,
           dataPath: '/tmp/test',
-          ...imageLaneSeams({ readRegistry: vi.fn(async () => ({ ok: true as const, registry: maxOneKOnly })) }),
+          ...imageLaneSeams({
+            readRegistry: vi.fn(async () => ({
+              ok: true as const,
+              registry: maxOneKOnly,
+              revision: REGISTRY_REVISION,
+            })),
+          }),
           requestedTier: 'max',
-          requestId: 'image-request-0003',
+          requestId: 'f'.repeat(64),
         }
       )
     ).resolves.toMatchObject({ status: 400, body: { error: { code: 'image_model_resolution_unsupported' } } });
@@ -479,7 +492,11 @@ describe('managed image generation main-process service', () => {
         fetchFn: fetchFn as typeof fetch,
         dataPath: '/tmp/test',
         ...imageLaneSeams({
-          readRegistry: vi.fn(async () => ({ ok: true as const, registry: { ...REGISTRY, enabled: false } })),
+          readRegistry: vi.fn(async () => ({
+            ok: true as const,
+            registry: { ...REGISTRY, enabled: false },
+            revision: REGISTRY_REVISION,
+          })),
         }),
       })
     ).resolves.toMatchObject({ status: 503, body: { error: { code: 'image_generation_disabled' } } });
@@ -514,7 +531,11 @@ describe('managed image generation main-process service', () => {
         fetchFn: fetchFn as typeof fetch,
         dataPath: '/tmp/test',
         ...imageLaneSeams({
-          readRegistry: vi.fn(async () => ({ ok: true as const, registry: withoutQuality })),
+          readRegistry: vi.fn(async () => ({
+            ok: true as const,
+            registry: withoutQuality,
+            revision: REGISTRY_REVISION,
+          })),
         }),
       })
     ).resolves.toMatchObject({ status: 503, body: { error: { code: 'image_model_tier_unavailable' } } });
@@ -552,12 +573,14 @@ describe('managed image generation main-process service', () => {
   it('1.820.3 STAGE: the verified bytes, tier and provenance reach the store — and a stage failure is named, never a fake success', async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify(edgeResponse()), { status: 200 }));
     const stageArtifact = vi.fn(() => ({ artifactHandle: `img_h_${'c'.repeat(64)}` }));
+    const editRequestSha256 = 'a'.repeat(64);
 
     const result = await executeCommandEveManagedImageGeneration(request(), {
       fetchFn: fetchFn as typeof fetch,
       dataPath: '/tmp/test',
       ...imageLaneSeams({ stageArtifact }),
       stagedParentArtifactId: 'img_parent123',
+      requestId: editRequestSha256,
     });
 
     expect(result.status).toBe(200);
@@ -570,11 +593,12 @@ describe('managed image generation main-process service', () => {
       capturedSeatId: 'seat-1',
       mimeType: 'image/png',
       tier: 'quality',
-      model: 'google/gemini-3-pro-image',
+      model: 'google/gemini-3.1-flash-image',
       resolution: '1K',
       aspectRatio: '16:9',
       promptSha256: crypto.createHash('sha256').update(prompt).digest('hex'),
       parentArtifactId: 'img_parent123',
+      editRequestSha256,
     });
 
     // A stage failure: the image was genuinely produced (and billed) upstream,
@@ -587,6 +611,46 @@ describe('managed image generation main-process service', () => {
         ...imageLaneSeams({ stageArtifact: failingStage }),
       })
     ).resolves.toMatchObject({ status: 502, body: { error: { code: 'managed_image_stage_failed' } } });
+  });
+
+  it('refuses a paid edit without a durable request identity before registry or provider work', async () => {
+    const fetchFn = vi.fn();
+    const seams = imageLaneSeams();
+    const { requestId: _requestId, ...identityFreeRequest } = request();
+
+    await expect(
+      executeCommandEveManagedImageGeneration(identityFreeRequest, {
+        fetchFn: fetchFn as typeof fetch,
+        dataPath: '/tmp/test',
+        ...seams,
+        stagedParentArtifactId: 'img_parent123',
+        requestId: 'not-a-sha256',
+      })
+    ).resolves.toMatchObject({
+      status: 500,
+      body: { error: { code: 'managed_image_edit_request_identity_missing' } },
+    });
+    expect(seams.readRegistry).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('refuses managed generation without a durable request identity before registry or provider work', async () => {
+    const fetchFn = vi.fn();
+    const seams = imageLaneSeams();
+    const { requestId: _requestId, ...identityFreeRequest } = request();
+
+    await expect(
+      executeCommandEveManagedImageGeneration(identityFreeRequest, {
+        fetchFn: fetchFn as typeof fetch,
+        dataPath: '/tmp/test',
+        ...seams,
+      })
+    ).resolves.toMatchObject({
+      status: 400,
+      body: { error: { code: 'managed_image_request_identity_missing' } },
+    });
+    expect(seams.readRegistry).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 
   it('rejects an unknown model before reading the license, the registry, or making a network call', async () => {

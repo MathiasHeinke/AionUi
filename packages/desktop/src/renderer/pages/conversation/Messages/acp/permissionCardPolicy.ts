@@ -52,17 +52,6 @@ const EXACT_SESSION_ALLOW_MARKERS = new Set([
   'session_allow',
 ]);
 
-const DURABLE_ALLOW_MARKERS = new Set(['allow_always', 'always_allow', 'proceed_always', 'allow_permanently']);
-
-const DURABLE_DENY_MARKERS = new Set([
-  'deny_always',
-  'reject_always',
-  'always_deny',
-  'always_reject',
-  'proceed_never',
-  'never_allow',
-]);
-
 const UNKNOWN_CLASSIFICATION_MARKERS = new Set([
   '',
   'unknown',
@@ -181,9 +170,8 @@ export function isPermissionClassificationUnverified(classification: unknown): b
 }
 
 /**
- * Filter only Command EVE options. Native ACP backends receive their original
- * option set unchanged. A session option remains an intent; AionCore binds it
- * to the exact operation and forwards only the one-shot backend option.
+ * Preserve the native ACP option set. Command EVE only annotates the explicit
+ * session choice so the renderer can describe its scope accurately.
  */
 export function normalizePermissionOptions(
   options: ReadonlyArray<PermissionOptionLike>,
@@ -196,9 +184,7 @@ export function normalizePermissionOptions(
   return options.flatMap<PermissionOptionView>((option): PermissionOptionView[] => {
     const tokens = optionTokens(option);
     const exactSessionIntent = hasMarker(tokens, EXACT_SESSION_ALLOW_MARKERS);
-    if (exactSessionIntent) return [{ ...option, exactSessionIntent: true }];
-    if (hasMarker(tokens, DURABLE_ALLOW_MARKERS) || hasMarker(tokens, DURABLE_DENY_MARKERS)) return [];
-    return [{ ...option, exactSessionIntent: false }];
+    return [{ ...option, exactSessionIntent }];
   });
 }
 

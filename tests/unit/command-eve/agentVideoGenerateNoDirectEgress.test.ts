@@ -47,11 +47,6 @@ const SRC = path.resolve(__dirname, '../../../packages/desktop/src');
 const SURFACE_FILES = [
   path.join(SRC, 'process/commandEve/agentVideoGenerateFlag.ts'),
   path.join(SRC, 'process/commandEve/artifactCapabilityLoopback.ts'),
-  // CEVE-18205-FLAG — the per-seat release now decides whether the tool opens, so
-  // the resolver and its production wiring are part of this surface. The gate
-  // module in particular talks to a backend; it must talk to OURS.
-  path.join(SRC, 'process/commandEve/agentVideoGenerateSeatResolver.ts'),
-  path.join(SRC, 'process/commandEve/agentVideoGenerateGateMain.ts'),
 ];
 
 /**

@@ -18,7 +18,6 @@ import { resolveComposerArtifactReference } from '@/common/config/composerArtifa
 import MarkdownView from '@/renderer/components/Markdown';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
-import { iconColors } from '@/renderer/styles/colors';
 import { emitter } from '@/renderer/utils/emitter';
 import { downloadDataUrl, downloadFileFromPath, downloadTextContent } from '@/renderer/utils/file/download';
 import {
@@ -33,6 +32,7 @@ import { useTranslation } from 'react-i18next';
 import PDFPreview from '../../Preview/components/viewers/PDFViewer';
 import { secureArtifactHtml } from '../../Preview/components/renderers/htmlArtifactSecurityCore';
 import { sanitizeArtifactPreviewSource } from './artifactPreviewSecurityCore';
+import { openManagedImagePreview } from './managedImagePreview';
 import { createDefaultTypedUIActionHost, TypedUIRenderer } from './TypedGenerativeUI';
 
 type ArtifactPayload = IGeneratedConversationArtifact['payload'] | Record<string, unknown> | string;
@@ -187,6 +187,28 @@ function resolveArtifactFilePath(filePath: string, workspace?: string): string {
   const normalizedWorkspace = workspace.replace(/[\\/]+$/, '').replace(/\\/g, '/');
   const normalizedFilePath = filePath.replace(/^\.?[\\/]+/, '').replace(/\\/g, '/');
   return `${normalizedWorkspace}/${normalizedFilePath}`.replace(/\/+/g, '/');
+}
+
+function isGeneratedArtifactPreviewKind(type: ArtifactPreviewType): type is Exclude<ArtifactPreviewType, 'file'> {
+  return type !== 'file';
+}
+
+async function verifyArtifactPathForShell(
+  path: string,
+  workspace: string | undefined,
+  type: ArtifactPreviewType
+): Promise<void> {
+  try {
+    const metadata = await ipcBridge.fs.getFileMetadata.invoke({ path, workspace });
+    if (metadata && !isDirectoryMetadata(metadata)) return;
+  } catch {
+    // Generated outputs in Downloads are verified by the dedicated preview
+    // bridge below when they are not reachable through the active workspace.
+  }
+
+  if (!isGeneratedArtifactPreviewKind(type)) throw new Error('artifact_open_unavailable');
+  const approved = await ipcBridge.application.readGeneratedArtifactPreview.invoke({ path, kind: type });
+  if (!approved) throw new Error('artifact_open_unavailable');
 }
 
 export function pathToFileUrl(path: string): string {
@@ -356,6 +378,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const payload = useMemo(() => parsePayload(artifact.payload), [artifact.payload]);
   const rawTypedUIContent = useMemo(() => readTypedUIContent(payload), [payload]);
   const type = inferType(artifact.kind, payload);
+  const isManagedImage = type === 'image' && payload.managed_image === true;
   const typeLabel = getTypeLabel(t, type);
   const path = readString(payload, SOURCE_PATH_KEYS);
   const pathFromFileUrl = path?.startsWith('file:') ? fileUrlToPath(path) : path;
@@ -384,23 +407,15 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
     () => bindTypedUIContentToArtifact(rawTypedUIContent, artifact, sourceMessageId),
     [artifact, rawTypedUIContent, sourceMessageId]
   );
-  const openPath = resolvedPath || (source?.startsWith('file:') ? fileUrlToPath(source) : undefined);
+  const openPath = isManagedImage
+    ? undefined
+    : resolvedPath || (source?.startsWith('file:') ? fileUrlToPath(source) : undefined);
   const [pathHtmlContent, setPathHtmlContent] = useState<string>();
   const [pathHtmlLoading, setPathHtmlLoading] = useState(false);
   const [localFilePreviewSource, setLocalFilePreviewSource] = useState<string>();
   const [localFilePreviewLoading, setLocalFilePreviewLoading] = useState(false);
   const [managedImagePreviewSource, setManagedImagePreviewSource] = useState<string>();
 
-  // 1.820.3 — a MANAGED GENERATED image's preview comes BY ARTIFACT ID over
-  // the `commandEve.imageArtifactPreview` bridge, which re-verifies the
-  // conversation and the SHA-256 on every read. The marker alone decides:
-  // since 1.823.x the payload ALSO carries a placement `path` (the canonical
-  // visible copy), and that relative path resolves against the conversation
-  // workspace — which for a temp conversation is the Hermes root, NOT the
-  // artifact root. Resolving it produced file-not-found previews and
-  // suppressed this bridge. A managed artifact therefore never previews from
-  // a payload path; the verified bytes are the only preview source.
-  const isManagedImage = type === 'image' && payload.managed_image === true;
   useEffect(() => {
     if (!isManagedImage) {
       setManagedImagePreviewSource(undefined);
@@ -414,10 +429,10 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
           conversationId: artifact.conversation_id,
           artifactId: artifact.id,
         });
-        const preview = response?.data;
-        if (!active || !preview) return;
+        const previewData = response?.data;
+        if (!active || !previewData) return;
         setManagedImagePreviewSource(
-          sanitizeArtifactPreviewSource(`data:${preview.mime_type};base64,${preview.data_base64}`, 'image')
+          sanitizeArtifactPreviewSource(`data:${previewData.mime_type};base64,${previewData.data_base64}`, 'image')
         );
       } catch {
         // The card stays truthful without an inline preview — the artifact
@@ -557,7 +572,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   }, [htmlContent, pathHtmlContent]);
   const previewSource = managedImagePreviewSource ?? (source?.startsWith('file:') ? localFilePreviewSource : source);
   const pdfPreviewSource = openPath ? localFilePreviewSource : source;
-  const canOpen = Boolean(openPath || (source && /^https?:/i.test(source)));
+  const canOpen = Boolean(managedImagePreviewSource || openPath || (source && /^https?:/i.test(source)));
   const downloadFileName = resolveArtifactDownloadFileName({ title, path, source, mimeType });
   const canDownload = Boolean(openPath || managedImagePreviewSource);
   const composerReference = useMemo(() => {
@@ -574,7 +589,12 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
 
   const handleOpen = async () => {
     try {
+      if (managedImagePreviewSource) {
+        openManagedImagePreview(preview, managedImagePreviewSource, artifact, title, downloadFileName);
+        return;
+      }
       if (openPath) {
+        await verifyArtifactPathForShell(openPath, workspace, type);
         await ipcBridge.shell.openFile.invoke(openPath);
         return;
       }
@@ -590,6 +610,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const handleReveal = async () => {
     if (!openPath) return;
     try {
+      await verifyArtifactPathForShell(openPath, workspace, type);
       await ipcBridge.shell.showItemInFolder.invoke(openPath);
     } catch (revealError) {
       console.error('[MessageGeneratedArtifact] Failed to reveal artifact:', revealError);
@@ -599,7 +620,9 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
 
   const handleDownload = async () => {
     try {
-      if (openPath) {
+      if (managedImagePreviewSource) {
+        downloadDataUrl(managedImagePreviewSource, downloadFileName, mimeType || 'image/png');
+      } else if (openPath) {
         try {
           await downloadFileFromPath(openPath, downloadFileName, workspace);
         } catch {
@@ -622,8 +645,6 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
             downloadTextContent(approved.data, downloadFileName, approved.mimeType || mimeType || 'text/plain');
           }
         }
-      } else if (managedImagePreviewSource) {
-        downloadDataUrl(managedImagePreviewSource, downloadFileName, mimeType || 'image/png');
       } else {
         throw new Error('artifact_download_unavailable');
       }

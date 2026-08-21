@@ -1,0 +1,158 @@
+#!/usr/bin/osascript -l JavaScript
+
+ObjC.import('Foundation');
+ObjC.import('AppKit');
+ObjC.import('PDFKit');
+
+const DEFAULT_SCALE = 2;
+const MIN_SCALE = 0.25;
+const MAX_SCALE = 8;
+
+function fail(message) {
+  throw new Error(`render_pdf_pages_macos: ${message}`);
+}
+
+function absolutePath(rawPath, fileManager) {
+  let candidate = $(String(rawPath)).stringByExpandingTildeInPath;
+  if (!candidate.isAbsolutePath) {
+    candidate = fileManager.currentDirectoryPath.stringByAppendingPathComponent(candidate);
+  }
+  return ObjC.unwrap(candidate.stringByStandardizingPath);
+}
+
+function regularFileSize(filePath, fileManager) {
+  const error = Ref();
+  const attributes = fileManager.attributesOfItemAtPathError($(filePath), error);
+  if (!attributes) {
+    fail(`could not inspect rendered page ${filePath}`);
+  }
+  const fileType = ObjC.unwrap(attributes.objectForKey($.NSFileType));
+  const bytes = Number(ObjC.unwrap(attributes.objectForKey($.NSFileSize)));
+  if (fileType !== ObjC.unwrap($.NSFileTypeRegular) || !Number.isFinite(bytes) || bytes <= 0) {
+    fail(`rendered page is not a non-empty regular file: ${filePath}`);
+  }
+  return bytes;
+}
+
+function ensureOutputDirectory(outputDirectory, fileManager) {
+  const isDirectory = Ref();
+  if (fileManager.fileExistsAtPathIsDirectory($(outputDirectory), isDirectory)) {
+    if (!isDirectory[0]) {
+      fail(`output path exists but is not a directory: ${outputDirectory}`);
+    }
+    return;
+  }
+
+  const error = Ref();
+  const created = fileManager.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(
+    $(outputDirectory),
+    true,
+    $({}),
+    error
+  );
+  if (!created) {
+    fail(`could not create output directory: ${outputDirectory}`);
+  }
+}
+
+function renderPage(page, pageNumber, pageCount, scale, outputDirectory, fileManager) {
+  if (!page) {
+    fail(`PDF page ${pageNumber} of ${pageCount} is unavailable`);
+  }
+
+  const bounds = page.boundsForBox($.kPDFDisplayBoxMediaBox);
+  const pointWidth = Number(bounds.size.width);
+  const pointHeight = Number(bounds.size.height);
+  if (!Number.isFinite(pointWidth) || !Number.isFinite(pointHeight) || pointWidth <= 0 || pointHeight <= 0) {
+    fail(`PDF page ${pageNumber} has an invalid media box`);
+  }
+
+  const requestedWidth = Math.max(1, Math.ceil(pointWidth * scale));
+  const requestedHeight = Math.max(1, Math.ceil(pointHeight * scale));
+  const image = page.thumbnailOfSizeForBox(
+    $.NSMakeSize(requestedWidth, requestedHeight),
+    $.kPDFDisplayBoxMediaBox
+  );
+  if (!image) {
+    fail(`PDFKit could not render page ${pageNumber}`);
+  }
+
+  const tiffData = image.TIFFRepresentation;
+  if (!tiffData) {
+    fail(`PDFKit returned no bitmap data for page ${pageNumber}`);
+  }
+  const bitmap = $.NSBitmapImageRep.imageRepWithData(tiffData);
+  if (!bitmap) {
+    fail(`AppKit could not decode page ${pageNumber}`);
+  }
+  const pngData = bitmap.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $({}));
+  if (!pngData) {
+    fail(`AppKit could not encode page ${pageNumber} as PNG`);
+  }
+
+  const digits = Math.max(1, String(pageCount).length);
+  const fileName = `page-${String(pageNumber).padStart(digits, '0')}.png`;
+  const outputPath = ObjC.unwrap($(outputDirectory).stringByAppendingPathComponent($(fileName)));
+  if (!pngData.writeToFileAtomically($(outputPath), true)) {
+    fail(`could not write rendered page ${pageNumber}: ${outputPath}`);
+  }
+
+  const bytes = regularFileSize(outputPath, fileManager);
+  const width = Number(bitmap.pixelsWide);
+  const height = Number(bitmap.pixelsHigh);
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    fail(`rendered page ${pageNumber} has invalid pixel dimensions`);
+  }
+
+  return {
+    page_number: pageNumber,
+    path: outputPath,
+    width,
+    height,
+    bytes,
+  };
+}
+
+function run(argv) {
+  if (argv.length < 2 || argv.length > 3) {
+    fail('usage: render_pdf_pages_macos.jxa <input.pdf> <output-directory> [scale]');
+  }
+
+  const fileManager = $.NSFileManager.defaultManager;
+  const inputPath = absolutePath(argv[0], fileManager);
+  const outputDirectory = absolutePath(argv[1], fileManager);
+  const scale = argv.length === 3 ? Number(argv[2]) : DEFAULT_SCALE;
+  if (!Number.isFinite(scale) || scale < MIN_SCALE || scale > MAX_SCALE) {
+    fail(`scale must be between ${MIN_SCALE} and ${MAX_SCALE}`);
+  }
+  if (!fileManager.fileExistsAtPath($(inputPath))) {
+    fail(`input PDF does not exist: ${inputPath}`);
+  }
+
+  const document = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath($(inputPath)));
+  if (!document) {
+    fail(`PDFKit could not open input PDF: ${inputPath}`);
+  }
+  const pageCount = Number(document.pageCount);
+  if (!Number.isInteger(pageCount) || pageCount <= 0) {
+    fail(`input PDF has no readable pages: ${inputPath}`);
+  }
+
+  ensureOutputDirectory(outputDirectory, fileManager);
+  const pages = [];
+  for (let index = 0; index < pageCount; index += 1) {
+    pages.push(renderPage(document.pageAtIndex(index), index + 1, pageCount, scale, outputDirectory, fileManager));
+  }
+  if (pages.length !== pageCount) {
+    fail(`rendered ${pages.length} of ${pageCount} pages`);
+  }
+
+  return JSON.stringify({
+    renderer: 'macos-pdfkit',
+    source_pdf: inputPath,
+    output_directory: outputDirectory,
+    scale,
+    page_count: pageCount,
+    pages,
+  });
+}

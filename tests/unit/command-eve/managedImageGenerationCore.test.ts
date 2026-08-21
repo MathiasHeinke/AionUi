@@ -42,6 +42,7 @@ describe('managed image generation core', () => {
         resolution: '1K',
         input_reference_count: 1,
         input_reference_sha256: ['c'.repeat(64)],
+        credits_quoted: 53,
         zdr_enforced: true,
         data_collection: 'deny',
         cost_usd: 0.12,

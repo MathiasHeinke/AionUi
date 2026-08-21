@@ -116,7 +116,9 @@ describe('Electron bridge adapter — a rejected emit must not strand its caller
   });
 
   it('never rethrows, so a failed emit cannot surface as an unhandled rejection', async () => {
-    const { adapter } = await loadElectronAdapter(() => Promise.reject(new Error('Blocked unknown adapter bridge event.')));
+    const { adapter } = await loadElectronAdapter(() =>
+      Promise.reject(new Error('Blocked unknown adapter bridge event.'))
+    );
 
     await expect(
       adapter.emit(`subscribe-${PROVIDER_KEY}`, { id: INVOCATION_ID, data: { intent: 'login' } })

@@ -87,7 +87,6 @@ const KNOWN_DEBT: readonly string[] = [
   // 1.820.3: the compact video-edit affordance, same debt class as the rest
   // of credits.video.* below.
   'credits.video.editHintLabel',
-  'credits.video.failed',
   'credits.video.inlineEstimate',
   'credits.video.qualityLabel',
   'credits.video.voiceLabel',

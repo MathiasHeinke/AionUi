@@ -7,18 +7,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { setAuthority } = vi.hoisted(() => ({ setAuthority: vi.fn(() => Promise.resolve()) }));
+const { setAuthority, setLocal } = vi.hoisted(() => ({
+  setAuthority: vi.fn(() => Promise.resolve()),
+  setLocal: vi.fn(),
+}));
+const storedAuthority = { ladder: 1, capabilities: {}, updatedBy: 'user' } as const;
 vi.mock('@/common/config/configService', () => ({
-  configService: { whenReady: () => Promise.resolve() },
+  configService: {
+    whenReady: () => Promise.resolve(),
+    get: () => setAuthority.mock.calls.at(-1)?.[0],
+    setLocal,
+  },
 }));
 vi.mock('@/renderer/hooks/config/useConfig', () => ({
-  useConfig: (key: string) =>
-    key === 'commandEve.authority'
-      ? [{ ladder: 1, capabilities: {}, updatedBy: 'user' }, setAuthority]
-      : [undefined, vi.fn()],
+  useConfig: (key: string) => (key === 'commandEve.authority' ? [storedAuthority, setAuthority] : [undefined, vi.fn()]),
 }));
 vi.mock('@/renderer/components/agent/ContextCreditsPopover', () => ({ default: () => <div>context details</div> }));
 vi.mock('react-i18next', () => ({
@@ -33,6 +38,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 import ComposerContextDeck from '@/renderer/components/chat/ComposerContextDeck';
+import { Message } from '@arco-design/web-react';
 
 afterEach(() => {
   cleanup();
@@ -89,5 +95,24 @@ describe('ComposerContextDeck', () => {
     expect(css).toContain('overflow-y: auto !important');
     expect(css).toContain('overscroll-behavior: contain');
     expect(css).toContain('scrollbar-width: thin');
+  });
+
+  it('rolls the optimistic authority display back when the durable PUT fails', async () => {
+    setAuthority.mockRejectedValueOnce(new Error('settings PUT failed'));
+    const errorSpy = vi.spyOn(Message, 'error').mockImplementation(() => undefined as never);
+    render(<ComposerContextDeck projectSlot={<span>Temp</span>} tokenUsage={null} />);
+    await screen.findByText('Fragen');
+
+    fireEvent.click(screen.getByTestId('composer-authority-control'));
+    fireEvent.click(await screen.findByText('commandEve.authority.rung.full.title'));
+
+    await waitFor(() =>
+      expect(setLocal).toHaveBeenCalledWith('commandEve.authority', {
+        ladder: 1,
+        capabilities: {},
+        updatedBy: 'user',
+      })
+    );
+    expect(errorSpy).toHaveBeenCalledWith('agentMode.eve.expansionPersistFailed');
   });
 });

@@ -110,7 +110,7 @@ export interface VideoEditSpendPermitRecord {
   operation: SpendPermitOperation;
   /** SHA-256 of the RAW user turn that caused this permit to be minted. */
   user_turn_sha256: string;
-  /** The artifact bytes this permit may be spent on — nothing else resolves. */
+  /** The exact artifact bytes an edit permit may cover. */
   allowed_artifact_sha256: string[];
   issued_at_ms: number;
   expires_at_ms: number;
@@ -193,9 +193,10 @@ export function mintVideoEditSpendPermit(
 ): { permit: string; record: VideoEditSpendPermitRecord } | undefined {
   if (typeof input.conversationId !== 'string' || input.conversationId.length === 0) return undefined;
   if (!isSha256Hex(input.userTurnSha256)) return undefined;
+  const operation = input.operation ?? 'video_edit';
 
   const allowed: string[] = [];
-  for (const sha of input.allowedArtifactSha256 ?? []) {
+  for (const sha of input.allowedArtifactSha256) {
     if (!isSha256Hex(sha)) continue;
     let seen = false;
     for (const already of allowed) if (already === sha) seen = true;
@@ -207,7 +208,6 @@ export function mintVideoEditSpendPermit(
   // put a live spend credential into a transcript that could never legitimately
   // be redeemed — pure downside.
   if (allowed.length === 0) return undefined;
-
   let bytes: Uint8Array;
   try {
     bytes = input.randomBytes(VIDEO_EDIT_SPEND_PERMIT_ENTROPY_BYTES);
@@ -223,7 +223,7 @@ export function mintVideoEditSpendPermit(
     permit: `${VIDEO_EDIT_SPEND_PERMIT_PREFIX}${toLowerHex(bytes)}`,
     record: {
       conversation_id: input.conversationId,
-      operation: input.operation ?? 'video_edit',
+      operation,
       user_turn_sha256: input.userTurnSha256,
       allowed_artifact_sha256: allowed,
       issued_at_ms: input.nowMs,
