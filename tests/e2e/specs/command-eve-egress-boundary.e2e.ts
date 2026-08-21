@@ -21,6 +21,14 @@ type RuntimeStatusResponse = {
   data?: RuntimeStatus;
 };
 
+type AssistantReadinessResponse = {
+  success?: boolean;
+  msg?: string;
+  data?: {
+    status?: string;
+  };
+};
+
 type RuntimeStatus = {
   status?: string;
   default_model?: string;
@@ -93,8 +101,35 @@ async function ensureCommandEveRuntimeReady(page: Parameters<typeof invokeBridge
   throw new Error('unreachable after test.skip');
 }
 
+async function ensureCommandEveAssistantReady(page: Parameters<typeof invokeBridge>[0]): Promise<void> {
+  const readiness = await invokeBridge<AssistantReadinessResponse>(
+    page,
+    'command-eve.ensure-assistant',
+    undefined,
+    320_000
+  );
+  if (!readiness.success || readiness.data?.status !== 'ready') {
+    throw new Error(readiness.msg || 'Command EVE assistant did not become ready within the native cold-start budget');
+  }
+}
+
+async function ensureBackendReady(page: Parameters<typeof invokeBridge>[0]): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const runtimeWindow = window as Window & {
+        __backendPort?: number;
+        __aionBackend?: { getPort?: () => number };
+      };
+      const port = runtimeWindow.__aionBackend?.getPort?.() ?? runtimeWindow.__backendPort;
+      return typeof port === 'number' && port > 0;
+    },
+    undefined,
+    { timeout: 30_000 }
+  );
+}
+
 test.describe('Command EVE egress boundary', () => {
-  test.setTimeout(240_000);
+  test.setTimeout(600_000);
 
   let inferenceSettings: CommandEveInferenceSettingsSnapshot | undefined;
 
@@ -122,11 +157,22 @@ test.describe('Command EVE egress boundary', () => {
     });
 
     await page.waitForSelector('body', { state: 'visible' });
+    await ensureBackendReady(page);
     inferenceSettings = await forceLocalCommandEveInference(page);
     const readyStatus = await ensureCommandEveRuntimeReady(page);
+    await ensureCommandEveAssistantReady(page);
     const previousObservedAt = readyStatus.egress_boundary?.observed_at ?? '';
 
     await goToGuid(page);
+    const dayZeroSkip = page.getByTestId('day-zero-skip');
+    const dayZeroVisible = await dayZeroSkip
+      .waitFor({ state: 'visible', timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (dayZeroVisible) {
+      await dayZeroSkip.click();
+      await expect(page.getByTestId('day-zero-onboarding')).not.toBeVisible();
+    }
 
     const syntheticSecret =
       'E2E boundary proof: api_key=sk-e2etestboundary1234567890 and address Musterstraße 12, phone +49 30 12345678.';

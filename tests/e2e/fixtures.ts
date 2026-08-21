@@ -138,6 +138,8 @@ function resolvePackagedApp(): { executablePath: string; cwd: string } | null {
     // Prefer the explicitly non-distributable, inspect-enabled Playwright package.
     // Production package locations remain the unchanged fallback order.
     for (const dir of [
+      'qa-signed-packaged/mac-arm64',
+      'qa-signed-packaged/mac-x64',
       'e2e-packaged/mac-arm64',
       'e2e-packaged/mac-x64',
       'mac-arm64',
